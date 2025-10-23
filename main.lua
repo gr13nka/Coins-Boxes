@@ -1,34 +1,54 @@
--- layout constants
-local COL_X0 = 100 -- x of box #1
-local COL_GAP = 160 -- horizontal distance between columns
+if os.getenv("LOCAL_LUA_DEBUGGER_VSCODE") == "1" then
+	require("lua/lldebugger").start()
+end
+
+-- slayout constants
 local TOP_Y = 140 -- top of the stacks
-local R = 18 -- coin radius
-local ROW_STEP = R * 2 + 8
+local COIN_R = 18 -- coin radius
+local ROW_STEP = COIN_R * 2 + 8
 
 function love.load()
 	local boxes = { {}, {}, {} }
-
-	colors = {
-		{ name = "red", rgb = { 1, 0.2, 0.2 } },
-		{ name = "green", rgb = { 0.2, 0.9, 0.2 } },
-		{ name = "blue", rgb = { 0.2, 0.4, 1 } },
-	}
-
-	coins = { clr = {}, box = {} } -- coins {{color, box}, ..}
+	-- box number
+	coins = { color = "green", box = 1 }
+	colors = { "green", "red", "blue" }
 
 	for i = 1, 10, 1 do
-		coins.clr[i] = colors[math.random(#colors)].name
-		coins.box[i] = math.random(#boxes)
-		print(coins.clr[i])
-		print(coins.box[i])
+		table.insert(coins, { color = colors[math.random(#colors)], box = math.random(#boxes) })
+	end
+
+	for i, coin in ipairs(coins) do
+		print(i, coin.color, coin.box)
+	end
+	print("++++++++++++++++++++++++++++++++++")
+	table.sort(coins, function(a, b)
+		return a.box < b.box
+	end)
+
+	for i, coin in ipairs(coins) do
+		print(i, coin.color, coin.box)
 	end
 end
 
+function sort_coins() end
+
 function love.draw()
-	-- love.graphics.draw(button_merge, 0, 100)
-	-- love.graphics.draw(button_add_coins, 0, 100)
-	--
-	-- love.graphics.draw(box1_img, 0, 100)
-	-- love.graphics.draw(box2_img, 200, 100)
-	-- love.graphics.draw(box3_img, 400, 100)
+	for i, v in ipairs(coins) do
+		local cnt = 1
+		local column_cnt = 1
+		print("------------" .. v.color[i])
+		love.graphics.circle("fill", COLUMN_STEP * column_cnt, ROW_STEP * cnt, COIN_R)
+
+		-- draw all coins from each box
+		if v.box[i] ~= v.box[i + 1] then
+			cnt = 0
+			row_cnt = row_cnt + 30
+		end
+		cnt = cnt + 10
+	end
+
+	-- sort_coins()
+
+	-- love.graphics.setColor(coins.color[i])
+	-- love.graphics.circle("fill", )
 end
