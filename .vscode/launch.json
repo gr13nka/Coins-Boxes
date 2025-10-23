@@ -1,0 +1,23 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "lua-local",
+      "request": "launch",
+      "name": "Debug",
+      "cwd": "${workspaceFolder}",
+      "program": { "command": "love" },
+      "args": [ ".", "debug" ],
+      "stopOnEntry": false
+    },
+    {
+      "type": "lua-local",
+      "request": "launch",
+      "name": "Release",
+      "cwd": "${workspaceFolder}",
+      "program": { "command": "love" },
+      "args": [ "." ]
+    }
+  ]
+}
+

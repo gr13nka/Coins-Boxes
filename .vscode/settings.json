@@ -1,0 +1,20 @@
+{
+    "Lua.diagnostics.globals": [
+        "love"
+    ],
+    "Lua.diagnostics.disable": [
+        "undefined-global",
+        "lowercase-global"
+    ],
+     // don’t re‑format on paste
+    "editor.formatOnPaste": true,
+    // disable all auto‑indent behavior
+    "editor.autoIndent": "none",
+    "editor.inlineSuggest.enabled": true,
+    "continue.enableCompletions": true,
+    "continue.tabAutocompleteModel": {
+        "provider": "ollama",
+        "apiBase": "http://localhost:11434",
+        "model": "codellama:7b-code-q4_K_M"
+    }
+}
