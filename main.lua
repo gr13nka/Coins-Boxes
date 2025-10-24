@@ -1,6 +1,7 @@
 if os.getenv("LOCAL_LUA_DEBUGGER_VSCODE") == "1" then
   require("lldebugger").start()
 end
+
 local selection = nil            -- { box = int, pack = {coin1, ...} } while carrying
 local next_order = 1             -- preserves stack order inside each box
 
@@ -57,7 +58,7 @@ local TOP_Y       = 140
 local COIN_R      = 18
 local ROW_STEP    = COIN_R * 2 + 8
 local COLUMN_STEP = COIN_R * 2 + 24  -- a little spacing between stacks
-
+local BOX_ROWS   = 6 -- number of coin slots per boxes
 local function draw_all_coins()
 
   local column = 1
@@ -90,7 +91,7 @@ local function draw_all_boxes()
   love.graphics.setColor(col)
 
   for i = 1, #boxes do
-    for j = 1, 6, 1 do
+    for j = 1, BOX_ROWS, 1 do
       local x = COLUMN_STEP * column
       local y = TOP_Y + ROW_STEP * row
       love.graphics.rectangle("line", x-COIN_R-2, y-COIN_R-2, COIN_R*2+4, COIN_R*2+4, 2, 2, 8)
@@ -105,7 +106,7 @@ local function check_coin_pack(selected_coin)
   if not selected_coin then return 0 end
   -- check if a clicked coin is the only one of its color in the pack
   local color = selected_coin.color
-  local box = selected_coin.box 
+  local box = selected_coin.box
   local amount = 0
   
   for i = #coins, 1, -1 do
@@ -158,17 +159,24 @@ local function pick_coin_from_box(box_index, opts)
   return selected_coins
 end
 
-
--- ========= Move logic =========
-local function take_top_pack_from(box_index)
-  local pack = pick_coin_from_box(box_index, { remove = true }) -- removes from 'coins'
-  if pack and #pack > 0 then
-    return pack
+local function box_is_full(box_index, pack)
+  -- Ensure all coins in 'pack' can fit into box at 'box_index'
+  local count_in_box = 0
+  for _, c in ipairs(coins) do
+    if c.box == box_index then
+      count_in_box = count_in_box + 1
+    end
   end
-  return nil
+  if count_in_box + #pack > BOX_ROWS then
+    -- error("Cannot drop pack: box " .. box_index .. " would overflow")
+    return true
+  end
+
+  return false
 end
 
 local function drop_pack_on(box_index, pack)
+  
   -- Update box and assign fresh 'order' values so they go to the top of target box
   for _, c in ipairs(pack) do
     c.box = box_index
@@ -183,15 +191,6 @@ function love.draw()
   draw_all_boxes()
   draw_all_coins()
   print_coins(coins, 1)
-  local c = pick_coin_from_box(2)
-
-  love.graphics.setColor(1,1,1)
-  if c  then print_coins(c, 60) end
-
-end
-
-function love.update(dt)
-  
 end
 -- ========= Hit testing: which box did we click? =========
 -- Your columns are centered at x = COLUMN_STEP * column (1-based).
@@ -210,32 +209,33 @@ local function box_at(x, y)
   return col
 end
 
--- ========= Mouse clicks =========
 function love.mousepressed(x, y, button)
   if button ~= 1 then return end
   local bx = box_at(x, y)
   if not bx then return end
 
-  if not selection then
-    -- First click: try to pick up from this box
-    local pack = take_top_pack_from(bx)
-    if pack then
-      selection = { box = bx, pack = pack }
-      -- Optional: play a sound / set a highlight
-      -- print(("Picked %d coin(s) of %s from box %d"):format(#pack, pack[1].color, bx))
+    if not selection then
+      -- First click: try to pick up from this box
+      local pack = pick_coin_from_box(bx, {remove = true})
+      if #pack > 0 then
+        selection = { box = bx, pack = pack }
+        -- Optional: play a sound / set a highlight
+        -- print(("Picked %d coin(s) of %s from box %d"):format(#pack, pack[1].color, bx))
+      else
+        -- print("Nothing to take from this box")
+      end
     else
-      -- print("Nothing to take from this box")
+      if box_is_full(bx, selection.pack) then
+        BOX_IS_FULL = true
+        return
+      end
+      -- Second click: drop onto target
+      drop_pack_on(bx, selection.pack)
+      -- Optional rule: if dropping onto same box, it's basically a no-op (already removed & readded to top)
+      selection = nil
+      -- Optional: play a sound / clear highlight
     end
-  else
-    -- Second click: drop onto target
-    drop_pack_on(bx, selection.pack)
-    -- Optional rule: if dropping onto same box, it's basically a no-op (already removed & readded to top)
-    selection = nil
-    -- Optional: play a sound / clear highlight
   end
-end
-
-
 
 local love_errorhandler = love.errorhandler
 function love.errorhandler(msg)
