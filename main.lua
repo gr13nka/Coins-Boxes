@@ -31,6 +31,7 @@ function love.load()
 
   local colors = { "green", "red", "blue" }
 
+  -- TODO: check if boxes are full
   for i = 1, 10 do
     table.insert(coins, {
       color = colors[math.random(#colors)],
@@ -58,7 +59,7 @@ local TOP_Y       = 140
 local COIN_R      = 18
 local ROW_STEP    = COIN_R * 2 + 8
 local COLUMN_STEP = COIN_R * 2 + 24  -- a little spacing between stacks
-local BOX_ROWS   = 6 -- number of coin slots per boxes
+local BOX_ROWS   = 4 -- number of coin slots per boxes
 local function draw_all_coins()
 
   local column = 1
@@ -89,17 +90,20 @@ local function draw_all_boxes()
 
   local col = {1,1,1}
   love.graphics.setColor(col)
-
+  local x, y
   for i = 1, #boxes do
     for j = 1, BOX_ROWS, 1 do
-      local x = COLUMN_STEP * column
-      local y = TOP_Y + ROW_STEP * row
+      x = COLUMN_STEP * column
+      y = TOP_Y + ROW_STEP * row
       love.graphics.rectangle("line", x-COIN_R-2, y-COIN_R-2, COIN_R*2+4, COIN_R*2+4, 2, 2, 8)
       row = row + 1
     end
     row = 1
     column = column + 1
   end 
+
+  top_x = x
+  top_y = y
 end
 
 local function check_coin_pack(selected_coin) 
@@ -187,11 +191,50 @@ local function drop_pack_on(box_index, pack)
   sort_coins()
 end
 
+local function merge()
+  local cur, total_same, current_color = 0, 0, ""
+
+  for _, c in ipairs(coins) do
+    if cur ~= c.box then
+      cur = c.box
+      total_same = 0
+      current_color = c.color
+    end
+    
+    if c.color == current_color then
+      total_same = total_same + 1 
+    end
+    
+    if total_same == BOX_ROWS then
+      pick_coin_from_box(c.box, {remove = true})
+    end
+  end
+end
+
+local function draw_merge_button()
+  love.graphics.setColor(1,1,1)
+  love.graphics.rectangle("line", top_x + COLUMN_STEP, TOP_Y, 100, 40)
+  love.graphics.print("Merge Coins", top_x + COLUMN_STEP + 10, TOP_Y + 10)
+end
+
+local function draw_add_coins_button()
+  love.graphics.setColor(1,1,1)
+  love.graphics.rectangle("line", top_x + COLUMN_STEP, TOP_Y + 60, 100, 40)
+  love.graphics.print("Add Coins", top_x + COLUMN_STEP + 10, TOP_Y + 70)    
+end
+
 function love.draw()
+  if MERGE then
+    love.graphics.setColor(0,1,0)
+    love.graphics.print("Merged!", top_x + COLUMN_STEP + 10, TOP_Y + 120)
+  end
   draw_all_boxes()
   draw_all_coins()
+  draw_merge_button()
+  draw_add_coins_button()
   print_coins(coins, 1)
 end
+
 -- ========= Hit testing: which box did we click? =========
 -- Your columns are centered at x = COLUMN_STEP * column (1-based).
 -- We’ll snap clicks to the nearest column and also gate by the vertical box area.
@@ -212,6 +255,14 @@ end
 function love.mousepressed(x, y, button)
   if button ~= 1 then return end
   local bx = box_at(x, y)
+  local merge_button_pressed = (x >= top_x + COLUMN_STEP and x <= top_x + COLUMN_STEP + 100) and
+                               (y >= TOP_Y and y <= TOP_Y + 40)
+  if merge_button_pressed then
+    MERGE = true
+    merge()
+    return
+  end
+
   if not bx then return end
 
     if not selection then
