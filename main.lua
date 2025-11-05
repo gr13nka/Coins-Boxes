@@ -4,6 +4,19 @@ end
 
 local selection = nil            -- { box = int, pack = {coin1, ...} } while carrying
 local next_order = 1             -- preserves stack order inside each box
+local COLORS = {
+  green = {0.2, 0.8, 0.2},
+  red   = {0.9, 0.2, 0.2},
+  blue  = {0.2, 0.4, 0.9},
+  orange = {1.0, 0.6, 0.1},
+  pink   = {1.0, 0.4, 0.7},
+}
+-- layout constants
+local TOP_Y       = 140
+local COIN_R      = 18
+local ROW_STEP    = COIN_R * 2 + 8
+local COLUMN_STEP = COIN_R * 2 + 24  -- a little spacing between stacks
+local BOX_ROWS   = 5 -- number of coin slots per boxes
 
 -- Call this once when creating coins so each coin has an 'order'
 local function init_coin_orders()
@@ -26,17 +39,36 @@ end
 function love.load()
   math.randomseed(os.time())
 
-  boxes = { {}, {}, {}, {} } -- just to count how many stacks you want
+  boxes = { {}, {}, {}, {}, {} } -- just to count how many stacks you want
   coins = {}                   -- make this a proper array of coins
 
-  local colors = { "green", "red", "blue" }
-
+  local colors = { "green", "red", "blue", "orange", "pink" }
+  local colors_cnt = { green = 0, red = 0, blue = 0, orange = 0, pink = 0 }
   -- TODO: check if boxes are full
-  for i = 1, 10 do
-    table.insert(coins, {
-      color = colors[math.random(#colors)],
-      box   = math.random(#boxes),
-    })
+  for i = 1, #boxes*(BOX_ROWS - 1) do
+    ::box::
+    box   = math.random(#boxes)
+    
+    if #boxes[box] >= BOX_ROWS then
+      -- box is full, try again
+      i = i - 1
+      goto box
+    end
+    
+    ::color::
+    color = colors[math.random(#colors)]
+    if colors_cnt[color] >= BOX_ROWS then
+      -- this color is maxed out, try again
+      i = i - 1
+      goto color
+    end
+
+    colors_cnt[color] = colors_cnt[color] + 1
+    table.insert(coins, 
+    { box   = box,
+      color = color})
+    table.insert(boxes[box], true)
+    
   end
   init_coin_orders()
   sort_coins()
@@ -49,17 +81,7 @@ local function print_coins(coins, x)
   end
 end
 
-local COLORS = {
-  green = {0.2, 0.8, 0.2},
-  red   = {0.9, 0.2, 0.2},
-  blue  = {0.2, 0.4, 0.9},
-}
--- layout constants
-local TOP_Y       = 140
-local COIN_R      = 18
-local ROW_STEP    = COIN_R * 2 + 8
-local COLUMN_STEP = COIN_R * 2 + 24  -- a little spacing between stacks
-local BOX_ROWS   = 4 -- number of coin slots per boxes
+
 local function draw_all_coins()
 
   local column = 1
