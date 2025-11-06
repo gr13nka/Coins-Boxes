@@ -16,7 +16,7 @@ local TOP_Y       = 140
 local COIN_R      = 18
 local ROW_STEP    = COIN_R * 2 + 8
 local COLUMN_STEP = COIN_R * 2 + 24  -- a little spacing between stacks
-local BOX_ROWS   = 5 -- number of coin slots per boxes
+local BOX_ROWS   = 3 -- number of coin slots per boxes
 
 -- Call this once when creating coins so each coin has an 'order'
 local function init_coin_orders()
@@ -39,19 +39,27 @@ end
 function love.load()
   math.randomseed(os.time())
 
+  -- rewrite this structures like boxes = {{"color"}, {"color","secondcolor"}, ...}
+
   boxes = { {}, {}, {}, {}, {} } -- just to count how many stacks you want
   coins = {}                   -- make this a proper array of coins
-
   local colors = { "green", "red", "blue", "orange", "pink" }
   local colors_cnt = { green = 0, red = 0, blue = 0, orange = 0, pink = 0 }
-  -- TODO: check if boxes are full
+  local box, color
+
+  local total_coins   = #boxes * (BOX_ROWS - 1)
+  local max_by_color  = #colors * BOX_ROWS
+
+  if total_coins > max_by_color then
+    error("Impossible constraints: too many coins for per-color limit")
+  end
+
+
   for i = 1, #boxes*(BOX_ROWS - 1) do
     ::box::
     box   = math.random(#boxes)
-    
     if #boxes[box] >= BOX_ROWS then
       -- box is full, try again
-      i = i - 1
       goto box
     end
     
@@ -59,28 +67,24 @@ function love.load()
     color = colors[math.random(#colors)]
     if colors_cnt[color] >= BOX_ROWS then
       -- this color is maxed out, try again
-      i = i - 1
       goto color
     end
 
     colors_cnt[color] = colors_cnt[color] + 1
+    table.insert(boxes[box], true)
     table.insert(coins, 
     { box   = box,
       color = color})
-    table.insert(boxes[box], true)
-    
   end
   init_coin_orders()
   sort_coins()
 end
-
 
 local function print_coins(coins, x)
   for i, coin in ipairs(coins) do
     love.graphics.print("" .. i .. coin.color .. coin.box, x, 1 + i * 14)
   end
 end
-
 
 local function draw_all_coins()
 
@@ -213,6 +217,42 @@ local function drop_pack_on(box_index, pack)
   sort_coins()
 end
 
+local function add_coins()
+  local colors = { "green", "red", "blue", "orange", "pink" }
+  local colors_cnt = { green = 0, red = 0, blue = 0, orange = 0, pink = 0 }
+
+  --get current color counts
+  for _, c in ipairs(coins) do
+    colors_cnt[c.color] = colors_cnt[c.color] + 1
+  end
+
+  local added_coins = 0
+  for i = 1, #boxes do
+    if added_coins >= 1 then
+      break
+    end
+
+    j = math.random(#boxes)
+    if #boxes[j] < BOX_ROWS then
+      ::color::
+      color = colors[math.random(#colors)]
+      if colors_cnt[color] >= BOX_ROWS then
+        -- this color is maxed out, try again
+        goto color
+      end
+
+      colors_cnt[color] = colors_cnt[color] + 1
+      table.insert(boxes[j], true)
+      table.insert(coins, 
+      { box   = j,
+        color = color})
+      added_coins = added_coins + 1
+    end
+  end
+  init_coin_orders()
+  sort_coins()
+end
+
 local function merge()
   local cur, total_same, current_color = 0, 0, ""
 
@@ -284,6 +324,14 @@ function love.mousepressed(x, y, button)
     merge()
     return
   end
+
+  local add_coins_button_pressed = (x >= top_x + COLUMN_STEP and x <= top_x + COLUMN_STEP + 100) and
+                                   (y >= TOP_Y + 60 and y <= TOP_Y + 100)
+  if add_coins_button_pressed then
+    add_coins()
+    return
+  end
+    
 
   if not bx then return end
 
