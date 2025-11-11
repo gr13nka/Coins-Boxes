@@ -36,6 +36,7 @@ end
 
 function love.load()
   math.randomseed(os.time())
+  comic_font = love.graphics.newFont("comic shanns.otf", 14, "normal", 2)
   -- rewrite this structures like boxes = {{"color"}, {"color","secondcolor"}, ...}
 
   boxes = { {}, {}, {}, {}, {} } -- just to count how many stacks you want
@@ -71,14 +72,7 @@ function love.load()
   end
 end
 
-local function print_coins(boxes)
-  for i, box in ipairs(boxes) do
-    for _, color in ipairs(box) do
-      love.graphics.print("" .. i .. color, 1, 1 + i * 14)
-      i = i + 1
-    end
-  end
-end
+
 
 local function draw_all_coins()
 
@@ -191,7 +185,7 @@ local function merge()
   -- TODO make a random special reward when merging
   -- create a squares or just beautiful stones that also can merge too
   -- give points for merging
-  local cur, total_same, current_color = 0, 0, ""
+  local combo, total_same, current_color = 0, 0, ""
 
   for box_index, b in ipairs(boxes) do
     total_same = 0
@@ -199,19 +193,20 @@ local function merge()
     for _, c in ipairs(b) do
       if current_color == "" then
         current_color = c
-      end   
+      end
 
       if c == current_color then
         total_same = total_same + 1 
-      end
-      
+      end     
       if total_same == BOX_ROWS then
+        combo = combo + 1
         -- remove these coins from the box 
         pick_coin_from_box(box_index, {remove = true})
+        points = points + 10*combo
       end
     end
   end
-  points = points + 10
+  
 end
 
 local function draw_merge_button()
@@ -226,7 +221,23 @@ local function draw_add_coins_button()
   love.graphics.print("Add Coins", top_x + COLUMN_STEP + 10, TOP_Y + 70)    
 end
 
+local function draw_points()
+  love.graphics.setColor(1,1,1)
+  love.graphics.setFont(comic_font)
+  
+  love.graphics.print("Points: " .. points, love.graphics.getWidth() / 3, TOP_Y/2)    
+end
+
+local function draw_hint()
+  love.graphics.setColor(1,1,1)
+  love.graphics.setFont(comic_font)
+  love.graphics.print("Merge many at the same time to get more points!", love.graphics.getWidth() / 5, TOP_Y/3)    
+end
+
+
 function love.draw()
+  draw_hint()
+  draw_points()
   if MERGE then
     love.graphics.setColor(0,1,0)
     love.graphics.print("Merged!", top_x + COLUMN_STEP + 10, TOP_Y + 120)
@@ -235,7 +246,7 @@ function love.draw()
   draw_all_coins()
   draw_merge_button()
   draw_add_coins_button()
-  print_coins(boxes)
+
 end
 
 -- ========= Hit testing: which box did we click? =========
