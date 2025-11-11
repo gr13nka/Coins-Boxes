@@ -3,7 +3,6 @@ if os.getenv("LOCAL_LUA_DEBUGGER_VSCODE") == "1" then
 end
 
 local selection = nil            -- { box = int, pack = {coin1, ...} } while carrying
-local next_order = 1             -- preserves stack order inside each box
 local COLORS = {
   green = {0.2, 0.8, 0.2},
   red   = {0.9, 0.2, 0.2},
@@ -18,37 +17,17 @@ local ROW_STEP    = COIN_R * 2 + 8
 local COLUMN_STEP = COIN_R * 2 + 24  -- a little spacing between stacks
 local BOX_ROWS   = 3 -- number of coin slots per boxes
 
--- Call this once when creating coins so each coin has an 'order'
-local function init_coin_orders()
-  for _, c in ipairs(coins) do
-    if not c.order then
-      c.order = next_order
-      next_order = next_order + 1
-    end
-  end
-end
-
--- utility
-local function sort_coins()
-  table.sort(coins, function(a, b)
-  if a.box ~= b.box then return a.box < b.box end
-    return a.order < b.order        -- stable-ish ordering inside the box
-  end)
-end
-
 function love.load()
   math.randomseed(os.time())
-
   -- rewrite this structures like boxes = {{"color"}, {"color","secondcolor"}, ...}
 
   boxes = { {}, {}, {}, {}, {} } -- just to count how many stacks you want
-  coins = {}                   -- make this a proper array of coins
-  local colors = { "green", "red", "blue", "orange", "pink" }
+  colors_str = { "green", "red", "blue", "orange", "pink" }
   local colors_cnt = { green = 0, red = 0, blue = 0, orange = 0, pink = 0 }
   local box, color
 
   local total_coins   = #boxes * (BOX_ROWS - 1)
-  local max_by_color  = #colors * BOX_ROWS
+  local max_by_color  = #colors_str * BOX_ROWS
 
   if total_coins > max_by_color then
     error("Impossible constraints: too many coins for per-color limit")
@@ -64,25 +43,23 @@ function love.load()
     end
     
     ::color::
-    color = colors[math.random(#colors)]
+    color = colors_str[math.random(#colors_str)]
     if colors_cnt[color] >= BOX_ROWS then
       -- this color is maxed out, try again
       goto color
     end
 
     colors_cnt[color] = colors_cnt[color] + 1
-    table.insert(boxes[box], true)
-    table.insert(coins, 
-    { box   = box,
-      color = color})
+    table.insert(boxes[box], color)
   end
-  init_coin_orders()
-  sort_coins()
 end
 
-local function print_coins(coins, x)
-  for i, coin in ipairs(coins) do
-    love.graphics.print("" .. i .. coin.color .. coin.box, x, 1 + i * 14)
+local function print_coins(boxes)
+  for i, box in ipairs(boxes) do
+    for _, color in ipairs(box) do
+      love.graphics.print("" .. i .. color, 1, 1 + i * 14)
+      i = i + 1
+    end
   end
 end
 
@@ -91,134 +68,75 @@ local function draw_all_coins()
   local column = 1
   local row    = 1
 
-  for i, c in ipairs(coins) do
-    column = c.box
-    local col = COLORS[c.color] or {1,1,1}
-    love.graphics.setColor(col)
+  for i, c in ipairs(boxes) do
+    for j, color in ipairs(c) do
+      column = i
+      row    = j
+      local col = COLORS[color] or {1,1,1}
+      love.graphics.setColor(col)
 
-    local x = COLUMN_STEP * column
-    local y = TOP_Y + ROW_STEP * row
-    love.graphics.circle("fill", x, y, COIN_R)
-
-    local nextCoin = coins[i + 1]
-    if nextCoin and nextCoin.box ~= c.box then
-      column = nextCoin.box
-      row = 1
-    else
-      row = row + 1
+      local x = COLUMN_STEP * column
+      local y = TOP_Y + ROW_STEP * row
+      love.graphics.circle("fill", x, y, COIN_R)
     end
   end
 end
 
 local function draw_all_boxes()
-  local column = 1
-  local row    = 1
-
-  local col = {1,1,1}
-  love.graphics.setColor(col)
+  local color = {1,1,1}
+  love.graphics.setColor(color)
   local x, y
-  for i = 1, #boxes do
-    for j = 1, BOX_ROWS, 1 do
+  for column = 1, #boxes do
+    for row = 1, BOX_ROWS do
       x = COLUMN_STEP * column
       y = TOP_Y + ROW_STEP * row
       love.graphics.rectangle("line", x-COIN_R-2, y-COIN_R-2, COIN_R*2+4, COIN_R*2+4, 2, 2, 8)
-      row = row + 1
     end
-    row = 1
-    column = column + 1
   end 
 
   top_x = x
   top_y = y
 end
 
-local function check_coin_pack(selected_coin) 
-  if not selected_coin then return 0 end
-  -- check if a clicked coin is the only one of its color in the pack
-  local color = selected_coin.color
-  local box = selected_coin.box
-  local amount = 0
-  
-  for i = #coins, 1, -1 do
-    local c = coins[i]
-    if c.box == box then
-      if c.color == color then
-        amount = amount + 1
-      else
-        break
-      end
-    elseif amount > 0 then
-      -- We've already started counting this box's top pack and left the box block
-      break
-    end
-  end
-
-  return amount  
-end
-
-local function get_top_coin_in_box(box_index)
-  for i = #coins, 1, -1 do
-    if coins[i].box == box_index then
-      return i
-    end
-  end
-  return nil
-end
-
 local function pick_coin_from_box(box_index, opts)
   opts = opts or {}
   local remove = opts.remove == true -- set to true if you want to pop them from 'coins'
 
-  local top_idx = nil
-
-  top_idx = get_top_coin_in_box(box_index)
+  local top_idx = #boxes[box_index]
   if not top_idx then return nil end
 
-  local top_coin = coins[top_idx]
-
-  local amount = check_coin_pack(top_coin)
-  if amount == 0 then return nil end
+  local amount 
+  local color, color_old = nil, nil
+  for i = #boxes[box_index], 1, -1 do
+    if color_old == nil then
+      color_old = boxes[box_index][i]
+      if color_old == nil then
+        return nil
+      end
+      amount = 0
+    end
+    color = boxes[box_index][i]
+    if color_old ~= color then
+      break
+    end
+    amount = amount + 1
+  end
+  if amount == nil or amount == 0 then
+    return nil
+  end
 
   local selected_coins = {} 
   for i = top_idx, top_idx-amount + 1, -1 do
-    table.insert(selected_coins, coins[i])
+    table.insert(selected_coins, boxes[box_index][i])
     if remove then
-      table.remove(coins, i)
+      table.remove(boxes[box_index], i)
     end
   end 
   return selected_coins
 end
 
-local function box_is_full(box_index, pack)
-  -- Ensure all coins in 'pack' can fit into box at 'box_index'
-  local count_in_box = 0
-  for _, c in ipairs(coins) do
-    if c.box == box_index then
-      count_in_box = count_in_box + 1
-    end
-  end
-  if count_in_box + #pack > BOX_ROWS then
-    -- error("Cannot drop pack: box " .. box_index .. " would overflow")
-    return true
-  end
-
-  return false
-end
-
-local function drop_pack_on(box_index, pack)
-  
-  -- Update box and assign fresh 'order' values so they go to the top of target box
-  for _, c in ipairs(pack) do
-    c.box = box_index
-    c.order = next_order
-    next_order = next_order + 1
-    table.insert(coins, c)
-  end
-  sort_coins()
-end
-
 local function add_coins()
-  local colors = { "green", "red", "blue", "orange", "pink" }
+  local colors = colors_str
   local colors_cnt = { green = 0, red = 0, blue = 0, orange = 0, pink = 0 }
 
   --get current color counts
@@ -256,19 +174,22 @@ end
 local function merge()
   local cur, total_same, current_color = 0, 0, ""
 
-  for _, c in ipairs(coins) do
-    if cur ~= c.box then
-      cur = c.box
-      total_same = 0
-      current_color = c.color
-    end
-    
-    if c.color == current_color then
-      total_same = total_same + 1 
-    end
-    
-    if total_same == BOX_ROWS then
-      pick_coin_from_box(c.box, {remove = true})
+  for box_index, b in ipairs(boxes) do
+    total_same = 0
+    current_color = ""
+    for _, c in ipairs(b) do
+      if current_color == "" then
+        current_color = c
+      end   
+
+      if c == current_color then
+        total_same = total_same + 1 
+      end
+      
+      if total_same == BOX_ROWS then
+        -- remove these coins from the box 
+        pick_coin_from_box(box_index, {remove = true})
+      end
     end
   end
 end
@@ -294,7 +215,7 @@ function love.draw()
   draw_all_coins()
   draw_merge_button()
   draw_add_coins_button()
-  print_coins(coins, 1)
+  print_coins(boxes)
 end
 
 -- ========= Hit testing: which box did we click? =========
@@ -331,13 +252,12 @@ function love.mousepressed(x, y, button)
     add_coins()
     return
   end
-    
 
   if not bx then return end
 
     if not selection then
       -- First click: try to pick up from this box
-      local pack = pick_coin_from_box(bx, {remove = true})
+      pack = pick_coin_from_box(bx, {remove = true})
       if #pack > 0 then
         selection = { box = bx, pack = pack }
         -- Optional: play a sound / set a highlight
@@ -346,12 +266,16 @@ function love.mousepressed(x, y, button)
         -- print("Nothing to take from this box")
       end
     else
-      if box_is_full(bx, selection.pack) then
+      -- Drop on a box
+      if BOX_ROWS - #boxes[bx] < #selection["pack"] then
         BOX_IS_FULL = true
         return
       end
-      -- Second click: drop onto target
-      drop_pack_on(bx, selection.pack)
+
+      --local selected_coins = {unpack(selection.pack)}
+      for i=0, #pack do
+        table.insert(boxes[bx],pack[i]) 
+      end
       -- Optional rule: if dropping onto same box, it's basically a no-op (already removed & readded to top)
       selection = nil
       -- Optional: play a sound / clear highlight

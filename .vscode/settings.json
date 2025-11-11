@@ -16,5 +16,13 @@
         "provider": "ollama",
         "apiBase": "http://localhost:11434",
         "model": "codellama:7b-code-q4_K_M"
-    }
+    },
+    "vim.cursorStylePerMode.insert": "line",
+    "vim.cursorStylePerMode.normal": "block",
+    "vim.easymotion": false,
+    "vim.easymotionDimBackground": false,
+    "vim.foldfix": true,
+    "vim.history": 100,
+    "vim.hlsearch": true,
+    "vim.leader": " "
 }
