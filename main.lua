@@ -17,6 +17,23 @@ local ROW_STEP    = COIN_R * 2 + 8
 local COLUMN_STEP = COIN_R * 2 + 24  -- a little spacing between stacks
 local BOX_ROWS   = 3 -- number of coin slots per boxes
 
+-- GamePlay Stuff
+local points = 0
+
+-- an iterator to go through all coins in all boxes bi, ci, color 
+local function each_coin(boxes)
+  local bi, ci = 1, 0
+  return function()
+    while bi <= #boxes do
+      ci = ci + 1
+      if ci <= #boxes[bi] then
+        return bi, ci, boxes[bi][ci]
+      end
+      bi, ci = bi + 1, 0
+    end
+  end
+end
+
 function love.load()
   math.randomseed(os.time())
   -- rewrite this structures like boxes = {{"color"}, {"color","secondcolor"}, ...}
@@ -138,40 +155,42 @@ end
 local function add_coins()
   local colors = colors_str
   local colors_cnt = { green = 0, red = 0, blue = 0, orange = 0, pink = 0 }
+  local total_coins = 0
 
   --get current color counts
-  for _, c in ipairs(coins) do
-    colors_cnt[c.color] = colors_cnt[c.color] + 1
+  for bi, ci, color in each_coin(boxes) do
+    colors_cnt[color] = colors_cnt[color] + 1
+    total_coins = total_coins + 1
   end
 
-  local added_coins = 0
-  for i = 1, #boxes do
-    if added_coins >= 1 then
-      break
+  local max_possible  = #colors_str * BOX_ROWS
+  local will_add = math.floor( ((max_possible - total_coins) / 2) + 0.5 )
+
+  for i = 1, will_add do
+    ::box::
+    local box   = math.random(#boxes)
+    if #boxes[box] >= BOX_ROWS then
+      -- box is full, try again
+      goto box
+    end
+    
+    ::color::
+    local color = colors[math.random(#colors)]
+    if colors_cnt[color] >= BOX_ROWS then
+      -- this color is maxed out, try again
+      goto color
     end
 
-    j = math.random(#boxes)
-    if #boxes[j] < BOX_ROWS then
-      ::color::
-      color = colors[math.random(#colors)]
-      if colors_cnt[color] >= BOX_ROWS then
-        -- this color is maxed out, try again
-        goto color
-      end
-
-      colors_cnt[color] = colors_cnt[color] + 1
-      table.insert(boxes[j], true)
-      table.insert(coins, 
-      { box   = j,
-        color = color})
-      added_coins = added_coins + 1
-    end
+    colors_cnt[color] = colors_cnt[color] + 1
+    table.insert(boxes[box], color)
   end
-  init_coin_orders()
-  sort_coins()
+ 
 end
 
 local function merge()
+  -- TODO make a random special reward when merging
+  -- create a squares or just beautiful stones that also can merge too
+  -- give points for merging
   local cur, total_same, current_color = 0, 0, ""
 
   for box_index, b in ipairs(boxes) do
@@ -192,6 +211,7 @@ local function merge()
       end
     end
   end
+  points = points + 10
 end
 
 local function draw_merge_button()
@@ -221,16 +241,14 @@ end
 -- ========= Hit testing: which box did we click? =========
 -- Your columns are centered at x = COLUMN_STEP * column (1-based).
 -- We’ll snap clicks to the nearest column and also gate by the vertical box area.
-local BOX_ROWS = 6  -- you draw 6 cells per box column
 local function box_at(x, y)
   -- snap X to nearest column
   local col = math.floor((x / COLUMN_STEP) + 0.5)
   if col < 1 or col > #boxes then return nil end
 
   -- only accept clicks within the vertical bounds where boxes are drawn
-  local y_min = TOP_Y - (COIN_R + 4)
-  local y_max = TOP_Y + ROW_STEP * (BOX_ROWS - 1) + (COIN_R + 4)
-  if y < y_min or y > y_max then return nil end
+  local y_min = TOP_Y - 10
+  if y < y_min-10 or y > top_y+10 then return nil end
 
   return col
 end
@@ -258,6 +276,9 @@ function love.mousepressed(x, y, button)
     if not selection then
       -- First click: try to pick up from this box
       pack = pick_coin_from_box(bx, {remove = true})
+      if pack == nil then
+        return
+      end
       if #pack > 0 then
         selection = { box = bx, pack = pack }
         -- Optional: play a sound / set a highlight
@@ -267,7 +288,12 @@ function love.mousepressed(x, y, button)
       end
     else
       -- Drop on a box
-      if BOX_ROWS - #boxes[bx] < #selection["pack"] then
+      -- check if full
+      a = #boxes[bx]
+      b = #selection["pack"]
+      c = #boxes[bx] + #selection["pack"] > BOX_ROWS
+
+      if #boxes[bx] + #selection["pack"] > BOX_ROWS then
         BOX_IS_FULL = true
         return
       end
