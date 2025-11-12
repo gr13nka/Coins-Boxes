@@ -20,6 +20,20 @@ local BOX_ROWS   = 3 -- number of coin slots per boxes
 -- GamePlay Stuff
 local points = 0
 
+-- Game Window
+local VW, VH = 900, 450       -- virtual (design) resolution
+local canvas                     -- where we render the game
+local scale, ox, oy = 1, 0, 0   -- scale and offsets (for letterboxing)
+
+local function recalcScale(w, h)
+  -- preserve aspect ratio by letterboxing
+  local sx, sy = w / VW, h / VH
+  scale = math.min(sx, sy)
+  local drawW, drawH = math.floor(VW * scale + 0.5), math.floor(VH * scale + 0.5)
+  ox = math.floor((w - drawW) / 2)
+  oy = math.floor((h - drawH) / 2)
+end
+
 -- an iterator to go through all coins in all boxes bi, ci, color 
 local function each_coin(boxes)
   local bi, ci = 1, 0
@@ -34,9 +48,21 @@ local function each_coin(boxes)
   end
 end
 
+local function window_stuff()
+  love.graphics.setDefaultFilter("nearest", "nearest")
+  canvas = love.graphics.newCanvas(VW, VH)
+  canvas:setFilter("nearest","nearest")
+  local w, h = love.graphics.getDimensions()
+  recalcScale(w, h)
+end
+
 function love.load()
   math.randomseed(os.time())
-  comic_font = love.graphics.newFont("comic shanns.otf", 14, "normal", 2)
+  window_stuff()
+  --fonts
+  love.graphics.setDefaultFilter("nearest", "nearest", 1) -- affects images, fonts, canvases
+  font = love.graphics.newFont("comic shanns.otf", 20) -- "mono" hinting is crisper
+  love.graphics.setFont(font)
   -- rewrite this structures like boxes = {{"color"}, {"color","secondcolor"}, ...}
 
   boxes = { {}, {}, {}, {}, {} } -- just to count how many stacks you want
@@ -211,31 +237,43 @@ end
 
 local function draw_merge_button()
   love.graphics.setColor(1,1,1)
-  love.graphics.rectangle("line", top_x + COLUMN_STEP, TOP_Y, 100, 40)
+  love.graphics.rectangle("line", top_x + COLUMN_STEP, TOP_Y, 134, 40)
   love.graphics.print("Merge Coins", top_x + COLUMN_STEP + 10, TOP_Y + 10)
 end
 
 local function draw_add_coins_button()
   love.graphics.setColor(1,1,1)
-  love.graphics.rectangle("line", top_x + COLUMN_STEP, TOP_Y + 60, 100, 40)
+  love.graphics.rectangle("line", top_x + COLUMN_STEP, TOP_Y + 60, 134, 40)
   love.graphics.print("Add Coins", top_x + COLUMN_STEP + 10, TOP_Y + 70)    
 end
 
 local function draw_points()
   love.graphics.setColor(1,1,1)
-  love.graphics.setFont(comic_font)
+  
   
   love.graphics.print("Points: " .. points, love.graphics.getWidth() / 3, TOP_Y/2)    
 end
 
 local function draw_hint()
   love.graphics.setColor(1,1,1)
-  love.graphics.setFont(comic_font)
+ 
   love.graphics.print("Merge many at the same time to get more points!", love.graphics.getWidth() / 5, TOP_Y/3)    
 end
 
+function love.resize(w, h)
+  recalcScale(w, h)
+end
+
+-- Convert window/screen coords to virtual game coords
+local function toGame(x, y)
+  return (x - ox) / scale, (y - oy) / scale
+end
 
 function love.draw()
+  love.graphics.setCanvas(canvas)
+  love.graphics.clear()  
+
+
   draw_hint()
   draw_points()
   if MERGE then
@@ -247,6 +285,16 @@ function love.draw()
   draw_merge_button()
   draw_add_coins_button()
 
+  -- Canvas stuff
+  love.graphics.setCanvas()
+
+  -- 2) Blit the canvas to the actual window with letterboxing
+  love.graphics.push("all")
+  love.graphics.origin()
+  love.graphics.translate(ox, oy)
+  love.graphics.scale(scale, scale)
+  love.graphics.draw(canvas, 0, 0)
+  love.graphics.pop()
 end
 
 -- ========= Hit testing: which box did we click? =========
@@ -265,6 +313,7 @@ local function box_at(x, y)
 end
 
 function love.mousepressed(x, y, button)
+  x, y = toGame(x, y)
   if button ~= 1 then return end
   local bx = box_at(x, y)
   local merge_button_pressed = (x >= top_x + COLUMN_STEP and x <= top_x + COLUMN_STEP + 100) and
