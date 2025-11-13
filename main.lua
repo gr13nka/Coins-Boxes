@@ -2,6 +2,9 @@ if os.getenv("LOCAL_LUA_DEBUGGER_VSCODE") == "1" then
   require("lldebugger").start()
 end
 
+-- Timers
+local merge_timer = 0
+
 local selection = nil            -- { box = int, pack = {coin1, ...} } while carrying
 local COLORS = {
   green = {0.2, 0.8, 0.2},
@@ -57,6 +60,14 @@ local function window_stuff()
 end
 
 function love.load()
+  
+  bgnd_music = love.audio.newSource("bgnd_music/storm-clouds-purpple-cat(chosic.com).mp3", "stream")
+  love.audio.play(bgnd_music)
+
+  pick_up_snd = love.audio.newSource("sfx/chip-lay-2.ogg", "static")
+  merge_snd = love.audio.newSource("sfx/chips-handle-1.ogg", "static")
+  add_snd = love.audio.newSource("sfx/chips-collide-2.ogg", "static")
+
   math.randomseed(os.time())
   window_stuff()
   --fonts
@@ -169,6 +180,7 @@ local function pick_coin_from_box(box_index, opts)
       table.remove(boxes[box_index], i)
     end
   end 
+  love.audio.play(pick_up_snd)
   return selected_coins
 end
 
@@ -204,14 +216,14 @@ local function add_coins()
     colors_cnt[color] = colors_cnt[color] + 1
     table.insert(boxes[box], color)
   end
- 
+  add_snd:play()
 end
 
 local function merge()
   -- TODO make a random special reward when merging
   -- create a squares or just beautiful stones that also can merge too
   -- give points for merging
-  local combo, total_same, current_color = 0, 0, ""
+  local combo, total_same, current_color, merged = 0, 0, "", false
 
   for box_index, b in ipairs(boxes) do
     total_same = 0
@@ -229,10 +241,14 @@ local function merge()
         -- remove these coins from the box 
         pick_coin_from_box(box_index, {remove = true})
         points = points + 10*combo
+        merged = true
       end
     end
   end
-  
+  if merged then
+    merge_snd:play()
+    merge_timer = 2
+  end
 end
 
 local function draw_merge_button()
@@ -269,6 +285,11 @@ local function toGame(x, y)
   return (x - ox) / scale, (y - oy) / scale
 end
 
+function love.update(dt)
+  if merge_timer > 0 then
+        merge_timer = merge_timer - dt
+  end
+end
 function love.draw()
   love.graphics.setCanvas(canvas)
   love.graphics.clear()  
@@ -276,10 +297,12 @@ function love.draw()
 
   draw_hint()
   draw_points()
-  if MERGE then
-    love.graphics.setColor(0,1,0)
+
+  if merge_timer > 0 then
+    love.graphics.setColor(0, 1, 0)
     love.graphics.print("Merged!", top_x + COLUMN_STEP + 10, TOP_Y + 120)
   end
+
   draw_all_boxes()
   draw_all_coins()
   draw_merge_button()
@@ -319,7 +342,6 @@ function love.mousepressed(x, y, button)
   local merge_button_pressed = (x >= top_x + COLUMN_STEP and x <= top_x + COLUMN_STEP + 100) and
                                (y >= TOP_Y and y <= TOP_Y + 40)
   if merge_button_pressed then
-    MERGE = true
     merge()
     return
   end
@@ -362,6 +384,7 @@ function love.mousepressed(x, y, button)
       for i=0, #pack do
         table.insert(boxes[bx],pack[i]) 
       end
+      love.audio.play(pick_up_snd)
       -- Optional rule: if dropping onto same box, it's basically a no-op (already removed & readded to top)
       selection = nil
       -- Optional: play a sound / clear highlight
