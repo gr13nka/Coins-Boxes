@@ -118,8 +118,6 @@ function love.load()
   end
 end
 
-
-
 local function draw_all_coins()
 
   local column = 1
@@ -299,8 +297,6 @@ function love.update(dt)
         merge_timer = merge_timer - dt
   end
 end
-
-
 function love.draw()
   love.graphics.setCanvas(canvas)
   love.graphics.clear()  

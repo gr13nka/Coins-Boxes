@@ -19,10 +19,12 @@
     },
     "vim.cursorStylePerMode.insert": "line",
     "vim.cursorStylePerMode.normal": "block",
-    "vim.easymotion": false,
-    "vim.easymotionDimBackground": false,
+    "vim.easymotion": true,
+    "vim.easymotionDimBackground": true,
+    "vim.useSystemClipboard": true,
+    "vim.leader": "<space>",
     "vim.foldfix": true,
     "vim.history": 100,
     "vim.hlsearch": true,
-    "vim.leader": " "
+    "vim.easymotionJumpToAnywhereRegex": "[A-Za-z0-9_]"
 }
