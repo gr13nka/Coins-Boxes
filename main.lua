@@ -70,6 +70,15 @@ function love.load()
 
   math.randomseed(os.time())
   window_stuff()
+
+  -- background scroll 
+  bgImage = love.graphics.newImage("assets/color_background_5.png")
+  bgImage:setWrap("repeat", "repeat")   -- important for tiling
+
+  bgScrollX, bgScrollY = 0, 0           -- scroll offsets
+  bgScrollSpeedX = 10                   -- pixels per second (texture space)
+  bgScrollSpeedY = 5
+
   --fonts
   love.graphics.setDefaultFilter("nearest", "nearest", 1) -- affects images, fonts, canvases
   font = love.graphics.newFont("comic shanns.otf", 20) -- "mono" hinting is crisper
@@ -290,11 +299,12 @@ function love.update(dt)
         merge_timer = merge_timer - dt
   end
 end
+
+
 function love.draw()
   love.graphics.setCanvas(canvas)
   love.graphics.clear()  
-
-
+  
   draw_hint()
   draw_points()
 
