@@ -6,6 +6,11 @@ end
 local merge_timer = 0
 
 local selection = nil            -- { box = int, pack = {coin1, ...} } while carrying
+local Non_Active_Colors = {
+  gray = {0.5, 0.5, 0.5},
+  light_blue = {0.2, 0.8, 0.8},
+  light_green = {0.6, 1.0, 0.2},
+}
 local COLORS = {
   green = {0.2, 0.8, 0.2},
   red   = {0.9, 0.2, 0.2},
@@ -15,16 +20,16 @@ local COLORS = {
 }
 -- layout constants
 local TOP_Y       = 140
-local COIN_R      = 18
-local ROW_STEP    = COIN_R * 2 + 8
-local COLUMN_STEP = COIN_R * 2 + 24  -- a little spacing between stacks
+local COIN_R      = 38
+local ROW_STEP    = COIN_R * 2 + 8 -- 44
+local COLUMN_STEP = COIN_R * 2 + 24  -- 60
 local BOX_ROWS   = 3 -- number of coin slots per boxes
 
 -- GamePlay Stuff
 local points = 0
-
+local points_per_coin = 10
 -- Game Window
-local VW, VH = 900, 450       -- virtual (design) resolution
+local VW, VH = 1600, 900       -- virtual (design) resolution
 local canvas                     -- where we render the game
 local scale, ox, oy = 1, 0, 0   -- scale and offsets (for letterboxing)
 
@@ -146,6 +151,7 @@ local function draw_all_boxes()
       x = COLUMN_STEP * column
       y = TOP_Y + ROW_STEP * row
       love.graphics.rectangle("line", x-COIN_R-2, y-COIN_R-2, COIN_R*2+4, COIN_R*2+4, 2, 2, 8)
+      -- love.graphics.rectangle("line", x, y, COIN_R*2+4, COIN_R*2+4, 2, 2, 8)
     end
   end 
 
@@ -196,6 +202,10 @@ local function add_coins()
   local colors_cnt = { green = 0, red = 0, blue = 0, orange = 0, pink = 0 }
   local total_coins = 0
 
+  -- initialize colors count with 0
+  for _, color in ipairs(colors) do
+    colors_cnt[color] = 0
+  end
   --get current color counts
   for bi, ci, color in each_coin(boxes) do
     colors_cnt[color] = colors_cnt[color] + 1
@@ -247,7 +257,7 @@ local function merge()
         combo = combo + 1
         -- remove these coins from the box 
         pick_coin_from_box(box_index, {remove = true})
-        points = points + 10*combo
+        points = points + points_per_coin*combo*BOX_ROWS
         merged = true
       end
     end
@@ -270,18 +280,28 @@ local function draw_add_coins_button()
   love.graphics.print("Add Coins", top_x + COLUMN_STEP + 10, TOP_Y + 70)    
 end
 
+local function draw_add_box_row()
+  love.graphics.setColor(1,1,1)
+  love.graphics.rectangle("line", top_x + COLUMN_STEP, TOP_Y + 60, 134, 40)
+  love.graphics.print("Add Box Row " .. box_row_price, top_x + COLUMN_STEP + 10 + 134, TOP_Y + 70)    
+end
+
+local function draw_add_box_row()
+  love.graphics.setColor(1,1,1)
+  love.graphics.rectangle("line", top_x + COLUMN_STEP, TOP_Y + 60, 134, 40)
+  love.graphics.print("Add new Box " .. new_box_price, top_x + COLUMN_STEP + 10 + 134, TOP_Y + 10)    
+end
+
 local function draw_points()
   love.graphics.setColor(1,1,1)
-  
-  
   love.graphics.print("Points: " .. points, love.graphics.getWidth() / 3, TOP_Y/2)    
 end
 
 local function draw_hint()
   love.graphics.setColor(1,1,1)
- 
-  love.graphics.print("Merge many at the same time to get more points!", love.graphics.getWidth() / 5, TOP_Y/3)    
+  love.graphics.print("Points = Combo * amount of coins in stack!", love.graphics.getWidth() / 5, TOP_Y/3)    
 end
+
 
 function love.resize(w, h)
   recalcScale(w, h)
@@ -339,6 +359,20 @@ local function box_at(x, y)
   if y < y_min-10 or y > top_y+10 then return nil end
 
   return col
+end
+
+function love.keypressed(key, scancode, isrepeat)
+  if key == "a" then
+    BOX_ROWS = BOX_ROWS + 1
+  end
+  if key == "b" then
+    name, color = next(Non_Active_Colors)
+    if not name then return end
+    COLORS[name] = color          -- copy to COLORS
+    colors_str[#colors_str + 1] = name  -- add to colors_str
+    Non_Active_Colors[name] = nil -- remove from Non_Active_Colors
+    table.insert(boxes, {})
+    end
 end
 
 function love.mousepressed(x, y, button)
