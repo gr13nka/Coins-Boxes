@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C /mnt/c/Users/gran-/Documents/LoveProjects/Coins-Boxes log --oneline -10)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
