@@ -54,6 +54,12 @@ function screens.mousepressed(x, y, button)
     end
 end
 
+function screens.mousereleased(x, y, button)
+    if current_screen and current_screen.mousereleased then
+        current_screen.mousereleased(x, y, button)
+    end
+end
+
 function screens.keypressed(key, scancode, isrepeat)
     if current_screen and current_screen.keypressed then
         current_screen.keypressed(key, scancode, isrepeat)

@@ -68,14 +68,49 @@ local function box_at(x, y)
   return col
 end
 
--- Button positions (centered horizontally, at bottom)
-local BUTTON_X = (layout.VW - layout.BUTTON_WIDTH) / 2
-local MERGE_BUTTON_Y = layout.BUTTON_AREA_Y
-local ADD_BUTTON_Y = layout.BUTTON_AREA_Y + layout.BUTTON_HEIGHT + layout.BUTTON_SPACING
+-- Button images (loaded in love.load)
+local addButtonImage, addButtonPressedImage
+local mergeButtonImage, mergeButtonPressedImage
+local BUTTON_SCALE = 10  -- Scale up the small pixel art buttons
+local BUTTON_SPACING = 40  -- Gap between buttons
+
+-- Button positions (calculated after images load)
+local ADD_BUTTON_X, ADD_BUTTON_Y
+local MERGE_BUTTON_X, MERGE_BUTTON_Y
+local BUTTON_WIDTH, BUTTON_HEIGHT
+
+-- Button animation state
+local buttonState = {
+  add = { pressed = false, scale = 1.0, targetScale = 1.0 },
+  merge = { pressed = false, scale = 1.0, targetScale = 1.0 }
+}
+local BUTTON_PRESS_SCALE = 0.85  -- Scale when pressed
+local BUTTON_ANIM_SPEED = 12     -- Animation speed (higher = faster)
 
 --------------------------------------------------------------------------------
 -- Drawing functions (must be defined before game_screen uses them)
 --------------------------------------------------------------------------------
+
+local BG_SCALE = 3  -- Background image scale factor
+local bgNumber = 60  -- Current background number (1-91)
+
+local function loadBackground(num)
+  bgNumber = num
+  bgImage = love.graphics.newImage("assets/background/Color/Picture/color_background_" .. num .. ".png")
+  bgImage:setWrap("repeat", "repeat")
+end
+
+local function draw_background()
+  love.graphics.setColor(1, 1, 1)
+  local imgW, imgH = bgImage:getDimensions()
+  -- Sample less of the texture since we're scaling it up
+  local bgQuad = love.graphics.newQuad(
+    bgScrollX / BG_SCALE, bgScrollY / BG_SCALE,
+    VW / BG_SCALE, VH / BG_SCALE,
+    imgW, imgH
+  )
+  love.graphics.draw(bgImage, bgQuad, 0, 0, 0, BG_SCALE, BG_SCALE)
+end
 
 local function draw_hint()
   love.graphics.setColor(1,1,1)
@@ -128,14 +163,40 @@ end
 
 local function draw_merge_button()
   love.graphics.setColor(1,1,1)
-  love.graphics.rectangle("line", BUTTON_X, MERGE_BUTTON_Y, layout.BUTTON_WIDTH, layout.BUTTON_HEIGHT)
-  love.graphics.print("Merge Coins", BUTTON_X + 70, MERGE_BUTTON_Y + 30)
+  local state = buttonState.merge
+  local img = state.pressed and mergeButtonPressedImage or mergeButtonImage
+  local s = BUTTON_SCALE * state.scale
+  -- Draw centered (scale from center)
+  local imgW, imgH = mergeButtonImage:getDimensions()
+  local centerX = MERGE_BUTTON_X + (BUTTON_WIDTH / 2)
+  local centerY = MERGE_BUTTON_Y + (BUTTON_HEIGHT / 2)
+  love.graphics.draw(img, centerX, centerY, 0, s, s, imgW/2, imgH/2)
 end
 
 local function draw_add_coins_button()
   love.graphics.setColor(1,1,1)
-  love.graphics.rectangle("line", BUTTON_X, ADD_BUTTON_Y, layout.BUTTON_WIDTH, layout.BUTTON_HEIGHT)
-  love.graphics.print("Add Coins", BUTTON_X + 90, ADD_BUTTON_Y + 30)
+  local state = buttonState.add
+  local img = state.pressed and addButtonPressedImage or addButtonImage
+  local s = BUTTON_SCALE * state.scale
+  -- Draw centered (scale from center)
+  local imgW, imgH = addButtonImage:getDimensions()
+  local centerX = ADD_BUTTON_X + (BUTTON_WIDTH / 2)
+  local centerY = ADD_BUTTON_Y + (BUTTON_HEIGHT / 2)
+  love.graphics.draw(img, centerX, centerY, 0, s, s, imgW/2, imgH/2)
+end
+
+-- Update button animation scales
+local function updateButtonAnimations(dt)
+  for _, state in pairs(buttonState) do
+    if state.scale ~= state.targetScale then
+      local diff = state.targetScale - state.scale
+      state.scale = state.scale + diff * BUTTON_ANIM_SPEED * dt
+      -- Snap to target if close enough
+      if math.abs(diff) < 0.01 then
+        state.scale = state.targetScale
+      end
+    end
+  end
 end
 
 --------------------------------------------------------------------------------
@@ -151,9 +212,14 @@ end
 function game_screen.update(dt)
   merge_timer = game.update(dt)
   animation.update(dt)
+  updateButtonAnimations(dt)
+  -- Update background scroll
+  bgScrollX = bgScrollX + bgScrollSpeedX * dt
+  bgScrollY = bgScrollY + bgScrollSpeedY * dt
 end
 
 function game_screen.draw()
+  draw_background()
   draw_hint()
   draw_points()
 
@@ -185,6 +251,17 @@ function game_screen.keypressed(key, scancode, isrepeat)
     Non_Active_Colors[name] = nil
     table.insert(boxes, {})
   end
+  if key == "space" then
+    local newBg = bgNumber + 1
+    if newBg > 91 then newBg = 1 end
+    loadBackground(newBg)
+  end
+end
+
+-- Helper to check if point is inside button
+local function isInsideButton(x, y, btnX, btnY)
+  return x >= btnX and x <= btnX + BUTTON_WIDTH and
+         y >= btnY and y <= btnY + BUTTON_HEIGHT
 end
 
 function game_screen.mousepressed(x, y, button)
@@ -196,23 +273,18 @@ function game_screen.mousepressed(x, y, button)
   end
 
   local bx = box_at(x, y)
-  local merge_button_pressed = (x >= BUTTON_X and x <= BUTTON_X + layout.BUTTON_WIDTH) and
-                               (y >= MERGE_BUTTON_Y and y <= MERGE_BUTTON_Y + layout.BUTTON_HEIGHT)
-  if merge_button_pressed then
-    if not animation.isAnimating() then
-      game.merge()
-      merge_snd:play()
-    end
+
+  -- Check merge button
+  if isInsideButton(x, y, MERGE_BUTTON_X, MERGE_BUTTON_Y) then
+    buttonState.merge.pressed = true
+    buttonState.merge.targetScale = BUTTON_PRESS_SCALE
     return
   end
 
-  local add_coins_button_pressed = (x >= BUTTON_X and x <= BUTTON_X + layout.BUTTON_WIDTH) and
-                                   (y >= ADD_BUTTON_Y and y <= ADD_BUTTON_Y + layout.BUTTON_HEIGHT)
-  if add_coins_button_pressed then
-    if not animation.isAnimating() then
-      game.add_coins()
-      add_snd:play()
-    end
+  -- Check add button
+  if isInsideButton(x, y, ADD_BUTTON_X, ADD_BUTTON_Y) then
+    buttonState.add.pressed = true
+    buttonState.add.targetScale = BUTTON_PRESS_SCALE
     return
   end
 
@@ -255,17 +327,59 @@ function game_screen.mousepressed(x, y, button)
   end
 end
 
+function game_screen.mousereleased(x, y, button)
+  if button ~= 1 then return end
+
+  -- Release merge button
+  if buttonState.merge.pressed then
+    buttonState.merge.pressed = false
+    buttonState.merge.targetScale = 1.0
+    -- Trigger action if released over button
+    if isInsideButton(x, y, MERGE_BUTTON_X, MERGE_BUTTON_Y) and not animation.isAnimating() then
+      game.merge()
+      merge_snd:play()
+    end
+  end
+
+  -- Release add button
+  if buttonState.add.pressed then
+    buttonState.add.pressed = false
+    buttonState.add.targetScale = 1.0
+    -- Trigger action if released over button
+    if isInsideButton(x, y, ADD_BUTTON_X, ADD_BUTTON_Y) and not animation.isAnimating() then
+      game.add_coins()
+      add_snd:play()
+    end
+  end
+end
+
 function love.load()
   loading_snds()
   math.randomseed(os.time())
   window_stuff()
 
   -- background scroll
-  bgImage = love.graphics.newImage("assets/color_background_5.png")
-  bgImage:setWrap("repeat", "repeat")   -- important for tiling
+  loadBackground(bgNumber)
 
   -- coin sprite
   ballImage = love.graphics.newImage("assets/ball.png")
+
+  -- button images
+  addButtonImage = love.graphics.newImage("assets/add_button.png")
+  addButtonPressedImage = love.graphics.newImage("assets/add_button_pressed.png")
+  mergeButtonImage = love.graphics.newImage("assets/merge_button.png")
+  mergeButtonPressedImage = love.graphics.newImage("assets/merge_button_pressed.png")
+
+  -- Calculate button dimensions and positions (side by side, centered)
+  local btnW, btnH = addButtonImage:getDimensions()
+  BUTTON_WIDTH = btnW * BUTTON_SCALE
+  BUTTON_HEIGHT = btnH * BUTTON_SCALE
+  local totalWidth = BUTTON_WIDTH * 2 + BUTTON_SPACING
+  local startX = (VW - totalWidth) / 2
+  ADD_BUTTON_X = startX
+  ADD_BUTTON_Y = layout.BUTTON_AREA_Y
+  MERGE_BUTTON_X = startX + BUTTON_WIDTH + BUTTON_SPACING
+  MERGE_BUTTON_Y = layout.BUTTON_AREA_Y
 
   bgScrollX, bgScrollY = 0, 0           -- scroll offsets
   bgScrollSpeedX = 10                   -- pixels per second (texture space)
@@ -320,6 +434,11 @@ end
 function love.mousepressed(x, y, button)
   x, y = toGame(x, y)
   screens.mousepressed(x, y, button)
+end
+
+function love.mousereleased(x, y, button)
+  x, y = toGame(x, y)
+  screens.mousereleased(x, y, button)
 end
 
 utils.debug_stuff2()
