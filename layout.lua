@@ -38,9 +38,14 @@ local layout = {
     FONT_SIZE = 36,
 
     -- Sound toggle buttons (top-right corner)
-    SOUND_TOGGLE_SIZE = 60,
+    -- Increased size for better touch targets on mobile
+    SOUND_TOGGLE_SIZE = 80,
     SOUND_TOGGLE_MARGIN = 20,
     SOUND_TOGGLE_Y = 50,
+
+    -- Safe area margins for notched phones
+    SAFE_AREA_TOP = 80,     -- Status bar + notch area
+    SAFE_AREA_BOTTOM = 60,  -- Home indicator area
 }
 
 return layout

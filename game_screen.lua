@@ -10,6 +10,7 @@ local sound = require("sound")
 local layout = require("layout")
 local screens = require("screens")
 local progression = require("progression")
+local mobile = require("mobile")
 
 local game_screen = {}
 
@@ -309,6 +310,7 @@ function game_screen.mousepressed(x, y, button)
     selection = { box = bx, pack = pack }
     animation.startHover(pack, bx)
     sound.playPickup()
+    mobile.vibratePickup()
   else
     -- Place: Start flight animation
     local pack = animation.getHoveringCoins()
@@ -332,6 +334,7 @@ function game_screen.mousepressed(x, y, button)
       function(color, slot)
         table.insert(state.boxes[bx], color)
         sound.playPickup()
+        mobile.vibrateDrop()
         -- Spawn particle effect at landing position
         local px = GRID_X_OFFSET + COLUMN_STEP * bx
         local py = TOP_Y + ROW_STEP * slot
@@ -353,6 +356,7 @@ function game_screen.mousereleased(x, y, button)
     if input.isInsideButton(x, y, MERGE_BUTTON_X, MERGE_BUTTON_Y, BUTTON_WIDTH, BUTTON_HEIGHT) and not animation.isAnimating() then
       game.merge()
       sound.playMerge()
+      mobile.vibrateMerge()
       progression.onMerge("classic", 1)
     end
   end

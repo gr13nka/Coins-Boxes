@@ -11,6 +11,7 @@ local layout = require("layout")
 local screens = require("screens")
 local coin_utils = require("coin_utils")
 local progression = require("progression")
+local mobile = require("mobile")
 
 local game_2048_screen = {}
 
@@ -345,6 +346,7 @@ function game_2048_screen.mousepressed(x, y, button)
     selection = { box = bx, pack = pack }
     animation.startHover(pack, bx)
     sound.playPickup()
+    mobile.vibratePickup()
   else
     -- Place: Validate and start flight animation
     local pack = animation.getHoveringCoins()
@@ -357,6 +359,7 @@ function game_2048_screen.mousepressed(x, y, button)
       shakeState.box_index = bx
       shakeState.time = 0
       game_2048.setError(err_msg)
+      mobile.vibrateError()
       return
     end
 
@@ -383,6 +386,7 @@ function game_2048_screen.mousepressed(x, y, button)
       function(coin_data, slot)
         game_2048.place_coin(bx, coin_data)
         sound.playPickup()
+        mobile.vibrateDrop()
         -- Spawn particle effect at landing position
         local px = GRID_X_OFFSET + COLUMN_STEP * bx
         local py = TOP_Y + ROW_STEP * slot
@@ -415,6 +419,7 @@ function game_2048_screen.mousereleased(x, y, button)
           function(box_data)
             game_2048.executeMergeOnBox(box_data.box_idx)
             sound.playMerge()
+            mobile.vibrateMerge()
             progression.onMerge("2048", 1)
           end,
           -- Particles module reference

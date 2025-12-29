@@ -72,29 +72,52 @@ Each screen is a table with optional methods: `enter()`, `exit()`, `update(dt)`,
 
 ## Animation System (animation.lua)
 
-Handles visual animations when picking up and placing coins.
+Handles visual animations when picking up, placing, and merging coins.
 
 **Animation States:**
 - `IDLE` - No animation active
 - `HOVERING` - Coins bob up and down after being picked up, spread horizontally
 - `FLYING` - Coins fly in arc trajectory to destination, dropping one by one
+- `MERGING` - Coins slide up one-by-one into each other with particles and screen shake
 
 **Public API:**
 - `animation.startHover(coins, source_box_index)` - Begin hover animation with bobbing
 - `animation.startFlight(dest_box_idx, dest_slot, callback, coinLandCallback)` - Begin flight to destination
+- `animation.startMerge(merge_data, callback, boxMergeCallback, particlesRef)` - Begin merge animation
 - `animation.update(dt)` - Called from screen's `update(dt)`
-- `animation.draw(ballImage, COLORS, mode, font)` - Draw animated coins. `mode` is "classic" or "2048", `font` for number rendering in 2048 mode.
-- `animation.isAnimating()`, `isHovering()`, `isFlying()` - State queries
+- `animation.draw(ballImage, COLORS, mode, font)` - Draw hover/flight animated coins
+- `animation.drawMerge(ballImage, font)` - Draw merge animation (call separately)
+- `animation.isAnimating()`, `isHovering()`, `isFlying()`, `isMerging()` - State queries
 - `animation.getHoveringCoins()` - Get array of coin data (strings for classic, tables for 2048)
+- `animation.getMergingBoxIndices()` - Get table of box indices being animated (for skipping static draw)
+- `animation.getScreenShake()` - Get (x, y) shake offset to apply to drawing
 - `animation.cancel()` - Reset to idle state
 
-**Animation Flow:**
+**Hover/Flight Animation Flow:**
 1. Click box with coins → `startHover()` → coins bob up/down, spread horizontally
 2. Click destination box → `startFlight()` → coins fly in arc, drop one by one
 3. Each coin landing triggers `coinLandCallback` (adds to box, plays sound)
 4. All landed → `callback` fires, animation returns to IDLE
 
-**Configuration (in animation.lua):**
+**Merge Animation Flow (supports N coins dynamically):**
+1. Call `game_2048.getMergeableBoxes()` to get boxes that can merge
+2. Call `startMerge(merge_data, onComplete, onBoxMerge, particles)`
+3. For each box (sequentially with delay):
+   - Bottom coin slides up into second-from-bottom (particles + shake)
+   - Combined slides up into next coin (particles + shake)
+   - Repeat until all coins merged at top slot
+   - `onBoxMerge(box_data)` callback fires (update game state)
+   - New coin pops with elastic bounce + final particles
+4. All boxes done → `onComplete()` fires, animation returns to IDLE
+
+**Merge Animation Phases (per box):**
+- `waiting` - Box hasn't started yet (staggered by MERGE_BOX_DELAY)
+- `slide` - Coin sliding up into the one above
+- `impact` - Brief pause after collision, particles spawn
+- `pop` - Final merged coin appears with elastic overshoot
+- `done` - Animation complete for this box
+
+**Configuration - Hover/Flight:**
 - `HOVER_BOB_AMPLITUDE = 15` - Pixels up/down for bobbing
 - `HOVER_BOB_SPEED = 1.5` - Bobbing cycles per second
 - `HOVER_SPREAD = 90` - Pixels between coins while hovering
@@ -102,9 +125,56 @@ Handles visual animations when picking up and placing coins.
 - `FLIGHT_ARC_HEIGHT = 150` - Arc height above trajectory
 - `DROP_DELAY = 0.15` - Delay between each coin starting to drop
 
+**Configuration - Merge:**
+- `MERGE_SLIDE_DURATION = 0.15` - Time for one coin to slide into another
+- `MERGE_IMPACT_PAUSE = 0.05` - Brief pause on impact
+- `MERGE_POP_DURATION = 0.2` - New coin pop animation time
+- `MERGE_BOX_DELAY = 0.2` - Delay between sequential boxes
+- `MERGE_POP_OVERSHOOT = 1.3` - Scale overshoot on pop (elastic bounce)
+- `SHAKE_INTENSITY = 12` - Max shake pixels
+- `SHAKE_DURATION = 0.15` - Shake duration per impact
+
+**Screen Shake:**
+- Shake intensity scales with merge progress (40% for first impact → 100% for final)
+- Apply via `love.graphics.translate(animation.getScreenShake())` in draw
+- Use `love.graphics.push()`/`pop()` to isolate shake effect
+
 **Key Math:**
 - Bobbing: `y = amplitude * sin(time * speed * 2π + phase)`
 - Flight: Quadratic bezier curve with ease-out: `t_eased = 1 - (1-t)²`
+- Slide: Ease-out quadratic: `t_eased = 1 - (1-t)²`
+- Pop: Elastic overshoot: `scale = 1 + (overshoot-1) * sin(t*π) * (1 - t*0.5)`
+
+## Particle System (particles.lua)
+
+Visual particle effects for coin interactions.
+
+**Public API:**
+- `particles.init()` - Create particle system with soft circular image
+- `particles.update(dt)` - Update particle physics
+- `particles.draw()` - Render all active particles
+- `particles.spawn(x, y, color)` - Burst 45 particles upward (coin landing)
+- `particles.spawnMergeExplosion(x, y, color)` - Burst 120 particles in all directions (merge impact)
+- `particles.spawnSqueezeParticles(x, y, color, count)` - Small burst during squeeze (optional)
+
+**Configuration - Normal Burst:**
+- `PARTICLE_COUNT = 45` - Particles per burst
+- `LIFETIME = 0.25-0.5s` - Particle lifetime range
+- `SPEED = 500-900` - Initial velocity range
+- `SPREAD_ANGLE = 2.1 rad` - ~120 degrees upward arc
+- `GRAVITY = 1200` - Downward acceleration
+
+**Configuration - Merge Explosion:**
+- `MERGE_PARTICLE_COUNT = 120` - Massive burst
+- `MERGE_LIFETIME = 0.4-0.8s` - Longer lifetime
+- `MERGE_SPEED = 600-1200` - Faster burst
+- `MERGE_SPREAD_ANGLE = 2π` - Full 360 degrees
+
+**Visual Effects:**
+- Particles start large (0.8-1.0 scale), shrink to 0.15-0.2
+- Color brightened from source coin color
+- Alpha fades from 1 → 0.8 → 0 over lifetime
+- Slight spin for visual interest
 
 ## Assets
 
@@ -169,10 +239,18 @@ A separate game mode where coins have numbers instead of just colors.
 - `game_2048.pick_coin_from_box(idx, opts)` - Pick same-number coins from top
 - `game_2048.can_place(dest_idx, coins)` - Validate placement, returns (bool, error_msg)
 - `game_2048.place_coin(dest_idx, coin)` - Add single coin to box
-- `game_2048.merge()` - Execute 2048-style merge
+- `game_2048.merge()` - Execute 2048-style merge (instant, no animation)
+- `game_2048.getMergeableBoxes()` - Get list of boxes that can merge (for animation)
+- `game_2048.executeMergeOnBox(box_idx)` - Merge single box (used by animation callback)
 - `game_2048.add_coins()` - Spawn new coins based on progression
 - `game_2048.getState()` - Return all state
 - `game_2048.setError(msg)` - Trigger error display
+
+**Animated Merge Flow:**
+1. Call `getMergeableBoxes()` - returns array of `{box_idx, coins, old_number, new_number, color, new_color}`
+2. Pass to `animation.startMerge()` with callbacks
+3. Animation calls `executeMergeOnBox()` when each box's animation completes
+4. This updates game state (removes coins, adds merged coin, awards points)
 
 ## Coin Utilities (coin_utils.lua)
 

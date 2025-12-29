@@ -9,6 +9,7 @@ local sound = require("sound")
 local progression = require("progression")
 local particles = require("particles")
 local input = require("input")
+local mobile = require("mobile")
 
 utils.debug_stuff1()
 
@@ -38,10 +39,15 @@ local function windowSetup()
   canvas = love.graphics.newCanvas(VW, VH)
   canvas:setFilter("nearest", "nearest")
 
-  -- Apply window scale from layout
-  local windowW = math.floor(VW * layout.WINDOW_SCALE)
-  local windowH = math.floor(VH * layout.WINDOW_SCALE)
-  love.window.setMode(windowW, windowH, {resizable = true, minwidth = 270, minheight = 600})
+  -- Apply mobile settings if on mobile device
+  if mobile.isMobile() then
+    love.window.setFullscreen(true)
+  else
+    -- Apply window scale from layout for desktop
+    local windowW = math.floor(VW * layout.WINDOW_SCALE)
+    local windowH = math.floor(VH * layout.WINDOW_SCALE)
+    love.window.setMode(windowW, windowH, {resizable = true, minwidth = 270, minheight = 600})
+  end
 
   local w, h = love.graphics.getDimensions()
   recalcScale(w, h)
@@ -136,6 +142,22 @@ end
 function love.mousereleased(x, y, button)
   local gx, gy = input.toGameCoords(x, y, ox, oy, scale)
   screens.mousereleased(gx, gy, button)
+end
+
+-- Touch input callbacks for mobile
+function love.touchpressed(id, x, y, dx, dy, pressure)
+  local gx, gy = input.toGameCoords(x, y, ox, oy, scale)
+  screens.touchpressed(id, gx, gy, pressure)
+end
+
+function love.touchreleased(id, x, y, dx, dy, pressure)
+  local gx, gy = input.toGameCoords(x, y, ox, oy, scale)
+  screens.touchreleased(id, gx, gy)
+end
+
+function love.touchmoved(id, x, y, dx, dy, pressure)
+  local gx, gy = input.toGameCoords(x, y, ox, oy, scale)
+  screens.touchmoved(id, gx, gy)
 end
 
 utils.debug_stuff2()
