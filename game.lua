@@ -222,6 +222,60 @@ function game.update(dt)
   return merge_timer
 end
 
+-- Get list of boxes that can be merged (for animation)
+-- Returns: array of {box_idx, coins, color, new_color}
+function game.getMergeableBoxes()
+  local mergeable = {}
+
+  for box_index, box in ipairs(boxes) do
+    -- Only check full boxes
+    if #box == BOX_ROWS then
+      local first_color = box[1]
+      local all_same = true
+
+      for i = 2, #box do
+        if box[i] ~= first_color then
+          all_same = false
+          break
+        end
+      end
+
+      if all_same then
+        table.insert(mergeable, {
+          box_idx = box_index,
+          coins = {unpack(box)},  -- copy of coins
+          color = COLORS[first_color] or {1, 1, 1},
+          color_name = first_color,
+          new_color = COLORS[first_color] or {1, 1, 1}  -- same color for classic
+        })
+      end
+    end
+  end
+
+  return mergeable
+end
+
+-- Execute merge on a single box (used by animation callback)
+function game.executeMergeOnBox(box_idx, combo)
+  local box = boxes[box_idx]
+  if not box or #box ~= BOX_ROWS then return false end
+
+  -- Remove all coins from the box
+  local coin_count = #box
+  for _ = 1, coin_count do
+    table.remove(box)
+  end
+
+  -- Award points (combo passed from animation system)
+  combo = combo or 1
+  points = points + points_per_coin * combo * BOX_ROWS
+
+  -- Show "Merged!" message
+  merge_timer = 2
+
+  return true
+end
+
 function game.merge()
   -- TODO make a random special reward when merging
   -- create a squares or just beautiful stones that also can merge too
@@ -237,11 +291,11 @@ function game.merge()
       end
 
       if c == current_color then
-        total_same = total_same + 1 
-      end     
+        total_same = total_same + 1
+      end
       if total_same == BOX_ROWS then
         combo = combo + 1
-        -- remove these coins from the box 
+        -- remove these coins from the box
         game.pick_coin_from_box(box_index, {remove = true})
         points = points + points_per_coin*combo*BOX_ROWS
         merged = true

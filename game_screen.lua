@@ -222,6 +222,13 @@ end
 function game_screen.draw()
   local state = game.getState()
 
+  -- Apply screen shake
+  local shake_x, shake_y = animation.getScreenShake()
+  if shake_x ~= 0 or shake_y ~= 0 then
+    love.graphics.push()
+    love.graphics.translate(shake_x, shake_y)
+  end
+
   graphics.drawBackground()
   draw_hint()
   draw_points()
@@ -233,16 +240,25 @@ function game_screen.draw()
   end
 
   top_x, top_y = graphics.drawBoxes(state.boxes, state.BOX_ROWS)
-  graphics.drawCoins(state.boxes, state.COLORS)
+
+  -- Get boxes being animated (to skip drawing their static coins)
+  local skipBoxes = animation.getMergingBoxIndices()
+  graphics.drawCoins(state.boxes, state.COLORS, skipBoxes)
 
   -- Draw animated coins on top
-  animation.draw(graphics.getBallImage(), state.COLORS)
+  animation.draw(graphics.getBallImage(), state.COLORS, "classic")
+  animation.drawMerge(graphics.getBallImage(), nil)
   animation.drawDealing(graphics.getBallImage(), state.COLORS, font)
   particles.draw()
 
   draw_merge_button()
   draw_add_coins_button()
   drawSoundToggles()
+
+  -- End screen shake
+  if shake_x ~= 0 or shake_y ~= 0 then
+    love.graphics.pop()
+  end
 end
 
 function game_screen.keypressed(key, scancode, isrepeat)
@@ -315,6 +331,18 @@ function game_screen.mousepressed(x, y, button)
   else
     -- Place: Start flight animation
     local pack = animation.getHoveringCoins()
+    local source_box_idx = animation.getSourceBox()
+
+    -- If clicking on the source box, return coins and cancel
+    if bx == source_box_idx then
+      for _, color in ipairs(pack) do
+        table.insert(state.boxes[source_box_idx], color)
+      end
+      animation.cancel()
+      selection = nil
+      sound.playPickup()
+      return
+    end
 
     -- Check if destination box has room
     if #state.boxes[bx] + #pack > state.BOX_ROWS then
@@ -355,10 +383,27 @@ function game_screen.mousereleased(x, y, button)
     buttonState.merge.pressed = false
     buttonState.merge.targetScale = 1.0
     if input.isInsideButton(x, y, MERGE_BUTTON_X, MERGE_BUTTON_Y, BUTTON_WIDTH, BUTTON_HEIGHT) and not animation.isAnimating() then
-      game.merge()
-      sound.playMerge()
-      mobile.vibrateMerge()
-      progression.onMerge("classic", 1)
+      -- Get mergeable boxes and start animation
+      local mergeable = game.getMergeableBoxes()
+      if #mergeable > 0 then
+        local combo = 0
+        animation.startMerge(mergeable,
+          -- Final callback: when all boxes done
+          function()
+            -- Animation complete
+          end,
+          -- Per-box callback: when each box finishes merging
+          function(box_data)
+            combo = combo + 1
+            game.executeMergeOnBox(box_data.box_idx, combo)
+            sound.playMerge()
+            mobile.vibrateMerge()
+            progression.onMerge("classic", 1)
+          end,
+          -- Particles module reference
+          particles
+        )
+      end
     end
   end
 

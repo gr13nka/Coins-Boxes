@@ -620,16 +620,32 @@ function animation.drawMerge(ballImage, font)
     for _, box_data in ipairs(merge_boxes) do
         local phase = box_data.phase
 
-        -- Skip waiting and done phases
-        if phase == "waiting" or phase == "done" then
-            goto continue
-        end
+        -- Only draw active phases (not waiting or done)
+        if phase ~= "waiting" and phase ~= "done" then
+            -- Draw stationary coins that are still visible
+            for slot = 1, box_data.num_coins do
+                if box_data.coins_visible[slot] then
+                    love.graphics.setColor(box_data.color)
+                    love.graphics.draw(ballImage, box_data.center_x, box_data.slot_y[slot],
+                        0, base_scale, base_scale, imgW / 2, imgH / 2)
 
-        -- Draw stationary coins that are still visible
-        for slot = 1, box_data.num_coins do
-            if box_data.coins_visible[slot] then
+                    if font then
+                        love.graphics.setColor(1, 1, 1)
+                        love.graphics.setFont(font)
+                        local num_str = tostring(box_data.old_number)
+                        local text_width = font:getWidth(num_str)
+                        local text_height = font:getHeight()
+                        love.graphics.print(num_str,
+                            box_data.center_x - text_width / 2,
+                            box_data.slot_y[slot] - text_height / 2)
+                    end
+                end
+            end
+
+            -- Draw sliding coin (during slide and impact phases)
+            if phase == "slide" or phase == "impact" then
                 love.graphics.setColor(box_data.color)
-                love.graphics.draw(ballImage, box_data.center_x, box_data.slot_y[slot],
+                love.graphics.draw(ballImage, box_data.center_x, box_data.sliding_coin_y,
                     0, base_scale, base_scale, imgW / 2, imgH / 2)
 
                 if font then
@@ -640,50 +656,30 @@ function animation.drawMerge(ballImage, font)
                     local text_height = font:getHeight()
                     love.graphics.print(num_str,
                         box_data.center_x - text_width / 2,
-                        box_data.slot_y[slot] - text_height / 2)
+                        box_data.sliding_coin_y - text_height / 2)
+                end
+            end
+
+            -- Draw merged coin (during pop phase)
+            if phase == "pop" then
+                local scale = box_data.merged_scale
+
+                love.graphics.setColor(box_data.new_color)
+                love.graphics.draw(ballImage, box_data.center_x, box_data.slot_y[1],
+                    0, base_scale * scale, base_scale * scale, imgW / 2, imgH / 2)
+
+                if font then
+                    love.graphics.setColor(1, 1, 1)
+                    love.graphics.setFont(font)
+                    local num_str = tostring(box_data.new_number)
+                    local text_width = font:getWidth(num_str)
+                    local text_height = font:getHeight()
+                    love.graphics.print(num_str,
+                        box_data.center_x - text_width / 2,
+                        box_data.slot_y[1] - text_height / 2)
                 end
             end
         end
-
-        -- Draw sliding coin (during slide and impact phases)
-        if phase == "slide" or phase == "impact" then
-            love.graphics.setColor(box_data.color)
-            love.graphics.draw(ballImage, box_data.center_x, box_data.sliding_coin_y,
-                0, base_scale, base_scale, imgW / 2, imgH / 2)
-
-            if font then
-                love.graphics.setColor(1, 1, 1)
-                love.graphics.setFont(font)
-                local num_str = tostring(box_data.old_number)
-                local text_width = font:getWidth(num_str)
-                local text_height = font:getHeight()
-                love.graphics.print(num_str,
-                    box_data.center_x - text_width / 2,
-                    box_data.sliding_coin_y - text_height / 2)
-            end
-        end
-
-        -- Draw merged coin (during pop phase)
-        if phase == "pop" then
-            local scale = box_data.merged_scale
-
-            love.graphics.setColor(box_data.new_color)
-            love.graphics.draw(ballImage, box_data.center_x, box_data.slot_y[1],
-                0, base_scale * scale, base_scale * scale, imgW / 2, imgH / 2)
-
-            if font then
-                love.graphics.setColor(1, 1, 1)
-                love.graphics.setFont(font)
-                local num_str = tostring(box_data.new_number)
-                local text_width = font:getWidth(num_str)
-                local text_height = font:getHeight()
-                love.graphics.print(num_str,
-                    box_data.center_x - text_width / 2,
-                    box_data.slot_y[1] - text_height / 2)
-            end
-        end
-
-        ::continue::
     end
 
     love.graphics.setColor(1, 1, 1)
@@ -699,44 +695,39 @@ function animation.drawDealing(ballImage, COLORS, font)
     local base_scale = (layout.COIN_R * 2) / imgW
 
     for i, coin_data in ipairs(dealing_coins) do
-        -- Skip coins that are done (they're now in game state)
-        -- Skip coins that haven't been dealt yet (still at dealer position)
-        if coin_data.done or not coin_data.started then
-            goto continue
+        -- Only draw coins that have started and aren't done
+        if coin_data.started and not coin_data.done then
+            local x = coin_data.current_x or dealer_x
+            local y = coin_data.current_y or dealer_y
+            local scale = (coin_data.scale or 1.0) * base_scale
+            local rotation = coin_data.rotation or 0
+
+            -- Determine color
+            local col
+            if dealing_mode == "2048" and coin_utils.isCoin(coin_data.coin) then
+                col = coin_utils.numberToColor(coin_data.coin.number, 50)
+            else
+                col = COLORS[coin_data.coin] or {1, 1, 1}
+            end
+
+            -- Draw coin with rotation
+            love.graphics.setColor(col)
+            love.graphics.draw(ballImage, x, y, rotation, scale, scale, imgW / 2, imgH / 2)
+
+            -- Draw number for 2048 mode (rotated with coin)
+            if dealing_mode == "2048" and coin_utils.isCoin(coin_data.coin) and font then
+                love.graphics.push()
+                love.graphics.translate(x, y)
+                love.graphics.rotate(rotation)
+                love.graphics.setColor(1, 1, 1)
+                love.graphics.setFont(font)
+                local num_str = tostring(coin_data.coin.number)
+                local text_width = font:getWidth(num_str)
+                local text_height = font:getHeight()
+                love.graphics.print(num_str, -text_width / 2, -text_height / 2)
+                love.graphics.pop()
+            end
         end
-
-        local x = coin_data.current_x or dealer_x
-        local y = coin_data.current_y or dealer_y
-        local scale = (coin_data.scale or 1.0) * base_scale
-        local rotation = coin_data.rotation or 0
-
-        -- Determine color
-        local col
-        if dealing_mode == "2048" and coin_utils.isCoin(coin_data.coin) then
-            col = coin_utils.numberToColor(coin_data.coin.number, 50)
-        else
-            col = COLORS[coin_data.coin] or {1, 1, 1}
-        end
-
-        -- Draw coin with rotation
-        love.graphics.setColor(col)
-        love.graphics.draw(ballImage, x, y, rotation, scale, scale, imgW / 2, imgH / 2)
-
-        -- Draw number for 2048 mode (rotated with coin)
-        if dealing_mode == "2048" and coin_utils.isCoin(coin_data.coin) and font then
-            love.graphics.push()
-            love.graphics.translate(x, y)
-            love.graphics.rotate(rotation)
-            love.graphics.setColor(1, 1, 1)
-            love.graphics.setFont(font)
-            local num_str = tostring(coin_data.coin.number)
-            local text_width = font:getWidth(num_str)
-            local text_height = font:getHeight()
-            love.graphics.print(num_str, -text_width / 2, -text_height / 2)
-            love.graphics.pop()
-        end
-
-        ::continue::
     end
 
     love.graphics.setColor(1, 1, 1)

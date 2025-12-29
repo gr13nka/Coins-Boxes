@@ -77,20 +77,25 @@ end
 --- Draw all coins for classic mode
 -- @param boxes Array of box arrays containing color strings
 -- @param COLORS Table mapping color names to RGB values
+-- @param skipBoxes Optional table of box indices to skip (for merge animation)
 -- @return top_x, top_y The coordinates of the last drawn cell (for hit testing bounds)
-function graphics.drawCoins(boxes, COLORS)
+function graphics.drawCoins(boxes, COLORS, skipBoxes)
   local imgW, imgH = ballImage:getDimensions()
   local spriteScale = (COIN_R * 2) / imgW
   local x, y
+  skipBoxes = skipBoxes or {}
 
   for i, box in ipairs(boxes) do
-    for j, color in ipairs(box) do
-      local col = COLORS[color] or {1, 1, 1}
-      love.graphics.setColor(col)
+    -- Skip boxes that are being animated
+    if not skipBoxes[i] then
+      for j, color in ipairs(box) do
+        local col = COLORS[color] or {1, 1, 1}
+        love.graphics.setColor(col)
 
-      x = GRID_X_OFFSET + COLUMN_STEP * i
-      y = TOP_Y + ROW_STEP * j
-      love.graphics.draw(ballImage, x, y, 0, spriteScale, spriteScale, imgW/2, imgH/2)
+        x = GRID_X_OFFSET + COLUMN_STEP * i
+        y = TOP_Y + ROW_STEP * j
+        love.graphics.draw(ballImage, x, y, 0, spriteScale, spriteScale, imgW/2, imgH/2)
+      end
     end
   end
 

@@ -1,181 +1,224 @@
 -- particles.lua
--- Juicy coin landing particle effects
+-- Chunky bouncy coin fragment particles (pixel art style)
 
 local layout = require("layout")
 
 local particles = {}
 
--- Configuration (over-the-top and FAST!)
-local PARTICLE_COUNT = 45       -- Particles per burst
-local LIFETIME_MIN = 0.25       -- Minimum particle lifetime
-local LIFETIME_MAX = 0.5        -- Maximum particle lifetime
-local SPEED_MIN = 500           -- Minimum initial speed
-local SPEED_MAX = 900           -- Maximum initial speed
-local GRAVITY = 1200            -- Downward acceleration
-local SIZE_START = 0.8          -- Starting size multiplier
-local SIZE_END = 0.15           -- Ending size multiplier
-local SPREAD_ANGLE = 2.1        -- Spread in radians (~120 degrees)
+-- Configuration
+local MAX_PARTICLES = 300
+local GRAVITY = 1800
+local BOUNCE_DAMPING = 0.6      -- Velocity retained after bounce
+local GROUND_Y = layout.VH - 100 -- Where particles bounce
 
--- Merge explosion config (EXPLOSIVE FLOOD!)
-local MERGE_PARTICLE_COUNT = 120    -- Massive burst!
-local MERGE_LIFETIME_MIN = 0.4      -- Longer lifetime
-local MERGE_LIFETIME_MAX = 0.8
-local MERGE_SPEED_MIN = 600         -- Faster burst
-local MERGE_SPEED_MAX = 1200
-local MERGE_SPREAD_ANGLE = math.pi * 2  -- Full 360 degrees!
+-- Fragment sizes (chunky pixel look)
+local SIZES = {6, 10, 14, 18}   -- Varied chunk sizes
 
--- Particle system
-local particleSystem
-local particleImage
+-- Spawn settings
+local SPAWN_COUNT = 20          -- Fragments per burst
+local SPAWN_SPEED_MIN = 400
+local SPAWN_SPEED_MAX = 900
+local SPAWN_ANGLE_SPREAD = 2.2  -- ~126 degrees upward
+local LIFETIME = 1.2            -- Seconds before fade
+local MAX_BOUNCES = 3           -- Bounces before settling
 
--- Create a soft circular particle image
-local function createParticleImage()
-    local size = 32
-    local canvas = love.graphics.newCanvas(size, size)
-    love.graphics.setCanvas(canvas)
-    love.graphics.clear(0, 0, 0, 0)
+-- Merge explosion settings
+local MERGE_SPAWN_COUNT = 35
+local MERGE_SPEED_MIN = 500
+local MERGE_SPEED_MAX = 1100
+local MERGE_LIFETIME = 1.5
 
-    -- Draw a soft glowing circle
-    love.graphics.setColor(1, 1, 1, 1)
-    local cx, cy = size / 2, size / 2
-    local radius = size / 2 - 2
+-- Particle pool
+local pool = {}
+local activeCount = 0
 
-    -- Multiple circles for soft glow effect
-    for r = radius, 1, -2 do
-        local alpha = (r / radius) ^ 0.5
-        love.graphics.setColor(1, 1, 1, alpha)
-        love.graphics.circle("fill", cx, cy, r)
-    end
-
-    love.graphics.setCanvas()
-    love.graphics.setColor(1, 1, 1, 1)
-    return canvas
-end
-
+-- Initialize empty pool
 function particles.init()
-    particleImage = createParticleImage()
-
-    particleSystem = love.graphics.newParticleSystem(particleImage, 500)
-
-    -- Particle lifetime
-    particleSystem:setParticleLifetime(LIFETIME_MIN, LIFETIME_MAX)
-
-    -- Emission rate (0 = manual emit only)
-    particleSystem:setEmissionRate(0)
-
-    -- Initial velocity (upward burst)
-    particleSystem:setSpeed(SPEED_MIN, SPEED_MAX)
-
-    -- Direction: upward with spread
-    -- -math.pi/2 is straight up, spread creates the arc
-    particleSystem:setDirection(-math.pi / 2)
-    particleSystem:setSpread(SPREAD_ANGLE)
-
-    -- Gravity pulls particles down
-    particleSystem:setLinearAcceleration(0, GRAVITY, 0, GRAVITY)
-
-    -- Size: start big, shrink
-    particleSystem:setSizes(SIZE_START, SIZE_END)
-
-    -- Fade out
-    particleSystem:setColors(
-        1, 1, 1, 1,     -- Start: full opacity
-        1, 1, 1, 0.8,   -- Mid: slight fade
-        1, 1, 1, 0      -- End: fully transparent
-    )
-
-    -- Slight rotation for visual interest
-    particleSystem:setSpin(-2, 2)
-    particleSystem:setRotation(-math.pi, math.pi)
+    pool = {}
+    activeCount = 0
+    for i = 1, MAX_PARTICLES do
+        pool[i] = {
+            active = false,
+            x = 0, y = 0,
+            vx = 0, vy = 0,
+            size = 10,
+            r = 1, g = 1, b = 1,
+            lifetime = 0,
+            maxLifetime = 1,
+            bounces = 0,
+            rotation = 0,
+            rotationSpeed = 0
+        }
+    end
 end
 
+-- Get an inactive particle from pool
+local function getParticle()
+    for i = 1, MAX_PARTICLES do
+        if not pool[i].active then
+            return pool[i]
+        end
+    end
+    -- Pool exhausted, reuse oldest (first active)
+    for i = 1, MAX_PARTICLES do
+        if pool[i].active then
+            return pool[i]
+        end
+    end
+    return pool[1]
+end
+
+-- Spawn a single fragment
+local function spawnFragment(x, y, color, speed_min, speed_max, lifetime)
+    local p = getParticle()
+
+    -- Position
+    p.x = x + math.random(-10, 10)
+    p.y = y + math.random(-10, 10)
+
+    -- Velocity (upward burst with spread)
+    local angle = -math.pi/2 + (math.random() - 0.5) * SPAWN_ANGLE_SPREAD
+    local speed = speed_min + math.random() * (speed_max - speed_min)
+    p.vx = math.cos(angle) * speed
+    p.vy = math.sin(angle) * speed
+
+    -- Random chunk size
+    p.size = SIZES[math.random(#SIZES)]
+
+    -- Color (brightened)
+    p.r = math.min(1, color[1] * 1.2 + 0.1)
+    p.g = math.min(1, color[2] * 1.2 + 0.1)
+    p.b = math.min(1, color[3] * 1.2 + 0.1)
+
+    -- Lifetime and state
+    p.lifetime = lifetime
+    p.maxLifetime = lifetime
+    p.bounces = 0
+    p.active = true
+
+    -- Chunky rotation
+    p.rotation = math.random() * math.pi * 2
+    p.rotationSpeed = (math.random() - 0.5) * 12
+
+    activeCount = activeCount + 1
+end
+
+-- Spawn burst of coin fragments
 function particles.spawn(x, y, color)
-    if not particleSystem then return end
-
-    -- Set color (with slight brightness variation for juiciness)
-    local r, g, b = color[1], color[2], color[3]
-
-    -- Brighten the color slightly for particles
-    r = math.min(1, r * 1.2 + 0.1)
-    g = math.min(1, g * 1.2 + 0.1)
-    b = math.min(1, b * 1.2 + 0.1)
-
-    particleSystem:setColors(
-        r, g, b, 1,
-        r, g, b, 0.8,
-        r, g, b, 0
-    )
-
-    -- Position and emit
-    particleSystem:setPosition(x, y)
-    particleSystem:emit(PARTICLE_COUNT)
-end
-
-function particles.update(dt)
-    if particleSystem then
-        particleSystem:update(dt)
+    for i = 1, SPAWN_COUNT do
+        spawnFragment(x, y, color, SPAWN_SPEED_MIN, SPAWN_SPEED_MAX, LIFETIME)
     end
 end
 
-function particles.draw()
-    if particleSystem then
-        love.graphics.setColor(1, 1, 1, 1)
-        love.graphics.draw(particleSystem, 0, 0)
-    end
-end
-
--- Explosive merge burst (120 particles, full 360 degree spread)
+-- Spawn merge explosion (more fragments, faster)
 function particles.spawnMergeExplosion(x, y, color)
-    if not particleSystem then return end
-
-    -- Brighten color for extra juiciness
-    local r = math.min(1, color[1] * 1.3 + 0.15)
-    local g = math.min(1, color[2] * 1.3 + 0.15)
-    local b = math.min(1, color[3] * 1.3 + 0.15)
-
-    -- Configure for merge explosion
-    particleSystem:setParticleLifetime(MERGE_LIFETIME_MIN, MERGE_LIFETIME_MAX)
-    particleSystem:setSpeed(MERGE_SPEED_MIN, MERGE_SPEED_MAX)
-    particleSystem:setSpread(MERGE_SPREAD_ANGLE)
-    particleSystem:setDirection(0)  -- All directions
-    particleSystem:setSizes(1.0, 0.6, 0.2)  -- Bigger starting size
-
-    particleSystem:setColors(
-        r, g, b, 1,
-        r, g, b, 0.9,
-        r * 0.8, g * 0.8, b * 0.8, 0.5,
-        r * 0.5, g * 0.5, b * 0.5, 0
-    )
-
-    -- Emit the explosion
-    particleSystem:setPosition(x, y)
-    particleSystem:emit(MERGE_PARTICLE_COUNT)
-
-    -- Reset to normal settings
-    particleSystem:setParticleLifetime(LIFETIME_MIN, LIFETIME_MAX)
-    particleSystem:setSpeed(SPEED_MIN, SPEED_MAX)
-    particleSystem:setSpread(SPREAD_ANGLE)
-    particleSystem:setDirection(-math.pi / 2)
-    particleSystem:setSizes(SIZE_START, SIZE_END)
+    for i = 1, MERGE_SPAWN_COUNT do
+        spawnFragment(x, y, color, MERGE_SPEED_MIN, MERGE_SPEED_MAX, MERGE_LIFETIME)
+    end
 end
 
--- Smaller squeeze particles (emitted during squeeze animation)
+-- Smaller squeeze particles
 function particles.spawnSqueezeParticles(x, y, color, count)
-    if not particleSystem then return end
-    count = count or 5
+    count = count or 8
+    for i = 1, count do
+        spawnFragment(x, y, color, SPAWN_SPEED_MIN * 0.6, SPAWN_SPEED_MAX * 0.6, LIFETIME * 0.7)
+    end
+end
 
-    local r = math.min(1, color[1] * 1.2 + 0.1)
-    local g = math.min(1, color[2] * 1.2 + 0.1)
-    local b = math.min(1, color[3] * 1.2 + 0.1)
+-- Update all particles with bouncy physics
+function particles.update(dt)
+    activeCount = 0
 
-    particleSystem:setColors(
-        r, g, b, 0.8,
-        r, g, b, 0.4,
-        r, g, b, 0
-    )
+    for i = 1, MAX_PARTICLES do
+        local p = pool[i]
+        if p.active then
+            -- Apply gravity
+            p.vy = p.vy + GRAVITY * dt
 
-    particleSystem:setPosition(x, y)
-    particleSystem:emit(count)
+            -- Move
+            p.x = p.x + p.vx * dt
+            p.y = p.y + p.vy * dt
+
+            -- Rotate (chunky spin)
+            p.rotation = p.rotation + p.rotationSpeed * dt
+
+            -- Bounce off ground
+            if p.y > GROUND_Y and p.vy > 0 then
+                p.y = GROUND_Y
+                p.vy = -p.vy * BOUNCE_DAMPING
+                p.vx = p.vx * 0.8  -- Friction
+                p.bounces = p.bounces + 1
+                p.rotationSpeed = p.rotationSpeed * 0.5
+
+                -- Stop bouncing after max bounces
+                if p.bounces >= MAX_BOUNCES then
+                    p.vy = 0
+                    p.vx = p.vx * 0.3
+                end
+            end
+
+            -- Bounce off sides (optional, keeps fragments on screen)
+            if p.x < 50 then
+                p.x = 50
+                p.vx = -p.vx * 0.5
+            elseif p.x > layout.VW - 50 then
+                p.x = layout.VW - 50
+                p.vx = -p.vx * 0.5
+            end
+
+            -- Decrease lifetime
+            p.lifetime = p.lifetime - dt
+
+            -- Deactivate when expired
+            if p.lifetime <= 0 then
+                p.active = false
+            else
+                activeCount = activeCount + 1
+            end
+        end
+    end
+end
+
+-- Draw all active particles
+function particles.draw()
+    for i = 1, MAX_PARTICLES do
+        local p = pool[i]
+        if p.active then
+            -- Calculate alpha based on lifetime (fade out in last 30%)
+            local lifeRatio = p.lifetime / p.maxLifetime
+            local alpha = 1
+            if lifeRatio < 0.3 then
+                alpha = lifeRatio / 0.3
+            end
+
+            -- Scale down slightly as lifetime decreases
+            local scale = 0.7 + lifeRatio * 0.3
+            local size = p.size * scale
+
+            -- Draw chunky square with rotation
+            love.graphics.push()
+            love.graphics.translate(p.x, p.y)
+            love.graphics.rotate(p.rotation)
+
+            love.graphics.setColor(p.r, p.g, p.b, alpha)
+            love.graphics.rectangle("fill", -size/2, -size/2, size, size)
+
+            -- Subtle highlight on top-left for depth
+            if size > 8 then
+                love.graphics.setColor(1, 1, 1, alpha * 0.3)
+                love.graphics.rectangle("fill", -size/2, -size/2, size * 0.4, size * 0.4)
+            end
+
+            love.graphics.pop()
+        end
+    end
+
+    love.graphics.setColor(1, 1, 1, 1)
+end
+
+-- Get active particle count (for debugging)
+function particles.getActiveCount()
+    return activeCount
 end
 
 return particles

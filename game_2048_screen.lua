@@ -353,6 +353,18 @@ function game_2048_screen.mousepressed(x, y, button)
   else
     -- Place: Validate and start flight animation
     local pack = animation.getHoveringCoins()
+    local source_box_idx = animation.getSourceBox()
+
+    -- If clicking on the source box, return coins and cancel
+    if bx == source_box_idx then
+      for _, coin in ipairs(pack) do
+        game_2048.place_coin(source_box_idx, coin)
+      end
+      animation.cancel()
+      selection = nil
+      sound.playPickup()
+      return
+    end
 
     -- Validate placement
     local can_place, err_msg, available_slots = game_2048.can_place(bx, pack)
@@ -368,7 +380,6 @@ function game_2048_screen.mousepressed(x, y, button)
 
     -- Partial placement: if not all coins fit, return extras to source
     if available_slots < #pack then
-      local source_box_idx = animation.getSourceBox()
       local returned_coins = animation.splitHoveringCoins(available_slots)
       -- Return extra coins to source box immediately
       for _, coin in ipairs(returned_coins) do
