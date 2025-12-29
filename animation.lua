@@ -268,4 +268,34 @@ function animation.cancel()
     on_flight_complete = nil
 end
 
+-- Get source box index (for returning coins)
+function animation.getSourceBox()
+    return source_box
+end
+
+-- Split hovering coins: keep first N for placing, return the rest
+-- Returns array of coins that were removed (to be returned to source)
+function animation.splitHoveringCoins(keep_count)
+    if state ~= STATE.HOVERING then
+        return {}
+    end
+
+    local removed_coins = {}
+
+    -- Remove coins beyond keep_count
+    while #hovering_coins > keep_count do
+        local removed = table.remove(hovering_coins)
+        table.insert(removed_coins, removed.coin)
+    end
+
+    -- Recalculate horizontal spread for remaining coins
+    local total_width = (#hovering_coins - 1) * HOVER_SPREAD
+    local start_offset = -total_width / 2
+    for i, hcoin in ipairs(hovering_coins) do
+        hcoin.offset_x = start_offset + (i - 1) * HOVER_SPREAD
+    end
+
+    return removed_coins
+end
+
 return animation

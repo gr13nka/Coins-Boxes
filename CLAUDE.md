@@ -7,13 +7,22 @@ Do no try to test the project running in with love . .User will test it on its o
 ## Architecture
 
 **Module Structure:**
-- `main.lua` - Entry point with LÖVE callbacks (load/update/draw/input). Handles rendering, UI, and input coordination.
-- `game.lua` - Game state and mechanics module. Exports functions via table: `game.init()`, `game.getState()`, `game.merge()`, `game.add_coins()`, `game.pick_from_box()`, `game.place_into_box()`
+- `main.lua` - Minimal entry point: LÖVE callbacks, window setup, asset loading, screen registration (~140 lines)
+- `game.lua` - Classic mode game state and mechanics. Coins are color strings.
+- `game_2048.lua` - 2048 mode game state and mechanics. Coins are `{number=N}` objects.
+- `game_screen.lua` - Classic mode gameplay screen (UI, input handling, drawing)
+- `game_2048_screen.lua` - 2048 mode gameplay screen (UI, input handling, drawing)
+- `graphics.lua` - Game rendering: coins, boxes, background (NOT UI buttons)
+- `input.lua` - Input handling: hit testing, coordinate conversion
+- `sound.lua` - Sound management: loading, playback, toggle state
+- `progression.lua` - Full unlock/achievement system with persistence
+- `coin_utils.lua` - Utility functions for 2048 mode: HSL color conversion, number-to-color mapping
 - `animation.lua` - Coin animation system for hover (bobbing) and flight (arc trajectory) effects
+- `particles.lua` - Particle effects system for coin landing visual feedback
+- `screens.lua` - Screen management system with mode selection (includes unlock checks)
+- `layout.lua` - Centralized layout configuration (canvas size, element positions, scaling)
 - `utils.lua` - Utility functions including `each_coin()` iterator and debugger setup
 - `conf.lua` - LÖVE window configuration (resizable, HiDPI)
-- `layout.lua` - Centralized layout configuration (canvas size, element positions, scaling)
-- `screens.lua` - Screen management system with mode selection and game screens
 - `tutorial.lua` - Placeholder for future tutorial system
 
 **Rendering:**
@@ -51,13 +60,15 @@ Do no try to test the project running in with love . .User will test it on its o
 Each screen is a table with optional methods: `enter()`, `exit()`, `update(dt)`, `draw()`, `mousepressed(x, y, button)`, `keypressed(key, scancode, isrepeat)`
 
 **Available Screens:**
-- `mode_select` - Initial menu with game mode buttons ("Classic Mode", "Coming Soon...")
-- `game` - Main gameplay screen (defined in main.lua as `game_screen`)
+- `mode_select` - Initial menu with game mode buttons (includes unlock status display)
+- `game` - Classic mode gameplay screen (defined in `game_screen.lua`)
+- `game_2048` - 2048 mode gameplay screen (defined in `game_2048_screen.lua`)
 
 **Adding New Screens:**
-1. Create a screen table with required methods in `screens.lua`
-2. Register it with `screens.register("screen_name", screen_table)`
-3. Add a button in `mode_select` to switch to it
+1. Create a new file `my_screen.lua` with screen table and methods
+2. Add `my_screen.init(assets)` function to receive shared assets
+3. In `main.lua`, require and init the screen, then register with `screens.register()`
+4. Add a button in `mode_select` to switch to it (with unlock_key if lockable)
 
 ## Animation System (animation.lua)
 
@@ -71,10 +82,10 @@ Handles visual animations when picking up and placing coins.
 **Public API:**
 - `animation.startHover(coins, source_box_index)` - Begin hover animation with bobbing
 - `animation.startFlight(dest_box_idx, dest_slot, callback, coinLandCallback)` - Begin flight to destination
-- `animation.update(dt)` - Called from `game_screen.update(dt)`
-- `animation.draw(ballImage, COLORS)` - Called from `game_screen.draw()` after `draw_all_coins()`
+- `animation.update(dt)` - Called from screen's `update(dt)`
+- `animation.draw(ballImage, COLORS, mode, font)` - Draw animated coins. `mode` is "classic" or "2048", `font` for number rendering in 2048 mode.
 - `animation.isAnimating()`, `isHovering()`, `isFlying()` - State queries
-- `animation.getHoveringCoins()` - Get array of hovering coin colors
+- `animation.getHoveringCoins()` - Get array of coin data (strings for classic, tables for 2048)
 - `animation.cancel()` - Reset to idle state
 
 **Animation Flow:**
@@ -118,3 +129,135 @@ Key settings in `layout.lua`:
 - `GRID_TOP_Y`, `GRID_LEFT_OFFSET` - Grid position
 - `BUTTON_AREA_Y`, `BUTTON_WIDTH`, `BUTTON_HEIGHT` - Button layout at bottom
 - `FONT_SIZE` - UI font size
+- `SOUND_TOGGLE_SIZE`, `SOUND_TOGGLE_MARGIN`, `SOUND_TOGGLE_Y` - Sound toggle button layout
+
+## 2048 Mode (game_2048.lua)
+
+A separate game mode where coins have numbers instead of just colors.
+
+**Core Mechanics:**
+- Coins are objects `{number=N}` where N is 1-50
+- Placement rule: Can only place coin on top of SAME number OR in empty slot
+- Merging (2048-style): 2 coins of same number → 1 coin of (number+1)
+- Numbers displayed on coins with white text
+
+**Coin Colors:**
+- Colors generated algorithmically via `coin_utils.numberToColor()`
+- Uses golden angle (137.5°) for hue distribution - ensures adjacent numbers have distinct colors
+- Saturation/lightness also vary slightly for additional distinction
+
+**Progression System:**
+- `total_merges` tracks how many merges the player has done
+- `max_spawn_number` starts at 3, increases by 1 every 10 merges (caps at 10)
+- New coins spawn with random number in range `[1, max_spawn_number]`
+
+**Invalid Placement Feedback:**
+- Box shakes with red highlight
+- "Wrong number!" error message displayed temporarily
+- Coins remain hovering - player must pick valid destination
+
+**State Variables (in game_2048.lua):**
+- `boxes` - Array of box arrays containing `{number=N}` coin objects
+- `BOX_ROWS = 3` - Slots per box
+- `merge_requirement = 2` - Coins needed to trigger merge (configurable)
+- `total_merges` - Progression counter
+- `max_spawn_number` - Current spawn range upper limit
+- `MAX_NUMBER = 50` - Absolute maximum coin number
+
+**Public API:**
+- `game_2048.init()` - Initialize with coins numbered 1-3
+- `game_2048.pick_coin_from_box(idx, opts)` - Pick same-number coins from top
+- `game_2048.can_place(dest_idx, coins)` - Validate placement, returns (bool, error_msg)
+- `game_2048.place_coin(dest_idx, coin)` - Add single coin to box
+- `game_2048.merge()` - Execute 2048-style merge
+- `game_2048.add_coins()` - Spawn new coins based on progression
+- `game_2048.getState()` - Return all state
+- `game_2048.setError(msg)` - Trigger error display
+
+## Coin Utilities (coin_utils.lua)
+
+Helper functions for 2048 mode coin handling.
+
+**Color Generation:**
+- `coin_utils.hslToRgb(h, s, l)` - Convert HSL (0-1 range) to RGB
+- `coin_utils.numberToColor(number, max)` - Map number to unique color using golden angle
+
+**Coin Type Helpers:**
+- `coin_utils.isCoin(value)` - Check if value is a coin object (table with .number)
+- `coin_utils.getCoinNumber(coin)` - Extract number from coin object
+- `coin_utils.createCoin(number)` - Create new coin object `{number=N}`
+
+## Progression System (progression.lua)
+
+Full unlock/achievement system with file-based persistence.
+
+**Unlock Categories:**
+- `modes` - Game modes (classic, mode_2048, future modes)
+- `colors` - Coin colors for classic mode
+- `backgrounds` - Background images (1-91)
+- `powerups` - Future power-up abilities
+- `cosmetics` - Visual customizations
+
+**Stats Tracked:**
+- `total_merges`, `total_points`, `games_played`
+- `highest_score_classic`, `highest_score_2048`
+- `total_coins_placed`
+
+**Achievements:**
+- `first_merge`, `merge_master` (100 merges), `merge_legend` (1000 merges)
+- `point_hunter` (1000 points), `dedicated_player` (50 games)
+- `color_collector` (unlock all colors)
+
+**Public API:**
+- `progression.init(enable_persistence)` - Initialize, load from file if persistence enabled
+- `progression.reset()` - Reset all progress to defaults (for testing)
+- `progression.save()` / `progression.load()` - Persist to/from file
+- `progression.isUnlocked(category, key)` - Check if something is unlocked
+- `progression.unlock(category, key)` - Unlock something
+- `progression.getUnlockProgress(category, key)` - Get current/required progress
+- `progression.addStat(key, amount)` / `progression.getStat(key)` - Track stats
+- `progression.onMerge(mode, count)` - Call when merge happens
+- `progression.onGameEnd(mode, score)` - Call when game ends
+- `progression.onCoinPlaced()` - Call when coin is placed
+
+**Persistence:**
+- Saves to `progression.dat` in LÖVE save directory
+- Uses simple Lua table serialization
+- Can be disabled for testing: `progression.init(false)`
+
+## Sound System (sound.lua)
+
+Centralized sound management with toggle state.
+
+**Public API:**
+- `sound.init()` - Load all sounds, start background music
+- `sound.isMusicEnabled()` / `sound.isSfxEnabled()` - Check toggle state
+- `sound.toggleMusic()` / `sound.toggleSfx()` - Toggle on/off
+- `sound.playPickup()` / `sound.playMerge()` / `sound.playAdd()` - Play SFX
+
+## Input System (input.lua)
+
+Hit testing and coordinate conversion utilities.
+
+**Public API:**
+- `input.boxAt(x, y, boxes, top_y)` - Determine clicked box column (classic mode)
+- `input.boxAt2048(x, y, boxes, top_y)` - Determine clicked box column (2048 mode)
+- `input.isInsideButton(x, y, btnX, btnY, btnW, btnH)` - Check if point is inside button
+- `input.isOnSfxToggle(x, y)` / `input.isOnMusicToggle(x, y)` - Check sound toggle clicks
+- `input.toGameCoords(x, y, ox, oy, scale)` - Convert screen to game coordinates
+
+## Graphics System (graphics.lua)
+
+Game rendering for coins, boxes, and background (NOT UI buttons).
+
+**Public API:**
+- `graphics.init(ballImage)` - Initialize with coin sprite
+- `graphics.getBallImage()` - Get ball image (for animation module)
+- `graphics.loadBackground(num)` - Load background by number (1-91)
+- `graphics.nextBackground()` - Cycle to next background
+- `graphics.updateBackgroundScroll(dt, speedX, speedY)` - Update scroll position
+- `graphics.drawBackground()` - Draw scrolling background
+- `graphics.drawCoins(boxes, COLORS)` - Draw coins (classic mode)
+- `graphics.drawCoins2048(boxes, MAX_NUMBER, font)` - Draw coins with numbers (2048 mode)
+- `graphics.drawBoxes(boxes, BOX_ROWS)` - Draw box grid (classic mode)
+- `graphics.drawBoxes2048(boxes, BOX_ROWS, shakeState)` - Draw box grid with shake (2048 mode)

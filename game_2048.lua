@@ -121,25 +121,28 @@ function game_2048.pick_coin_from_box(box_index, opts)
 end
 
 -- Check if coins can be placed in a destination box
--- Returns: success (bool), error_message (string or nil)
+-- Returns: success (bool), error_message (string or nil), available_slots (number)
 function game_2048.can_place(dest_box_index, coins)
     if not coins or #coins == 0 then
-        return false, "No coins to place"
+        return false, "No coins to place", 0
     end
 
     local dest_box = boxes[dest_box_index]
     if not dest_box then
-        return false, "Invalid box"
+        return false, "Invalid box", 0
     end
 
-    -- Check capacity
-    if #dest_box + #coins > BOX_ROWS then
-        return false, "Box is full"
+    -- Calculate available slots
+    local available_slots = BOX_ROWS - #dest_box
+
+    -- If box is full, can't place anything
+    if available_slots <= 0 then
+        return false, "Box is full", 0
     end
 
-    -- If box is empty, can always place
+    -- If box is empty, can always place (up to available slots)
     if #dest_box == 0 then
-        return true, nil
+        return true, nil, available_slots
     end
 
     -- Check if top coin has the same number
@@ -148,10 +151,10 @@ function game_2048.can_place(dest_box_index, coins)
     local placing_number = coin_utils.getCoinNumber(coins[1])
 
     if top_number ~= placing_number then
-        return false, "Wrong number!"
+        return false, "Wrong number!", 0
     end
 
-    return true, nil
+    return true, nil, available_slots
 end
 
 -- Place coins into a box (used during animation callbacks)
@@ -215,65 +218,50 @@ function game_2048.update(dt)
     return merge_timer
 end
 
--- 2048-style merge: N coins of same number become 1 coin of (number+1)
+-- 2048-style merge: All coins in a full box become 1 coin of (number+1)
+-- Only merges when box is full (BOX_ROWS coins) and all coins have same number
 function game_2048.merge()
     local merged = false
 
     for box_index, box in ipairs(boxes) do
-        -- Keep checking until no more merges in this box
-        local keep_checking = true
-        while keep_checking do
-            keep_checking = false
+        -- Only merge if box is full
+        if #box == BOX_ROWS then
+            -- Check if all coins have the same number
+            local first_number = coin_utils.getCoinNumber(box[1])
+            local all_same = true
 
-            if #box >= merge_requirement then
-                -- Check from bottom for consecutive same-number coins
-                local count = 1
-                local current_number = nil
-
-                for i = 1, #box do
-                    local coin = box[i]
-                    local num = coin_utils.getCoinNumber(coin)
-
-                    if current_number == nil then
-                        current_number = num
-                        count = 1
-                    elseif num == current_number then
-                        count = count + 1
-                    else
-                        -- Reset counter for new number
-                        current_number = num
-                        count = 1
-                    end
-
-                    -- Check if we have enough to merge
-                    if count >= merge_requirement then
-                        -- Found a merge! Remove the coins and add one with number+1
-                        local new_number = current_number + 1
-                        if new_number > MAX_NUMBER then
-                            new_number = MAX_NUMBER  -- cap at max
-                        end
-
-                        -- Remove merge_requirement coins starting from position (i - merge_requirement + 1)
-                        local start_pos = i - merge_requirement + 1
-                        for _ = 1, merge_requirement do
-                            table.remove(box, start_pos)
-                        end
-
-                        -- Insert the new merged coin at start_pos
-                        table.insert(box, start_pos, coin_utils.createCoin(new_number))
-
-                        -- Award points based on the new number
-                        points = points + points_per_merge * new_number * merge_requirement
-
-                        -- Update progression
-                        total_merges = total_merges + 1
-                        updateProgression()
-
-                        merged = true
-                        keep_checking = true  -- Check again for chain merges
-                        break  -- Restart the scan for this box
-                    end
+            for i = 2, #box do
+                local num = coin_utils.getCoinNumber(box[i])
+                if num ~= first_number then
+                    all_same = false
+                    break
                 end
+            end
+
+            if all_same then
+                -- All coins have the same number - merge them all into one
+                local new_number = first_number + 1
+                if new_number > MAX_NUMBER then
+                    new_number = MAX_NUMBER  -- cap at max
+                end
+
+                -- Remove all coins from the box
+                local coin_count = #box
+                for _ = 1, coin_count do
+                    table.remove(box)
+                end
+
+                -- Add one merged coin
+                table.insert(box, coin_utils.createCoin(new_number))
+
+                -- Award points based on the new number and how many coins merged
+                points = points + points_per_merge * new_number * coin_count
+
+                -- Update progression
+                total_merges = total_merges + 1
+                updateProgression()
+
+                merged = true
             end
         end
     end

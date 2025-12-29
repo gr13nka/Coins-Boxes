@@ -2,6 +2,7 @@
 -- Screen management system for Coins-Boxes
 
 local layout = require("layout")
+local progression = require("progression")
 
 local screens = {}
 
@@ -80,7 +81,7 @@ local buttons = {}
 local selected_button = nil
 
 function mode_select.enter()
-    -- Define menu buttons
+    -- Define menu buttons with unlock checks
     buttons = {
         {
             label = "Classic Mode",
@@ -88,6 +89,7 @@ function mode_select.enter()
             y = 800,
             width = 400,
             height = 120,
+            unlock_key = "classic",  -- progression unlock key
             action = function()
                 screens.switch("game")
             end
@@ -98,6 +100,7 @@ function mode_select.enter()
             y = 1000,
             width = 400,
             height = 120,
+            unlock_key = "mode_2048",  -- progression unlock key
             action = function()
                 screens.switch("game_2048")
             end
@@ -108,10 +111,17 @@ function mode_select.enter()
             y = 1200,
             width = 400,
             height = 120,
-            action = nil,  -- disabled
+            action = nil,
             disabled = true
         },
     }
+
+    -- Check unlock status for each button
+    for _, btn in ipairs(buttons) do
+        if btn.unlock_key then
+            btn.locked = not progression.isUnlocked("modes", btn.unlock_key)
+        end
+    end
 end
 
 function mode_select.exit()
@@ -120,6 +130,19 @@ end
 
 function mode_select.update(dt)
     -- animations could go here
+end
+
+-- Draw a lock icon
+local function drawLockIcon(x, y, size)
+    local s = size
+    -- Lock body (rectangle)
+    love.graphics.setColor(0.6, 0.6, 0.6)
+    love.graphics.rectangle("fill", x + s*0.25, y + s*0.4, s*0.5, s*0.5, 4, 4)
+    -- Lock shackle (arc)
+    love.graphics.setLineWidth(s * 0.12)
+    love.graphics.setColor(0.6, 0.6, 0.6)
+    love.graphics.arc("line", "open", x + s*0.5, y + s*0.4, s*0.2, math.pi, 0)
+    love.graphics.setLineWidth(1)
 end
 
 function mode_select.draw()
@@ -133,7 +156,9 @@ function mode_select.draw()
 
     -- Draw buttons
     for _, btn in ipairs(buttons) do
-        if btn.disabled then
+        local is_disabled = btn.disabled or btn.locked
+
+        if is_disabled then
             love.graphics.setColor(0.4, 0.4, 0.4)
         else
             love.graphics.setColor(1, 1, 1)
@@ -144,7 +169,30 @@ function mode_select.draw()
         -- Button text (centered)
         local text_y = btn.y + (btn.height - layout.FONT_SIZE) / 2
         love.graphics.printf(btn.label, btn.x, text_y, btn.width, "center")
+
+        -- Draw lock icon if locked
+        if btn.locked then
+            local icon_size = 60
+            local icon_x = btn.x + btn.width - icon_size - 20
+            local icon_y = btn.y + (btn.height - icon_size) / 2
+            drawLockIcon(icon_x, icon_y, icon_size)
+
+            -- Show unlock progress if available
+            local current, required = progression.getUnlockProgress("modes", btn.unlock_key)
+            if current and required then
+                love.graphics.setColor(0.5, 0.5, 0.5)
+                local progress_text = string.format("(%d/%d)", current, required)
+                love.graphics.printf(progress_text, btn.x, btn.y + btn.height + 10, btn.width, "center")
+            end
+        end
     end
+
+    -- Stats display
+    love.graphics.setColor(0.6, 0.6, 0.6)
+    local merges = progression.getStat("total_merges")
+    local points = progression.getStat("total_points")
+    love.graphics.printf(string.format("Total Merges: %d  |  Total Points: %d", merges, points),
+        0, 1500, VW, "center")
 
     -- Footer hint
     love.graphics.setColor(0.5, 0.5, 0.5)
@@ -155,10 +203,22 @@ function mode_select.mousepressed(x, y, button)
     if button ~= 1 then return end
 
     for _, btn in ipairs(buttons) do
-        if not btn.disabled then
-            local in_x = x >= btn.x and x <= btn.x + btn.width
-            local in_y = y >= btn.y and y <= btn.y + btn.height
-            if in_x and in_y and btn.action then
+        local in_x = x >= btn.x and x <= btn.x + btn.width
+        local in_y = y >= btn.y and y <= btn.y + btn.height
+
+        if in_x and in_y then
+            -- Check if disabled or locked
+            if btn.disabled then
+                return  -- Button is disabled, do nothing
+            end
+
+            if btn.locked then
+                -- Could play a "locked" sound or show feedback here
+                return
+            end
+
+            -- Button is enabled and unlocked
+            if btn.action then
                 btn.action()
                 return
             end
