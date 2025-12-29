@@ -85,7 +85,7 @@ function mode_select.enter()
         {
             label = "Classic Mode",
             x = (VW - 400) / 2,
-            y = 900,
+            y = 800,
             width = 400,
             height = 120,
             action = function()
@@ -93,9 +93,19 @@ function mode_select.enter()
             end
         },
         {
+            label = "2048 Mode",
+            x = (VW - 400) / 2,
+            y = 1000,
+            width = 400,
+            height = 120,
+            action = function()
+                screens.switch("game_2048")
+            end
+        },
+        {
             label = "Coming Soon...",
             x = (VW - 400) / 2,
-            y = 1100,
+            y = 1200,
             width = 400,
             height = 120,
             action = nil,  -- disabled

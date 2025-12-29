@@ -1,12 +1,19 @@
 local utils = require("utils")
 local game = require("game")
+local game_2048 = require("game_2048")
+local coin_utils = require("coin_utils")
 local layout = require("layout")
 local screens = require("screens")
 local animation = require("animation")
+local particles = require("particles")
 
 utils.debug_stuff1()
 
 local selection = nil            -- { box = int, pack = {coin1, ...} } while carrying
+
+-- Sound toggle state
+local musicEnabled = true
+local sfxEnabled = true
 
 -- layout constants (from layout.lua)
 local VW, VH = layout.VW, layout.VH
@@ -46,7 +53,9 @@ end
 
 function loading_snds()
   bgnd_music = love.audio.newSource("bgnd_music/storm-clouds-purpple-cat(chosic.com).mp3", "stream")
-  love.audio.play(bgnd_music)
+  if musicEnabled then
+    love.audio.play(bgnd_music)
+  end
 
   pick_up_snd = love.audio.newSource("sfx/chip-lay-2.ogg", "static")
   merge_snd = love.audio.newSource("sfx/chips-handle-1.ogg", "static")
@@ -86,6 +95,15 @@ local buttonState = {
 }
 local BUTTON_PRESS_SCALE = 0.85  -- Scale when pressed
 local BUTTON_ANIM_SPEED = 12     -- Animation speed (higher = faster)
+
+-- 2048 mode variables
+local coinNumberFont = nil       -- Font for drawing numbers on coins
+local shakeState = {             -- Shake animation for invalid placement
+  active = false,
+  box_index = 0,
+  time = 0,
+  duration = 0.3
+}
 
 --------------------------------------------------------------------------------
 -- Drawing functions (must be defined before game_screen uses them)
@@ -200,6 +218,115 @@ local function updateButtonAnimations(dt)
 end
 
 --------------------------------------------------------------------------------
+-- Sound Toggle Icons
+--------------------------------------------------------------------------------
+
+-- Draw a speaker icon (for SFX toggle)
+local function drawSpeakerIcon(x, y, size, enabled)
+  local s = size
+  love.graphics.setColor(1, 1, 1, enabled and 1 or 0.4)
+  -- Speaker body (rectangle)
+  love.graphics.rectangle("fill", x + s*0.2, y + s*0.35, s*0.2, s*0.3)
+  -- Speaker cone (triangle)
+  love.graphics.polygon("fill",
+    x + s*0.4, y + s*0.35,
+    x + s*0.6, y + s*0.15,
+    x + s*0.6, y + s*0.85,
+    x + s*0.4, y + s*0.65
+  )
+  -- Sound waves (arcs) when enabled
+  if enabled then
+    love.graphics.setLineWidth(3)
+    love.graphics.arc("line", "open", x + s*0.6, y + s*0.5, s*0.15, -math.pi/4, math.pi/4)
+    love.graphics.arc("line", "open", x + s*0.6, y + s*0.5, s*0.25, -math.pi/4, math.pi/4)
+  else
+    -- X mark when disabled
+    love.graphics.setColor(1, 0.3, 0.3)
+    love.graphics.setLineWidth(4)
+    love.graphics.line(x + s*0.65, y + s*0.25, x + s*0.9, y + s*0.75)
+    love.graphics.line(x + s*0.65, y + s*0.75, x + s*0.9, y + s*0.25)
+  end
+  love.graphics.setLineWidth(1)
+  love.graphics.setColor(1, 1, 1)
+end
+
+-- Draw a music note icon (for music toggle)
+local function drawMusicIcon(x, y, size, enabled)
+  local s = size
+  love.graphics.setColor(1, 1, 1, enabled and 1 or 0.4)
+  -- Note head (oval)
+  love.graphics.ellipse("fill", x + s*0.3, y + s*0.7, s*0.15, s*0.1)
+  love.graphics.ellipse("fill", x + s*0.6, y + s*0.55, s*0.15, s*0.1)
+  -- Stems
+  love.graphics.setLineWidth(3)
+  love.graphics.line(x + s*0.43, y + s*0.7, x + s*0.43, y + s*0.25)
+  love.graphics.line(x + s*0.73, y + s*0.55, x + s*0.73, y + s*0.2)
+  -- Connecting beam
+  love.graphics.setLineWidth(5)
+  love.graphics.line(x + s*0.43, y + s*0.25, x + s*0.73, y + s*0.2)
+
+  if not enabled then
+    -- X mark when disabled
+    love.graphics.setColor(1, 0.3, 0.3)
+    love.graphics.setLineWidth(4)
+    love.graphics.line(x + s*0.1, y + s*0.2, x + s*0.4, y + s*0.5)
+    love.graphics.line(x + s*0.1, y + s*0.5, x + s*0.4, y + s*0.2)
+  end
+  love.graphics.setLineWidth(1)
+  love.graphics.setColor(1, 1, 1)
+end
+
+-- Draw both sound toggle buttons
+local function drawSoundToggles()
+  local size = layout.SOUND_TOGGLE_SIZE
+  local margin = layout.SOUND_TOGGLE_MARGIN
+  local y = layout.SOUND_TOGGLE_Y
+
+  -- SFX toggle (left)
+  local sfxX = VW - margin - size * 2 - margin
+  drawSpeakerIcon(sfxX, y, size, sfxEnabled)
+
+  -- Music toggle (right)
+  local musicX = VW - margin - size
+  drawMusicIcon(musicX, y, size, musicEnabled)
+end
+
+-- Check if click is on SFX toggle
+local function isOnSfxToggle(x, y)
+  local size = layout.SOUND_TOGGLE_SIZE
+  local margin = layout.SOUND_TOGGLE_MARGIN
+  local toggleY = layout.SOUND_TOGGLE_Y
+  local sfxX = VW - margin - size * 2 - margin
+  return x >= sfxX and x <= sfxX + size and y >= toggleY and y <= toggleY + size
+end
+
+-- Check if click is on Music toggle
+local function isOnMusicToggle(x, y)
+  local size = layout.SOUND_TOGGLE_SIZE
+  local margin = layout.SOUND_TOGGLE_MARGIN
+  local toggleY = layout.SOUND_TOGGLE_Y
+  local musicX = VW - margin - size
+  return x >= musicX and x <= musicX + size and y >= toggleY and y <= toggleY + size
+end
+
+-- Handle sound toggle clicks (returns true if handled)
+local function handleSoundToggleClick(x, y)
+  if isOnSfxToggle(x, y) then
+    sfxEnabled = not sfxEnabled
+    return true
+  elseif isOnMusicToggle(x, y) then
+    musicEnabled = not musicEnabled
+    if musicEnabled then
+      love.audio.play(bgnd_music)
+    else
+      love.audio.pause(bgnd_music)
+    end
+    return true
+  end
+  return false
+end
+
+--------------------------------------------------------------------------------
 -- Game Screen (wrapped for screen system)
 --------------------------------------------------------------------------------
 game_screen = {}
@@ -212,6 +339,7 @@ end
 function game_screen.update(dt)
   merge_timer = game.update(dt)
   animation.update(dt)
+  particles.update(dt)
   updateButtonAnimations(dt)
   -- Update background scroll
   bgScrollX = bgScrollX + bgScrollSpeedX * dt
@@ -232,8 +360,12 @@ function game_screen.draw()
   draw_all_coins()
   -- Draw animated coins on top
   animation.draw(ballImage, game.getState().COLORS)
+  -- Draw particle effects
+  particles.draw()
   draw_merge_button()
   draw_add_coins_button()
+  -- Draw sound toggles
+  drawSoundToggles()
 end
 
 function game_screen.keypressed(key, scancode, isrepeat)
@@ -267,6 +399,11 @@ end
 function game_screen.mousepressed(x, y, button)
   if button ~= 1 then return end
 
+  -- Check sound toggle buttons first
+  if handleSoundToggleClick(x, y) then
+    return
+  end
+
   -- Block input during flight animation
   if animation.isFlying() then
     return
@@ -298,7 +435,7 @@ function game_screen.mousepressed(x, y, button)
     end
     selection = { box = bx, pack = pack }
     animation.startHover(pack, bx)
-    pick_up_snd:play()
+    if sfxEnabled then pick_up_snd:play() end
   else
     -- Place: Start flight animation
     local pack = animation.getHoveringCoins()
@@ -321,7 +458,12 @@ function game_screen.mousepressed(x, y, button)
       -- Per-coin callback: when each coin lands
       function(color, slot)
         table.insert(boxes[bx], color)
-        love.audio.play(pick_up_snd)
+        if sfxEnabled then love.audio.play(pick_up_snd) end
+        -- Spawn particle effect at landing position
+        local px = GRID_X_OFFSET + COLUMN_STEP * bx
+        local py = TOP_Y + ROW_STEP * slot
+        local col = game.getState().COLORS[color] or {1, 1, 1}
+        particles.spawn(px, py, col)
       end
     )
   end
@@ -337,7 +479,7 @@ function game_screen.mousereleased(x, y, button)
     -- Trigger action if released over button
     if isInsideButton(x, y, MERGE_BUTTON_X, MERGE_BUTTON_Y) and not animation.isAnimating() then
       game.merge()
-      merge_snd:play()
+      if sfxEnabled then merge_snd:play() end
     end
   end
 
@@ -348,7 +490,279 @@ function game_screen.mousereleased(x, y, button)
     -- Trigger action if released over button
     if isInsideButton(x, y, ADD_BUTTON_X, ADD_BUTTON_Y) and not animation.isAnimating() then
       game.add_coins()
-      add_snd:play()
+      if sfxEnabled then add_snd:play() end
+    end
+  end
+end
+
+--------------------------------------------------------------------------------
+-- 2048 Mode Screen
+--------------------------------------------------------------------------------
+
+-- Draw coins with numbers for 2048 mode
+local function draw_all_coins_2048()
+  local state = game_2048.getState()
+  local imgW, imgH = ballImage:getDimensions()
+  local spriteScale = (COIN_R * 2) / imgW
+
+  for column, box in ipairs(state.boxes) do
+    for row, coin in ipairs(box) do
+      local num = coin_utils.getCoinNumber(coin)
+      local col = coin_utils.numberToColor(num, state.MAX_NUMBER)
+
+      local x = GRID_X_OFFSET + COLUMN_STEP * column
+      local y = TOP_Y + ROW_STEP * row
+
+      -- Draw coin sprite
+      love.graphics.setColor(col)
+      love.graphics.draw(ballImage, x, y, 0, spriteScale, spriteScale, imgW/2, imgH/2)
+
+      -- Draw number on coin
+      love.graphics.setColor(1, 1, 1)
+      love.graphics.setFont(coinNumberFont)
+      local num_str = tostring(num)
+      local text_width = coinNumberFont:getWidth(num_str)
+      local text_height = coinNumberFont:getHeight()
+      love.graphics.print(num_str, x - text_width / 2, y - text_height / 2)
+    end
+  end
+end
+
+-- Draw boxes for 2048 mode with shake effect
+local function draw_all_boxes_2048()
+  local state = game_2048.getState()
+  local x, y
+
+  for column = 1, #state.boxes do
+    -- Apply shake offset if this box is shaking
+    local shake_offset = 0
+    if shakeState.active and shakeState.box_index == column then
+      shake_offset = math.sin(shakeState.time * 50) * 8 * (1 - shakeState.time / shakeState.duration)
+    end
+
+    for row = 1, state.BOX_ROWS do
+      x = GRID_X_OFFSET + COLUMN_STEP * column + shake_offset
+      y = TOP_Y + ROW_STEP * row
+
+      -- Red color if shaking, white otherwise
+      if shakeState.active and shakeState.box_index == column then
+        love.graphics.setColor(1, 0.3, 0.3)
+      else
+        love.graphics.setColor(1, 1, 1)
+      end
+
+      love.graphics.rectangle("line", x-COIN_R-2, y-COIN_R-2, COIN_R*2+4, COIN_R*2+4, 2, 2, 8)
+    end
+  end
+
+  top_x = x
+  top_y = y
+end
+
+-- Draw progression info for 2048 mode
+local function draw_2048_info()
+  local state = game_2048.getState()
+  love.graphics.setColor(1, 1, 1)
+  love.graphics.setFont(font)
+  love.graphics.printf("Merges: " .. state.total_merges .. "  |  Max Spawn: " .. state.max_spawn_number,
+    0, layout.HINT_Y, VW, "center")
+end
+
+-- Draw points for 2048 mode
+local function draw_points_2048()
+  love.graphics.setColor(1, 1, 1)
+  love.graphics.setFont(font)
+  love.graphics.printf("Points: " .. game_2048.getState().points, 0, layout.POINTS_Y, VW, "center")
+end
+
+-- Box hit test for 2048 mode
+local function box_at_2048(x, y)
+  local state = game_2048.getState()
+  local col = math.floor(((x - GRID_X_OFFSET) / COLUMN_STEP) + 0.5)
+  if col < 1 or col > #state.boxes then return nil end
+
+  local y_min = TOP_Y - 10
+  if y < y_min - 10 or y > top_y + 10 then return nil end
+
+  return col
+end
+
+game_2048_screen = {}
+
+function game_2048_screen.enter()
+  game_2048.init()
+  selection = nil
+  shakeState.active = false
+end
+
+function game_2048_screen.update(dt)
+  game_2048.update(dt)
+  animation.update(dt)
+  particles.update(dt)
+  updateButtonAnimations(dt)
+
+  -- Update shake animation
+  if shakeState.active then
+    shakeState.time = shakeState.time + dt
+    if shakeState.time >= shakeState.duration then
+      shakeState.active = false
+    end
+  end
+
+  -- Update background scroll
+  bgScrollX = bgScrollX + bgScrollSpeedX * dt
+  bgScrollY = bgScrollY + bgScrollSpeedY * dt
+end
+
+function game_2048_screen.draw()
+  draw_background()
+  draw_2048_info()
+  draw_points_2048()
+
+  local state = game_2048.getState()
+
+  -- Show merge message
+  if state.merge_timer > 0 then
+    love.graphics.setColor(0, 1, 0)
+    love.graphics.setFont(font)
+    love.graphics.printf("Merged!", 0, layout.MERGED_MSG_Y, VW, "center")
+  end
+
+  -- Show error message
+  if state.error_timer > 0 then
+    love.graphics.setColor(1, 0.3, 0.3)
+    love.graphics.setFont(font)
+    love.graphics.printf(state.error_message, 0, layout.MERGED_MSG_Y + 60, VW, "center")
+  end
+
+  draw_all_boxes_2048()
+  draw_all_coins_2048()
+
+  -- Draw animated coins
+  animation.draw(ballImage, nil, "2048", coinNumberFont)
+  -- Draw particle effects
+  particles.draw()
+
+  draw_merge_button()
+  draw_add_coins_button()
+  -- Draw sound toggles
+  drawSoundToggles()
+end
+
+function game_2048_screen.keypressed(key, scancode, isrepeat)
+  if key == "\\" then
+    love.event.quit()
+  end
+  if key == "escape" then
+    screens.switch("mode_select")
+  end
+  if key == "space" then
+    local newBg = bgNumber + 1
+    if newBg > 91 then newBg = 1 end
+    loadBackground(newBg)
+  end
+end
+
+function game_2048_screen.mousepressed(x, y, button)
+  if button ~= 1 then return end
+
+  -- Check sound toggle buttons first
+  if handleSoundToggleClick(x, y) then
+    return
+  end
+
+  -- Block input during flight animation
+  if animation.isFlying() then
+    return
+  end
+
+  local state = game_2048.getState()
+  local bx = box_at_2048(x, y)
+
+  -- Check merge button
+  if isInsideButton(x, y, MERGE_BUTTON_X, MERGE_BUTTON_Y) then
+    buttonState.merge.pressed = true
+    buttonState.merge.targetScale = BUTTON_PRESS_SCALE
+    return
+  end
+
+  -- Check add button
+  if isInsideButton(x, y, ADD_BUTTON_X, ADD_BUTTON_Y) then
+    buttonState.add.pressed = true
+    buttonState.add.targetScale = BUTTON_PRESS_SCALE
+    return
+  end
+
+  if not bx then return end
+
+  if not animation.isHovering() then
+    -- Pick up: Start hover animation
+    local pack = game_2048.pick_coin_from_box(bx, {remove = true})
+    if pack == nil or #pack == 0 then
+      return
+    end
+    selection = { box = bx, pack = pack }
+    animation.startHover(pack, bx)
+    if sfxEnabled then pick_up_snd:play() end
+  else
+    -- Place: Validate and start flight animation
+    local pack = animation.getHoveringCoins()
+
+    -- Validate placement
+    local can_place, err_msg = game_2048.can_place(bx, pack)
+    if not can_place then
+      -- Invalid placement: shake box and show error
+      shakeState.active = true
+      shakeState.box_index = bx
+      shakeState.time = 0
+      game_2048.setError(err_msg)
+      return
+    end
+
+    -- Calculate destination slot
+    local dest_slot = #state.boxes[bx] + 1
+
+    -- Start flight with per-coin callback
+    animation.startFlight(bx, dest_slot,
+      -- Final callback: when all coins have landed
+      function()
+        selection = nil
+      end,
+      -- Per-coin callback: when each coin lands
+      function(coin_data, slot)
+        game_2048.place_coin(bx, coin_data)
+        if sfxEnabled then love.audio.play(pick_up_snd) end
+        -- Spawn particle effect at landing position
+        local px = GRID_X_OFFSET + COLUMN_STEP * bx
+        local py = TOP_Y + ROW_STEP * slot
+        local num = coin_utils.getCoinNumber(coin_data)
+        local col = coin_utils.numberToColor(num, game_2048.getState().MAX_NUMBER)
+        particles.spawn(px, py, col)
+      end
+    )
+  end
+end
+
+function game_2048_screen.mousereleased(x, y, button)
+  if button ~= 1 then return end
+
+  -- Release merge button
+  if buttonState.merge.pressed then
+    buttonState.merge.pressed = false
+    buttonState.merge.targetScale = 1.0
+    if isInsideButton(x, y, MERGE_BUTTON_X, MERGE_BUTTON_Y) and not animation.isAnimating() then
+      game_2048.merge()
+      if sfxEnabled then merge_snd:play() end
+    end
+  end
+
+  -- Release add button
+  if buttonState.add.pressed then
+    buttonState.add.pressed = false
+    buttonState.add.targetScale = 1.0
+    if isInsideButton(x, y, ADD_BUTTON_X, ADD_BUTTON_Y) and not animation.isAnimating() then
+      game_2048.add_coins()
+      if sfxEnabled then add_snd:play() end
     end
   end
 end
@@ -390,8 +804,15 @@ function love.load()
   font = love.graphics.newFont("comic shanns.otf", layout.FONT_SIZE)
   love.graphics.setFont(font)
 
+  -- Font for coin numbers in 2048 mode (smaller, fits on coins)
+  coinNumberFont = love.graphics.newFont("comic shanns.otf", math.floor(COIN_R * 1.2))
+
+  -- Initialize particle system
+  particles.init()
+
   -- Register and start with mode selection screen
   screens.register("game", game_screen)
+  screens.register("game_2048", game_2048_screen)
   screens.switch("mode_select")
 end
 

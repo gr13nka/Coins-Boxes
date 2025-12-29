@@ -36,6 +36,11 @@ local layout = {
 
     -- Font size
     FONT_SIZE = 36,
+
+    -- Sound toggle buttons (top-right corner)
+    SOUND_TOGGLE_SIZE = 60,
+    SOUND_TOGGLE_MARGIN = 20,
+    SOUND_TOGGLE_Y = 50,
 }
 
 return layout
