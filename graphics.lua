@@ -101,31 +101,36 @@ end
 -- @param boxes Array of box arrays containing {number=N} coin objects
 -- @param MAX_NUMBER Maximum possible coin number (for color mapping)
 -- @param font Font for drawing numbers
+-- @param skipBoxes Optional table of box indices to skip (for merge animation)
 -- @return top_x, top_y The coordinates of the last drawn cell
-function graphics.drawCoins2048(boxes, MAX_NUMBER, font)
+function graphics.drawCoins2048(boxes, MAX_NUMBER, font, skipBoxes)
   local imgW, imgH = ballImage:getDimensions()
   local spriteScale = (COIN_R * 2) / imgW
   local x, y
+  skipBoxes = skipBoxes or {}
 
   for column, box in ipairs(boxes) do
-    for row, coin in ipairs(box) do
-      local num = coin_utils.getCoinNumber(coin)
-      local col = coin_utils.numberToColor(num, MAX_NUMBER)
+    -- Skip boxes that are being animated
+    if not skipBoxes[column] then
+      for row, coin in ipairs(box) do
+        local num = coin_utils.getCoinNumber(coin)
+        local col = coin_utils.numberToColor(num, MAX_NUMBER)
 
-      x = GRID_X_OFFSET + COLUMN_STEP * column
-      y = TOP_Y + ROW_STEP * row
+        x = GRID_X_OFFSET + COLUMN_STEP * column
+        y = TOP_Y + ROW_STEP * row
 
-      -- Draw coin sprite
-      love.graphics.setColor(col)
-      love.graphics.draw(ballImage, x, y, 0, spriteScale, spriteScale, imgW/2, imgH/2)
+        -- Draw coin sprite
+        love.graphics.setColor(col)
+        love.graphics.draw(ballImage, x, y, 0, spriteScale, spriteScale, imgW/2, imgH/2)
 
-      -- Draw number on coin
-      love.graphics.setColor(1, 1, 1)
-      love.graphics.setFont(font)
-      local num_str = tostring(num)
-      local text_width = font:getWidth(num_str)
-      local text_height = font:getHeight()
-      love.graphics.print(num_str, x - text_width / 2, y - text_height / 2)
+        -- Draw number on coin
+        love.graphics.setColor(1, 1, 1)
+        love.graphics.setFont(font)
+        local num_str = tostring(num)
+        local text_width = font:getWidth(num_str)
+        local text_height = font:getHeight()
+        love.graphics.print(num_str, x - text_width / 2, y - text_height / 2)
+      end
     end
   end
 

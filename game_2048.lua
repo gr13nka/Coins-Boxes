@@ -218,6 +218,78 @@ function game_2048.update(dt)
     return merge_timer
 end
 
+-- Get list of boxes that can be merged (for animation)
+-- Returns: array of {box_idx, coins, old_number, new_number, color}
+function game_2048.getMergeableBoxes()
+    local mergeable = {}
+
+    for box_index, box in ipairs(boxes) do
+        -- Only check full boxes
+        if #box == BOX_ROWS then
+            local first_number = coin_utils.getCoinNumber(box[1])
+            local all_same = true
+
+            for i = 2, #box do
+                local num = coin_utils.getCoinNumber(box[i])
+                if num ~= first_number then
+                    all_same = false
+                    break
+                end
+            end
+
+            if all_same then
+                local new_number = first_number + 1
+                if new_number > MAX_NUMBER then
+                    new_number = MAX_NUMBER
+                end
+                table.insert(mergeable, {
+                    box_idx = box_index,
+                    coins = {unpack(box)},  -- copy of coins
+                    old_number = first_number,
+                    new_number = new_number,
+                    color = coin_utils.numberToColor(first_number, MAX_NUMBER),
+                    new_color = coin_utils.numberToColor(new_number, MAX_NUMBER)
+                })
+            end
+        end
+    end
+
+    return mergeable
+end
+
+-- Execute merge on a single box (used by animation callback)
+function game_2048.executeMergeOnBox(box_idx)
+    local box = boxes[box_idx]
+    if not box or #box ~= BOX_ROWS then return false end
+
+    local first_number = coin_utils.getCoinNumber(box[1])
+
+    -- Remove all coins
+    local coin_count = #box
+    for _ = 1, coin_count do
+        table.remove(box)
+    end
+
+    -- Add merged coin
+    local new_number = first_number + 1
+    if new_number > MAX_NUMBER then
+        new_number = MAX_NUMBER
+    end
+    table.insert(box, coin_utils.createCoin(new_number))
+
+    -- Award points
+    points = points + points_per_merge * new_number * coin_count
+
+    -- Update progression
+    total_merges = total_merges + 1
+    updateProgression()
+
+    -- Show "Merged!" message
+    merge_timer = 2
+
+    return true
+end
+
 -- 2048-style merge: All coins in a full box become 1 coin of (number+1)
 -- Only merges when box is full (BOX_ROWS coins) and all coins have same number
 function game_2048.merge()

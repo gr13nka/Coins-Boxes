@@ -16,6 +16,14 @@ local SIZE_START = 0.8          -- Starting size multiplier
 local SIZE_END = 0.15           -- Ending size multiplier
 local SPREAD_ANGLE = 2.1        -- Spread in radians (~120 degrees)
 
+-- Merge explosion config (EXPLOSIVE FLOOD!)
+local MERGE_PARTICLE_COUNT = 120    -- Massive burst!
+local MERGE_LIFETIME_MIN = 0.4      -- Longer lifetime
+local MERGE_LIFETIME_MAX = 0.8
+local MERGE_SPEED_MIN = 600         -- Faster burst
+local MERGE_SPEED_MAX = 1200
+local MERGE_SPREAD_ANGLE = math.pi * 2  -- Full 360 degrees!
+
 -- Particle system
 local particleSystem
 local particleImage
@@ -114,6 +122,60 @@ function particles.draw()
         love.graphics.setColor(1, 1, 1, 1)
         love.graphics.draw(particleSystem, 0, 0)
     end
+end
+
+-- Explosive merge burst (120 particles, full 360 degree spread)
+function particles.spawnMergeExplosion(x, y, color)
+    if not particleSystem then return end
+
+    -- Brighten color for extra juiciness
+    local r = math.min(1, color[1] * 1.3 + 0.15)
+    local g = math.min(1, color[2] * 1.3 + 0.15)
+    local b = math.min(1, color[3] * 1.3 + 0.15)
+
+    -- Configure for merge explosion
+    particleSystem:setParticleLifetime(MERGE_LIFETIME_MIN, MERGE_LIFETIME_MAX)
+    particleSystem:setSpeed(MERGE_SPEED_MIN, MERGE_SPEED_MAX)
+    particleSystem:setSpread(MERGE_SPREAD_ANGLE)
+    particleSystem:setDirection(0)  -- All directions
+    particleSystem:setSizes(1.0, 0.6, 0.2)  -- Bigger starting size
+
+    particleSystem:setColors(
+        r, g, b, 1,
+        r, g, b, 0.9,
+        r * 0.8, g * 0.8, b * 0.8, 0.5,
+        r * 0.5, g * 0.5, b * 0.5, 0
+    )
+
+    -- Emit the explosion
+    particleSystem:setPosition(x, y)
+    particleSystem:emit(MERGE_PARTICLE_COUNT)
+
+    -- Reset to normal settings
+    particleSystem:setParticleLifetime(LIFETIME_MIN, LIFETIME_MAX)
+    particleSystem:setSpeed(SPEED_MIN, SPEED_MAX)
+    particleSystem:setSpread(SPREAD_ANGLE)
+    particleSystem:setDirection(-math.pi / 2)
+    particleSystem:setSizes(SIZE_START, SIZE_END)
+end
+
+-- Smaller squeeze particles (emitted during squeeze animation)
+function particles.spawnSqueezeParticles(x, y, color, count)
+    if not particleSystem then return end
+    count = count or 5
+
+    local r = math.min(1, color[1] * 1.2 + 0.1)
+    local g = math.min(1, color[2] * 1.2 + 0.1)
+    local b = math.min(1, color[3] * 1.2 + 0.1)
+
+    particleSystem:setColors(
+        r, g, b, 0.8,
+        r, g, b, 0.4,
+        r, g, b, 0
+    )
+
+    particleSystem:setPosition(x, y)
+    particleSystem:emit(count)
 end
 
 return particles

@@ -243,6 +243,13 @@ end
 function game_2048_screen.draw()
   local state = game_2048.getState()
 
+  -- Apply screen shake
+  local shake_x, shake_y = animation.getScreenShake()
+  if shake_x ~= 0 or shake_y ~= 0 then
+    love.graphics.push()
+    love.graphics.translate(shake_x, shake_y)
+  end
+
   graphics.drawBackground()
   draw_2048_info()
   draw_points_2048()
@@ -262,15 +269,27 @@ function game_2048_screen.draw()
   end
 
   top_x, top_y = graphics.drawBoxes2048(state.boxes, state.BOX_ROWS, shakeState)
-  graphics.drawCoins2048(state.boxes, state.MAX_NUMBER, coinNumberFont)
 
-  -- Draw animated coins
+  -- Get boxes being animated (to skip drawing their static coins)
+  local skipBoxes = animation.getMergingBoxIndices()
+  graphics.drawCoins2048(state.boxes, state.MAX_NUMBER, coinNumberFont, skipBoxes)
+
+  -- Draw animated coins (hover/flight)
   animation.draw(graphics.getBallImage(), nil, "2048", coinNumberFont)
+
+  -- Draw merge animation (squeeze, flash, pop)
+  animation.drawMerge(graphics.getBallImage(), coinNumberFont)
+
   particles.draw()
 
   draw_merge_button()
   draw_add_coins_button()
   drawSoundToggles()
+
+  -- End screen shake
+  if shake_x ~= 0 or shake_y ~= 0 then
+    love.graphics.pop()
+  end
 end
 
 function game_2048_screen.keypressed(key, scancode, isrepeat)
@@ -293,8 +312,8 @@ function game_2048_screen.mousepressed(x, y, button)
     return
   end
 
-  -- Block input during flight animation
-  if animation.isFlying() then
+  -- Block input during flight or merge animation
+  if animation.isFlying() or animation.isMerging() then
     return
   end
 
@@ -384,9 +403,24 @@ function game_2048_screen.mousereleased(x, y, button)
     buttonState.merge.pressed = false
     buttonState.merge.targetScale = 1.0
     if input.isInsideButton(x, y, MERGE_BUTTON_X, MERGE_BUTTON_Y, BUTTON_WIDTH, BUTTON_HEIGHT) and not animation.isAnimating() then
-      game_2048.merge()
-      sound.playMerge()
-      progression.onMerge("2048", 1)
+      -- Get mergeable boxes and start animation
+      local mergeable = game_2048.getMergeableBoxes()
+      if #mergeable > 0 then
+        animation.startMerge(mergeable,
+          -- Final callback: when all boxes done
+          function()
+            -- Animation complete
+          end,
+          -- Per-box callback: when each box finishes merging
+          function(box_data)
+            game_2048.executeMergeOnBox(box_data.box_idx)
+            sound.playMerge()
+            progression.onMerge("2048", 1)
+          end,
+          -- Particles module reference
+          particles
+        )
+      end
     end
   end
 
