@@ -1,8 +1,9 @@
-# CLAUDE.md
-
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
+# User instructions, editing not allowed
 Do no try to test the project running in with love . .User will test it on its own.
+When file becomes bigger then 1.5k lines suggest refactoring.
+Use love2d and lua best coding practicies.
+DO NOT use goto, it breaks the web build.
+# End of user instructions. 
 
 ## Architecture
 

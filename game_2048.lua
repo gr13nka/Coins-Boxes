@@ -208,6 +208,68 @@ function game_2048.add_coins()
     end
 end
 
+-- Calculate what coins would be added (for dealing animation)
+-- Returns: array of {coin={number=N}, dest_box_idx=N, dest_slot=N}
+function game_2048.calculateCoinsToAdd()
+    -- Count current coins
+    local total_coins = 0
+    for _, box in ipairs(boxes) do
+        total_coins = total_coins + #box
+    end
+
+    -- Calculate how many to add
+    local max_possible = #boxes * BOX_ROWS
+    local will_add = math.floor(((max_possible - total_coins) / 2) + 0.5)
+    if will_add < 1 then will_add = 1 end
+
+    local result = {}
+    -- Track temporary box counts
+    local temp_box_counts = {}
+    for i, box in ipairs(boxes) do
+        temp_box_counts[i] = #box
+    end
+
+    for i = 1, will_add do
+        -- Find valid box
+        local box_idx
+        local attempts = 0
+        repeat
+            box_idx = math.random(#boxes)
+            attempts = attempts + 1
+            if attempts > 100 then break end
+        until temp_box_counts[box_idx] < BOX_ROWS
+
+        -- Check if all boxes are full
+        if attempts > 100 then
+            local all_full = true
+            for j = 1, #boxes do
+                if temp_box_counts[j] < BOX_ROWS then
+                    all_full = false
+                    break
+                end
+            end
+            if all_full then break end
+        end
+
+        -- Calculate slot (1-indexed from bottom)
+        local dest_slot = temp_box_counts[box_idx] + 1
+
+        -- Spawn a number in range [1, max_spawn_number]
+        local number = math.random(1, max_spawn_number)
+
+        -- Update tracking
+        temp_box_counts[box_idx] = temp_box_counts[box_idx] + 1
+
+        table.insert(result, {
+            coin = coin_utils.createCoin(number),
+            dest_box_idx = box_idx,
+            dest_slot = dest_slot
+        })
+    end
+
+    return result
+end
+
 function game_2048.update(dt)
     if merge_timer > 0 then
         merge_timer = merge_timer - dt

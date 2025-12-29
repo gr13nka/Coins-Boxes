@@ -147,6 +147,74 @@ function game.add_coins()
   end
 end
 
+-- Calculate what coins would be added (for dealing animation)
+-- Returns: array of {coin=color, dest_box_idx=N, dest_slot=N}
+function game.calculateCoinsToAdd()
+  local colors = colors_str
+  local colors_cnt = {}
+  local total_coins = 0
+
+  -- Initialize colors count
+  for _, color in ipairs(colors) do
+    colors_cnt[color] = 0
+  end
+  -- Get current color counts
+  for bi, ci, color in utils.each_coin(boxes) do
+    colors_cnt[color] = colors_cnt[color] + 1
+    total_coins = total_coins + 1
+  end
+
+  local max_possible = #colors_str * BOX_ROWS
+  local will_add = math.floor(((max_possible - total_coins) / 2) + 0.5)
+  if will_add < 1 then return {} end
+
+  local result = {}
+  -- Track temporary box counts
+  local temp_box_counts = {}
+  for i, box in ipairs(boxes) do
+    temp_box_counts[i] = #box
+  end
+
+  for i = 1, will_add do
+    -- Find valid box
+    local box_idx
+    local attempts = 0
+    repeat
+      box_idx = math.random(#boxes)
+      attempts = attempts + 1
+      if attempts > 100 then break end
+    until temp_box_counts[box_idx] < BOX_ROWS
+
+    if attempts > 100 then break end
+
+    -- Find valid color
+    local color
+    attempts = 0
+    repeat
+      color = colors[math.random(#colors)]
+      attempts = attempts + 1
+      if attempts > 100 then break end
+    until colors_cnt[color] < BOX_ROWS
+
+    if attempts > 100 then break end
+
+    -- Calculate slot (1-indexed from bottom)
+    local dest_slot = temp_box_counts[box_idx] + 1
+
+    -- Update tracking
+    colors_cnt[color] = colors_cnt[color] + 1
+    temp_box_counts[box_idx] = temp_box_counts[box_idx] + 1
+
+    table.insert(result, {
+      coin = color,
+      dest_box_idx = box_idx,
+      dest_slot = dest_slot
+    })
+  end
+
+  return result
+end
+
 function game.update(dt)
   if merge_timer > 0 then
         merge_timer = merge_timer - dt

@@ -237,6 +237,7 @@ function game_screen.draw()
 
   -- Draw animated coins on top
   animation.draw(graphics.getBallImage(), state.COLORS)
+  animation.drawDealing(graphics.getBallImage(), state.COLORS, font)
   particles.draw()
 
   draw_merge_button()
@@ -277,8 +278,8 @@ function game_screen.mousepressed(x, y, button)
     return
   end
 
-  -- Block input during flight animation
-  if animation.isFlying() then
+  -- Block input during any animation (except hovering which allows placement)
+  if animation.isAnimating() and not animation.isHovering() then
     return
   end
 
@@ -366,8 +367,32 @@ function game_screen.mousereleased(x, y, button)
     buttonState.add.pressed = false
     buttonState.add.targetScale = 1.0
     if input.isInsideButton(x, y, ADD_BUTTON_X, ADD_BUTTON_Y, BUTTON_WIDTH, BUTTON_HEIGHT) and not animation.isAnimating() then
-      game.add_coins()
-      sound.playAdd()
+      -- Calculate coins to add for dealing animation
+      local coins_to_deal = game.calculateCoinsToAdd()
+
+      if #coins_to_deal > 0 then
+        local state = game.getState()
+
+        animation.startDealing(coins_to_deal, "classic",
+          -- Final callback: when all coins have landed
+          function()
+            -- Animation complete
+          end,
+          -- Per-coin callback: when each coin lands
+          function(color, box_idx, slot)
+            table.insert(state.boxes[box_idx], color)
+            sound.playPickup()
+            mobile.vibrateDrop()
+            -- Spawn particle effect at landing position
+            local px = GRID_X_OFFSET + COLUMN_STEP * box_idx
+            local py = TOP_Y + ROW_STEP * slot
+            local col = state.COLORS[color] or {1, 1, 1}
+            particles.spawn(px, py, col)
+          end,
+          particles
+        )
+        sound.playAdd()
+      end
     end
   end
 end

@@ -11,7 +11,8 @@ local STATE = {
     IDLE = "idle",
     HOVERING = "hovering",
     FLYING = "flying",
-    MERGING = "merging"
+    MERGING = "merging",
+    DEALING = "dealing"
 }
 
 -- Module state
@@ -41,6 +42,25 @@ local SHAKE_INTENSITY = 12            -- max shake pixels
 local SHAKE_DURATION = 0.15           -- shake duration per impact
 local screen_shake_time = 0
 local screen_shake_intensity = 0
+
+-- Dealing animation configuration (poker dealer style)
+local DEALING_DROP_DELAY = 0.12       -- delay between coins being dealt (fast rhythmic)
+local DEALING_FLIGHT_DURATION = 0.3   -- flight time per coin
+local DEALING_ARC_HEIGHT = 120        -- arc height for card-like trajectory
+local DEALING_LAND_SHAKE = 6          -- shake intensity per landing
+local DEALING_LAND_SHAKE_DURATION = 0.08
+local DEALING_BOUNCE_OVERSHOOT = 1.2  -- elastic bounce scale
+local DEALING_BOUNCE_DURATION = 0.12  -- bounce animation time
+local DEALING_SPIN_SPEED = 8          -- rotation speed during flight
+
+-- Dealing animation state
+local dealing_coins = {}              -- array of coin data with destinations
+local dealing_time = 0                -- total elapsed time
+local dealing_mode = "classic"        -- "classic" or "2048"
+local on_dealing_complete = nil       -- final callback
+local on_coin_dealt = nil             -- per-coin land callback
+local dealing_particles = nil         -- reference to particles module
+local dealer_x, dealer_y = 0, 0       -- dealer hand position
 
 -- Positions
 local source_box = 0
@@ -170,6 +190,59 @@ function animation.startMerge(merge_data, callback, boxMergeCallback, particlesR
         box_data.current_slide = 0
         box_data.sliding_coin_y = box_data.slot_y[num_coins]  -- start at bottom
         box_data.merged_scale = 1.0
+    end
+end
+
+-- Start dealing animation for newly added coins (poker dealer style)
+-- coins_to_deal: array of {coin, dest_box_idx, dest_slot}
+-- mode: "classic" or "2048"
+-- callback: called when ALL coins have landed
+-- coinLandCallback: called when EACH coin lands (receives coin, box_idx, slot)
+-- particlesRef: reference to particles module
+function animation.startDealing(coins_to_deal, mode, callback, coinLandCallback, particlesRef)
+    if #coins_to_deal == 0 then
+        if callback then callback() end
+        return
+    end
+
+    state = STATE.DEALING
+    dealing_coins = {}
+    dealing_time = 0
+    dealing_mode = mode or "classic"
+    on_dealing_complete = callback
+    on_coin_dealt = coinLandCallback
+    dealing_particles = particlesRef
+    screen_shake_time = 0
+
+    -- Dealer hand position: bottom center, above button area
+    dealer_x = layout.VW / 2
+    dealer_y = layout.BUTTON_AREA_Y - 100
+
+    -- Initialize each coin with dealer-style flight parameters
+    for i, coin_data in ipairs(coins_to_deal) do
+        -- Calculate destination position
+        local dest_x = layout.GRID_LEFT_OFFSET + layout.COLUMN_STEP * coin_data.dest_box_idx
+        local dest_y = layout.GRID_TOP_Y + layout.ROW_STEP * coin_data.dest_slot
+
+        dealing_coins[i] = {
+            coin = coin_data.coin,
+            dest_box_idx = coin_data.dest_box_idx,
+            dest_slot = coin_data.dest_slot,
+            dest_x = dest_x,
+            dest_y = dest_y,
+            -- Flight timing (staggered like cards being dealt)
+            flight_start_time = (i - 1) * DEALING_DROP_DELAY,
+            -- State tracking
+            started = false,
+            landed = false,
+            done = false,
+            bounce_time = 0,
+            scale = 1.0,
+            rotation = 0,
+            -- Add slight random offset to start position for natural feel
+            start_offset_x = (math.random() - 0.5) * 20,
+            start_offset_y = (math.random() - 0.5) * 10
+        }
     end
 end
 
@@ -383,6 +456,111 @@ function animation.update(dt)
             merge_boxes = {}
             particles_module = nil
         end
+
+    elseif state == STATE.DEALING then
+        dealing_time = dealing_time + dt
+
+        -- Update screen shake
+        if screen_shake_time > 0 then
+            screen_shake_time = screen_shake_time - dt
+            if screen_shake_time < 0 then screen_shake_time = 0 end
+        end
+
+        local all_done = true
+
+        for i, coin_data in ipairs(dealing_coins) do
+            if not coin_data.done then
+                all_done = false
+
+                local coin_elapsed = dealing_time - coin_data.flight_start_time
+
+                if coin_elapsed < 0 then
+                    -- Coin hasn't been dealt yet - stays at dealer position (invisible)
+                    coin_data.started = false
+                    coin_data.current_x = dealer_x + coin_data.start_offset_x
+                    coin_data.current_y = dealer_y + coin_data.start_offset_y
+                    coin_data.scale = 0.8
+                    coin_data.rotation = 0
+
+                elseif not coin_data.landed then
+                    -- Coin is flying from dealer to destination
+                    coin_data.started = true
+                    local t = math.min(coin_elapsed / DEALING_FLIGHT_DURATION, 1.0)
+
+                    -- Ease-out cubic for snappy card-like motion
+                    local t_eased = 1 - (1 - t) * (1 - t) * (1 - t)
+
+                    -- Start position (dealer hand)
+                    local start_x = dealer_x + coin_data.start_offset_x
+                    local start_y = dealer_y + coin_data.start_offset_y
+
+                    -- Control point for arc (above the path, card-like trajectory)
+                    local mid_x = start_x + (coin_data.dest_x - start_x) * 0.4
+                    local mid_y = start_y - DEALING_ARC_HEIGHT
+
+                    -- Quadratic bezier for card-like arc
+                    coin_data.current_x = (1 - t_eased) * (1 - t_eased) * start_x +
+                                          2 * (1 - t_eased) * t_eased * mid_x +
+                                          t_eased * t_eased * coin_data.dest_x
+                    coin_data.current_y = (1 - t_eased) * (1 - t_eased) * start_y +
+                                          2 * (1 - t_eased) * t_eased * mid_y +
+                                          t_eased * t_eased * coin_data.dest_y
+
+                    -- Card spin during flight (slows down as it lands)
+                    coin_data.rotation = t * DEALING_SPIN_SPEED * (1 - t * 0.5)
+
+                    -- Scale: starts small, grows slightly, then normal
+                    coin_data.scale = 0.8 + 0.3 * math.sin(t * math.pi)
+
+                    -- Check if landed
+                    if t >= 1.0 then
+                        coin_data.landed = true
+                        coin_data.bounce_time = 0
+                        coin_data.current_x = coin_data.dest_x
+                        coin_data.current_y = coin_data.dest_y
+                        coin_data.rotation = 0
+
+                        -- Trigger effects
+                        screen_shake_time = DEALING_LAND_SHAKE_DURATION
+                        screen_shake_intensity = DEALING_LAND_SHAKE
+
+                        -- Call land callback
+                        if on_coin_dealt then
+                            on_coin_dealt(coin_data.coin, coin_data.dest_box_idx, coin_data.dest_slot)
+                        end
+                    end
+                end
+
+                -- Bounce phase (after landing)
+                if coin_data.landed then
+                    coin_data.bounce_time = coin_data.bounce_time + dt
+                    local t = coin_data.bounce_time / DEALING_BOUNCE_DURATION
+
+                    if t >= 1 then
+                        coin_data.done = true
+                        coin_data.scale = 1.0
+                        coin_data.rotation = 0
+                    else
+                        -- Elastic overshoot
+                        coin_data.scale = 1 + (DEALING_BOUNCE_OVERSHOOT - 1) * math.sin(t * math.pi) * (1 - t * 0.5)
+                        coin_data.rotation = 0
+                    end
+                end
+            end
+        end
+
+        -- Check if all coins are done
+        if all_done then
+            state = STATE.IDLE
+            screen_shake_time = 0
+            if on_dealing_complete then
+                on_dealing_complete()
+                on_dealing_complete = nil
+            end
+            on_coin_dealt = nil
+            dealing_coins = {}
+            dealing_particles = nil
+        end
     end
 end
 
@@ -511,6 +689,59 @@ function animation.drawMerge(ballImage, font)
     love.graphics.setColor(1, 1, 1)
 end
 
+-- Draw dealing animation (poker dealer style - coins flying from bottom)
+-- COLORS: color lookup table for classic mode
+-- font: font for drawing numbers in 2048 mode
+function animation.drawDealing(ballImage, COLORS, font)
+    if state ~= STATE.DEALING then return end
+
+    local imgW, imgH = ballImage:getDimensions()
+    local base_scale = (layout.COIN_R * 2) / imgW
+
+    for i, coin_data in ipairs(dealing_coins) do
+        -- Skip coins that are done (they're now in game state)
+        -- Skip coins that haven't been dealt yet (still at dealer position)
+        if coin_data.done or not coin_data.started then
+            goto continue
+        end
+
+        local x = coin_data.current_x or dealer_x
+        local y = coin_data.current_y or dealer_y
+        local scale = (coin_data.scale or 1.0) * base_scale
+        local rotation = coin_data.rotation or 0
+
+        -- Determine color
+        local col
+        if dealing_mode == "2048" and coin_utils.isCoin(coin_data.coin) then
+            col = coin_utils.numberToColor(coin_data.coin.number, 50)
+        else
+            col = COLORS[coin_data.coin] or {1, 1, 1}
+        end
+
+        -- Draw coin with rotation
+        love.graphics.setColor(col)
+        love.graphics.draw(ballImage, x, y, rotation, scale, scale, imgW / 2, imgH / 2)
+
+        -- Draw number for 2048 mode (rotated with coin)
+        if dealing_mode == "2048" and coin_utils.isCoin(coin_data.coin) and font then
+            love.graphics.push()
+            love.graphics.translate(x, y)
+            love.graphics.rotate(rotation)
+            love.graphics.setColor(1, 1, 1)
+            love.graphics.setFont(font)
+            local num_str = tostring(coin_data.coin.number)
+            local text_width = font:getWidth(num_str)
+            local text_height = font:getHeight()
+            love.graphics.print(num_str, -text_width / 2, -text_height / 2)
+            love.graphics.pop()
+        end
+
+        ::continue::
+    end
+
+    love.graphics.setColor(1, 1, 1)
+end
+
 -- Get screen shake offset (call this to apply shake to drawing)
 function animation.getScreenShake()
     if screen_shake_time > 0 then
@@ -537,6 +768,27 @@ end
 
 function animation.isMerging()
     return state == STATE.MERGING
+end
+
+function animation.isDealing()
+    return state == STATE.DEALING
+end
+
+-- Get table of {box_idx = slot} for coins currently being dealt (for hiding duplicates)
+function animation.getDealingSlots()
+    if state ~= STATE.DEALING then return {} end
+
+    local slots = {}
+    for _, coin_data in ipairs(dealing_coins) do
+        -- Only track coins that have landed but aren't done bouncing yet
+        if coin_data.landed and not coin_data.done then
+            if not slots[coin_data.dest_box_idx] then
+                slots[coin_data.dest_box_idx] = {}
+            end
+            slots[coin_data.dest_box_idx][coin_data.dest_slot] = true
+        end
+    end
+    return slots
 end
 
 -- Get list of box indices currently being animated (for hiding static coins)

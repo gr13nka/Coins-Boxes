@@ -281,6 +281,9 @@ function game_2048_screen.draw()
   -- Draw merge animation (squeeze, flash, pop)
   animation.drawMerge(graphics.getBallImage(), coinNumberFont)
 
+  -- Draw dealing animation (burst + flight)
+  animation.drawDealing(graphics.getBallImage(), nil, coinNumberFont)
+
   particles.draw()
 
   draw_merge_button()
@@ -313,8 +316,8 @@ function game_2048_screen.mousepressed(x, y, button)
     return
   end
 
-  -- Block input during flight or merge animation
-  if animation.isFlying() or animation.isMerging() then
+  -- Block input during any animation
+  if animation.isAnimating() and not animation.isHovering() then
     return
   end
 
@@ -434,8 +437,33 @@ function game_2048_screen.mousereleased(x, y, button)
     buttonState.add.pressed = false
     buttonState.add.targetScale = 1.0
     if input.isInsideButton(x, y, ADD_BUTTON_X, ADD_BUTTON_Y, BUTTON_WIDTH, BUTTON_HEIGHT) and not animation.isAnimating() then
-      game_2048.add_coins()
-      sound.playAdd()
+      -- Calculate coins to add for dealing animation
+      local coins_to_deal = game_2048.calculateCoinsToAdd()
+
+      if #coins_to_deal > 0 then
+        local state = game_2048.getState()
+
+        animation.startDealing(coins_to_deal, "2048",
+          -- Final callback: when all coins have landed
+          function()
+            -- Animation complete
+          end,
+          -- Per-coin callback: when each coin lands
+          function(coin_data, box_idx, slot)
+            game_2048.place_coin(box_idx, coin_data)
+            sound.playPickup()
+            mobile.vibrateDrop()
+            -- Spawn particle effect at landing position
+            local px = GRID_X_OFFSET + COLUMN_STEP * box_idx
+            local py = TOP_Y + ROW_STEP * slot
+            local num = coin_utils.getCoinNumber(coin_data)
+            local col = coin_utils.numberToColor(num, state.MAX_NUMBER)
+            particles.spawn(px, py, col)
+          end,
+          particles
+        )
+        sound.playAdd()
+      end
     end
   end
 end
