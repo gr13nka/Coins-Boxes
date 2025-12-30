@@ -14,8 +14,10 @@ Try to keep your visuals and logic separate.
 - `main.lua` - Minimal entry point: LÖVE callbacks, window setup, asset loading, screen registration (~140 lines)
 - `game.lua` - Classic mode game state and mechanics. Coins are color strings.
 - `game_2048.lua` - 2048 mode game state and mechanics. Coins are `{number=N}` objects.
+- `game_dev.lua` - Dev test mode: single centered box with 12 slots, all filled with "1" coins.
 - `game_screen.lua` - Classic mode gameplay screen (UI, input handling, drawing)
 - `game_2048_screen.lua` - 2048 mode gameplay screen (UI, input handling, drawing)
+- `game_dev_screen.lua` - Dev test mode screen (centered single box layout)
 - `graphics.lua` - Game rendering: coins, boxes, background (NOT UI buttons)
 - `input.lua` - Input handling: hit testing, coordinate conversion
 - `sound.lua` - Sound management: loading, playback, toggle state
@@ -67,6 +69,7 @@ Each screen is a table with optional methods: `enter()`, `exit()`, `update(dt)`,
 - `mode_select` - Initial menu with game mode buttons (includes unlock status display)
 - `game` - Classic mode gameplay screen (defined in `game_screen.lua`)
 - `game_2048` - 2048 mode gameplay screen (defined in `game_2048_screen.lua`)
+- `game_dev` - Dev test mode screen (defined in `game_dev_screen.lua`)
 
 **Adding New Screens:**
 1. Create a new file `my_screen.lua` with screen table and methods
@@ -312,6 +315,38 @@ A separate game mode where coins have numbers instead of just colors.
 2. Pass to `animation.startMerge()` with callbacks
 3. Animation calls `executeMergeOnBox()` when each box's animation completes
 4. This updates game state (removes coins, adds merged coin, awards points)
+
+## Dev Test Mode (game_dev.lua)
+
+A testing/development mode with a single tall centered box filled with "1" coins.
+
+**Purpose:**
+- Quick testing of merge animations and mechanics
+- Debugging coin stacking behavior
+- Testing with many coins in a single column
+
+**Configuration:**
+- 1 centered box at `VW/2`
+- 12 row slots (fills most of screen height)
+- All coins initialized as `{number=1}`
+- TOP_Y = 200 (higher start position for taller box)
+
+**Key Differences from 2048 Mode:**
+- Single box instead of 5 columns
+- Centered layout instead of grid
+- Custom hit testing via `isOnDevBox(x, y)`
+- Custom drawing via `drawDevBox()` and `drawDevCoins()`
+
+**Public API (same pattern as game_2048):**
+- `game_dev.init()` - Initialize with single box full of "1" coins
+- `game_dev.pick_coin_from_box(idx, opts)` - Pick same-number coins
+- `game_dev.can_place(dest_idx, coins)` - Validate placement
+- `game_dev.place_coin(dest_idx, coin)` - Add coin to box
+- `game_dev.getMergeableBoxes()` - Get boxes that can merge (2+ same coins)
+- `game_dev.executeMergeOnBox(box_idx)` - Execute merge on box
+- `game_dev.add_coins()` - Refill with "1" coins
+- `game_dev.calculateCoinsToAdd()` - Pre-calculate for dealing animation
+- `game_dev.getState()` - Return state
 
 ## Coin Utilities (coin_utils.lua)
 

@@ -165,9 +165,13 @@ function animation.startMerge(merge_data, callback, boxMergeCallback, particlesR
         box_data.phase = "waiting"
         box_data.phase_time = 0
 
-        -- Calculate box X position
-        local box_x = layout.GRID_LEFT_OFFSET + layout.COLUMN_STEP * box_data.box_idx
-        box_data.center_x = box_x
+        -- Calculate box X position (use custom if provided, otherwise default grid)
+        if not box_data.center_x then
+            box_data.center_x = layout.GRID_LEFT_OFFSET + layout.COLUMN_STEP * box_data.box_idx
+        end
+
+        -- Use custom top_y if provided, otherwise default
+        local base_top_y = box_data.top_y or layout.GRID_TOP_Y
 
         -- Get number of coins in this box
         local num_coins = #box_data.coins
@@ -176,7 +180,7 @@ function animation.startMerge(merge_data, callback, boxMergeCallback, particlesR
         -- Slot Y positions for all coins (1=top, N=bottom)
         box_data.slot_y = {}
         for slot = 1, num_coins do
-            box_data.slot_y[slot] = layout.GRID_TOP_Y + layout.ROW_STEP * slot
+            box_data.slot_y[slot] = base_top_y + layout.ROW_STEP * slot
         end
 
         -- Track which coins are still visible (bottom coin starts sliding first)
@@ -220,9 +224,9 @@ function animation.startDealing(coins_to_deal, mode, callback, coinLandCallback,
 
     -- Initialize each coin with dealer-style flight parameters
     for i, coin_data in ipairs(coins_to_deal) do
-        -- Calculate destination position
-        local dest_x = layout.GRID_LEFT_OFFSET + layout.COLUMN_STEP * coin_data.dest_box_idx
-        local dest_y = layout.GRID_TOP_Y + layout.ROW_STEP * coin_data.dest_slot
+        -- Calculate destination position (use custom if provided, otherwise default grid)
+        local dest_x = coin_data.dest_x or (layout.GRID_LEFT_OFFSET + layout.COLUMN_STEP * coin_data.dest_box_idx)
+        local dest_y = coin_data.dest_y or (layout.GRID_TOP_Y + layout.ROW_STEP * coin_data.dest_slot)
 
         dealing_coins[i] = {
             coin = coin_data.coin,
@@ -395,9 +399,16 @@ function animation.update(dt)
                         local is_final = (slide == total_slides)
                         local shake_mult = is_final and 1.0 or (0.4 + 0.3 * (slide / total_slides))
 
+                        -- Use progressive color for particles if enabled
+                        local particle_color = box_data.color
+                        if box_data.progressive_merge then
+                            local current_number = box_data.old_number + slide
+                            particle_color = coin_utils.numberToColor(current_number, box_data.max_number or 50)
+                        end
+
                         if particles_module then
                             particles_module.spawnMergeExplosion(
-                                box_data.center_x, box_data.slot_y[to_slot], box_data.color
+                                box_data.center_x, box_data.slot_y[to_slot], particle_color
                             )
                         end
                         screen_shake_time = SHAKE_DURATION
@@ -622,6 +633,14 @@ function animation.drawMerge(ballImage, font)
 
         -- Only draw active phases (not waiting or done)
         if phase ~= "waiting" and phase ~= "done" then
+            -- For progressive merge, calculate current number based on completed slides
+            local current_number = box_data.old_number
+            local current_color = box_data.color
+            if box_data.progressive_merge and box_data.current_slide > 0 then
+                current_number = box_data.old_number + box_data.current_slide
+                current_color = coin_utils.numberToColor(current_number, box_data.max_number or 50)
+            end
+
             -- Draw stationary coins that are still visible
             for slot = 1, box_data.num_coins do
                 if box_data.coins_visible[slot] then
@@ -644,14 +663,15 @@ function animation.drawMerge(ballImage, font)
 
             -- Draw sliding coin (during slide and impact phases)
             if phase == "slide" or phase == "impact" then
-                love.graphics.setColor(box_data.color)
+                -- Use progressive color/number for sliding coin
+                love.graphics.setColor(current_color)
                 love.graphics.draw(ballImage, box_data.center_x, box_data.sliding_coin_y,
                     0, base_scale, base_scale, imgW / 2, imgH / 2)
 
                 if font then
                     love.graphics.setColor(1, 1, 1)
                     love.graphics.setFont(font)
-                    local num_str = tostring(box_data.old_number)
+                    local num_str = tostring(current_number)
                     local text_width = font:getWidth(num_str)
                     local text_height = font:getHeight()
                     love.graphics.print(num_str,

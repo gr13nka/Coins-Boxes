@@ -131,13 +131,14 @@ function mode_select.enter()
             end
         },
         {
-            label = "Coming Soon...",
+            label = "Dev Test Mode",
             x = (VW - 400) / 2,
             y = 1200,
             width = 400,
             height = 120,
-            action = nil,
-            disabled = true
+            action = function()
+                screens.switch("game_dev")
+            end
         },
     }
 
