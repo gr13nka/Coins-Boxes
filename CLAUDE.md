@@ -23,11 +23,11 @@ Try to keep your visuals and logic separate.
 - `powerups.lua` - Consumable power-ups: Auto Sort and Hammer, purchasable in upgrades screen
 - `game_over_screen.lua` - Game over stats screen: score, shard breakdown, crystal summary, Continue button
 - `upgrades_screen.lua` - Meta/shop screen: crystal display, house grid (3x2), row/column upgrades, difficulty toggle, Play button
-- `graphics.lua` - Game rendering: coins, boxes, background (NOT UI buttons)
+- `graphics.lua` - Game rendering: coins, boxes, solid background (NOT UI buttons)
 - `input.lua` - Input handling: hit testing, coordinate conversion
 - `sound.lua` - Sound management: loading, playback, toggle state
 - `progression.lua` - Full unlock/achievement system with persistence
-- `coin_utils.lua` - Utility functions for 2048 mode: 5-color cycling, shard color mapping
+- `coin_utils.lua` - Utility functions for 2048 mode: 5-color cycling, shard color mapping, per-color fruit image loading/lookup
 - `animation.lua` - Dual-track coin animation: pick/place (hover/flight) and background (merge/deal) run independently, 1.5x speed
 - `particles.lua` - Particle effects system for coin landing visual feedback
 - `screens.lua` - Screen management system with mode selection (includes unlock checks)
@@ -40,7 +40,8 @@ Try to keep your visuals and logic separate.
 - Uses a 1080x2400 virtual canvas (vertical/portrait orientation) with letterboxing
 - Window scale configurable via `layout.WINDOW_SCALE` (default 0.5 for smaller screens)
 - Screen-to-game coordinate conversion via `ox`, `oy` offsets and `scale` factor
-- Coins rendered using `ball.png` sprite, tinted with `setColor()` for each coin color
+- Classic mode: coins rendered using `ball.png` sprite, tinted with `setColor()` for each coin color
+- 2048 mode: coins rendered using per-color fruit images (`Red.png`, `Green.png`, `Purple.png`, `Blue.png`, `Pink.png`) drawn white (no tinting), with black number text centered in the white slot
 
 **Game State:**
 - Centralized in `game.lua` module-level variables
@@ -234,7 +235,13 @@ Chunky bouncy coin fragment particles with custom physics. Fragments scatter, sp
 
 - `/sfx/` - Sound effects (chip-lay-2.ogg, chips-handle-1.ogg, chips-collide-2.ogg)
 - `/bgnd_music/` - Background music
-- `/assets/` - Background images and sprites
+- `/assets/` - Sprites and per-color fruit coin images
+- `/assets/Red.png` - Red fruit coin (1024x1024, ~200x200 white center slot for number)
+- `/assets/Green.png` - Green fruit coin (1024x1024)
+- `/assets/Purple.png` - Purple fruit coin (1024x1024)
+- `/assets/Blue.png` - Blue fruit coin (1024x1024)
+- `/assets/Pink.png` - Pink fruit coin (1024x1024)
+- `/assets/ball.png` - Classic mode coin sprite (tinted per color)
 - `comic shanns.otf` - Custom UI font
 
 ## Keyboard Shortcuts (In-Game)
@@ -424,6 +431,12 @@ Helper functions for 2048 mode coin handling.
 - `coin_utils.getCoinNumber(coin)` - Extract number from coin object
 - `coin_utils.createCoin(number)` - Create new coin object `{number=N}`
 
+**Per-Color Fruit Images:**
+- `coin_utils.loadImages()` - Load 5 fruit PNG images (call once in `love.load()`)
+- `coin_utils.numberToImage(number)` - Map coin number to fruit image via 5-color cycle
+- `coin_utils.colorNameToImage(color_name)` - Map shard color name to fruit image
+- `coin_utils.getImages()` - Get the loaded images array
+
 ## Progression System (progression.lua)
 
 Full unlock/achievement system with file-based persistence.
@@ -486,17 +499,15 @@ Hit testing and coordinate conversion utilities.
 
 ## Graphics System (graphics.lua)
 
-Game rendering for coins, boxes, and background (NOT UI buttons).
+Game rendering for coins, boxes, and solid background (NOT UI buttons).
 
 **Public API:**
 - `graphics.init(ballImage)` - Initialize with coin sprite
 - `graphics.getBallImage()` - Get ball image (for animation module)
-- `graphics.loadBackground(num)` - Load background by number (1-91)
-- `graphics.nextBackground()` - Cycle to next background
-- `graphics.updateBackgroundScroll(dt, speedX, speedY)` - Update scroll position
-- `graphics.drawBackground()` - Draw scrolling background
+- `graphics.drawBackground()` - Fill screen with solid dark navy-charcoal `(0.12, 0.12, 0.18)`
+- `graphics.drawCoin2048(font, x, y, num, MAX_NUMBER, scaleOverride)` - Draw single 2048 coin using per-color fruit image (used by animation.lua too)
 - `graphics.drawCoins(boxes, COLORS, skipBoxes)` - Draw coins (classic mode, skipBoxes for merge animation)
-- `graphics.drawCoins2048(boxes, MAX_NUMBER, font, skipBoxes)` - Draw coins with numbers (2048 mode)
+- `graphics.drawCoins2048(boxes, MAX_NUMBER, font, skipBoxes)` - Draw coins with per-color fruit images (2048 mode)
 - `graphics.drawBoxes(boxes, BOX_ROWS)` - Draw box grid (classic mode)
 - `graphics.drawBoxes2048(boxes, BOX_ROWS, shakeState)` - Draw box grid with shake (2048 mode); auto-detects stack/2-layer mode
 - `graphics.updateMetrics()` - Refresh cached layout values after `layout.applyMetrics()`

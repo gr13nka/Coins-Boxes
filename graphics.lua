@@ -16,10 +16,6 @@ local GRID_X_OFFSET = layout.GRID_LEFT_OFFSET
 
 -- Module state
 local ballImage
-local bgImage
-local bgNumber = 60
-local bgScrollX, bgScrollY = 0, 0
-local BG_SCALE = 3
 
 --- Refresh cached layout values (call after layout.applyMetrics)
 function graphics.updateMetrics()
@@ -41,46 +37,9 @@ function graphics.getBallImage()
   return ballImage
 end
 
---- Load a background image by number
--- @param num Background number (1-91)
-function graphics.loadBackground(num)
-  bgNumber = num
-  bgImage = love.graphics.newImage("assets/background/Color/Picture/color_background_" .. num .. ".png")
-  bgImage:setWrap("repeat", "repeat")
-end
-
---- Get current background number
-function graphics.getBackgroundNumber()
-  return bgNumber
-end
-
---- Cycle to next background
-function graphics.nextBackground()
-  local newBg = bgNumber + 1
-  if newBg > 91 then newBg = 1 end
-  graphics.loadBackground(newBg)
-end
-
---- Update background scroll position
--- @param dt Delta time
--- @param speedX Scroll speed X (pixels per second in texture space)
--- @param speedY Scroll speed Y (pixels per second in texture space)
-function graphics.updateBackgroundScroll(dt, speedX, speedY)
-  bgScrollX = bgScrollX + speedX * dt
-  bgScrollY = bgScrollY + speedY * dt
-end
-
---- Draw the scrolling background
+--- Draw a solid color background
 function graphics.drawBackground()
-  love.graphics.setColor(1, 1, 1)
-  local imgW, imgH = bgImage:getDimensions()
-  -- Sample less of the texture since we're scaling it up
-  local bgQuad = love.graphics.newQuad(
-    bgScrollX / BG_SCALE, bgScrollY / BG_SCALE,
-    VW / BG_SCALE, VH / BG_SCALE,
-    imgW, imgH
-  )
-  love.graphics.draw(bgImage, bgQuad, 0, 0, 0, BG_SCALE, BG_SCALE)
+  love.graphics.clear(0.12, 0.12, 0.18)
 end
 
 --- Draw all coins for classic mode
@@ -111,12 +70,17 @@ function graphics.drawCoins(boxes, COLORS, skipBoxes)
   return x, y
 end
 
--- Helper: draw a single 2048 coin at (x, y)
-local function drawCoin2048(imgW, imgH, spriteScale, font, x, y, num, MAX_NUMBER)
-  local col = coin_utils.numberToColor(num, MAX_NUMBER)
-  love.graphics.setColor(col)
-  love.graphics.draw(ballImage, x, y, 0, spriteScale, spriteScale, imgW/2, imgH/2)
+-- Draw a single 2048 coin at (x, y) using per-color fruit image
+-- Also used by animation.lua for consistent rendering
+function graphics.drawCoin2048(font, x, y, num, MAX_NUMBER, scaleOverride)
+  local coinImage = coin_utils.numberToImage(num)
+  local cImgW, cImgH = coinImage:getDimensions()
+  local cScale = (COIN_R * 2) / cImgW
+  if scaleOverride then cScale = cScale * scaleOverride end
   love.graphics.setColor(1, 1, 1)
+  love.graphics.draw(coinImage, x, y, 0, cScale, cScale, cImgW / 2, cImgH / 2)
+  -- Number text centered in the white slot
+  love.graphics.setColor(0, 0, 0)
   love.graphics.setFont(font)
   local num_str = tostring(num)
   local text_width = font:getWidth(num_str)
@@ -131,8 +95,6 @@ end
 -- @param skipBoxes Optional table of box indices to skip (for merge animation)
 -- @return top_x, top_y The coordinates of the last drawn cell
 function graphics.drawCoins2048(boxes, MAX_NUMBER, font, skipBoxes)
-  local imgW, imgH = ballImage:getDimensions()
-  local spriteScale = (COIN_R * 2) / imgW
   local x, y
   skipBoxes = skipBoxes or {}
 
@@ -146,7 +108,7 @@ function graphics.drawCoins2048(boxes, MAX_NUMBER, font, skipBoxes)
             if slot_layer == layer then
               local num = coin_utils.getCoinNumber(coin)
               x, y = layout.slotPosition(column, slot)
-              drawCoin2048(imgW, imgH, spriteScale, font, x, y, num, MAX_NUMBER)
+              graphics.drawCoin2048(font, x, y, num, MAX_NUMBER)
             end
           end
         end
@@ -158,7 +120,7 @@ function graphics.drawCoins2048(boxes, MAX_NUMBER, font, skipBoxes)
         for row, coin in ipairs(box) do
           local num = coin_utils.getCoinNumber(coin)
           x, y = layout.slotPosition(column, row)
-          drawCoin2048(imgW, imgH, spriteScale, font, x, y, num, MAX_NUMBER)
+          graphics.drawCoin2048(font, x, y, num, MAX_NUMBER)
         end
       end
     end

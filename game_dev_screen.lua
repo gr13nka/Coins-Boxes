@@ -21,10 +21,6 @@ local ROW_STEP = layout.ROW_STEP
 -- Screen-local state
 local selection = nil
 
--- Background scroll speeds
-local bgScrollSpeedX = 10
-local bgScrollSpeedY = 5
-
 -- Shake animation for invalid placement
 local shakeState = {
   active = false,
@@ -168,9 +164,6 @@ end
 -- Draw coins in all boxes
 local function drawDevCoins(skipBoxes)
   local state = game_dev.getState()
-  local ballImage = graphics.getBallImage()
-  local imgW, imgH = ballImage:getDimensions()
-  local spriteScale = (COIN_R * 2) / imgW
   skipBoxes = skipBoxes or {}
 
   for box_idx, box in ipairs(state.boxes) do
@@ -179,22 +172,9 @@ local function drawDevCoins(skipBoxes)
 
       for row, coin in ipairs(box) do
         local num = coin_utils.getCoinNumber(coin)
-        local col = coin_utils.numberToColor(num, state.MAX_NUMBER)
-
         local x = box_center_x
         local y = state.TOP_Y + ROW_STEP * row
-
-        -- Draw coin sprite
-        love.graphics.setColor(col)
-        love.graphics.draw(ballImage, x, y, 0, spriteScale, spriteScale, imgW/2, imgH/2)
-
-        -- Draw number on coin
-        love.graphics.setColor(1, 1, 1)
-        love.graphics.setFont(coinNumberFont)
-        local num_str = tostring(num)
-        local text_width = coinNumberFont:getWidth(num_str)
-        local text_height = coinNumberFont:getHeight()
-        love.graphics.print(num_str, x - text_width / 2, y - text_height / 2)
+        graphics.drawCoin2048(coinNumberFont, x, y, num, state.MAX_NUMBER)
       end
     end
   end
@@ -244,15 +224,12 @@ function game_dev_screen.update(dt)
   animation.update(dt)
   particles.update(dt)
   updateButtonAnimations(dt)
-
   if shakeState.active then
     shakeState.time = shakeState.time + dt
     if shakeState.time >= shakeState.duration then
       shakeState.active = false
     end
   end
-
-  graphics.updateBackgroundScroll(dt, bgScrollSpeedX, bgScrollSpeedY)
 end
 
 function game_dev_screen.draw()
@@ -302,9 +279,6 @@ function game_dev_screen.keypressed(key, scancode, isrepeat)
   end
   if key == "escape" then
     screens.switch("mode_select")
-  end
-  if key == "space" then
-    graphics.nextBackground()
   end
 end
 

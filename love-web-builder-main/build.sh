@@ -1,0 +1,1 @@
+cd .. && zip -r archive.zip . -x "love-web-builder-main/*" && mv archive.zip love-web-builder-main && cd love-web-builder-main && python3 build.py archive.zip && cd game && zip -r g.zip . -x "g.zip"

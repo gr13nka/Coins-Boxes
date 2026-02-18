@@ -8,6 +8,7 @@ local coin_utils = require("coin_utils")
 local game_2048 = require("game_2048")
 local progression = require("progression")
 local upgrades = require("upgrades")
+local emoji = require("emoji")
 
 local game_over_screen = {}
 
@@ -105,10 +106,8 @@ function game_over_screen.draw()
     love.graphics.setColor(0.8, 0.8, 0.8)
     love.graphics.printf(total_shards .. "/" .. spc, bar_x, bar_y_pos + bar_h + 2, bar_w, "center")
 
-    -- Crystal count
-    love.graphics.setColor(0.9, 0.85, 0.3)
-    love.graphics.polygon("fill",
-      740, y + 8, 755, y + 22, 740, y + 36, 725, y + 22)
+    -- Crystal count emoji
+    emoji.draw(name, 740, y + 22, 15)
     love.graphics.setColor(1, 1, 1)
     love.graphics.printf(tostring(total_crys), 770, y + 8, 80, "left")
   end

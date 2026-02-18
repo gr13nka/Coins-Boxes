@@ -4,6 +4,7 @@
 
 local layout = require("layout")
 local coin_utils = require("coin_utils")
+local graphics = require("graphics")
 
 local animation = {}
 
@@ -629,27 +630,15 @@ function animation.draw(ballImage, COLORS, mode, font)
         if not anim_coin.landed then
             local x, y = getCoinPosition(i)
             local coin_data = anim_coin.coin
-            local col
 
             if mode == "2048" and coin_utils.isCoin(coin_data) then
-                -- 2048 mode: get color from number
-                col = coin_utils.numberToColor(coin_data.number, 50)
+                -- 2048 mode: draw per-color fruit image
+                graphics.drawCoin2048(font, x, y, coin_data.number, 50)
             else
-                -- Classic mode: lookup color by name
-                col = COLORS[coin_data] or {1, 1, 1}
-            end
-
-            love.graphics.setColor(col)
-            love.graphics.draw(ballImage, x, y, 0, spriteScale, spriteScale, imgW / 2, imgH / 2)
-
-            -- Draw number on coin for 2048 mode
-            if mode == "2048" and coin_utils.isCoin(coin_data) and font then
-                love.graphics.setColor(1, 1, 1)  -- white text
-                love.graphics.setFont(font)
-                local num_str = tostring(coin_data.number)
-                local text_width = font:getWidth(num_str)
-                local text_height = font:getHeight()
-                love.graphics.print(num_str, x - text_width / 2, y - text_height / 2)
+                -- Classic mode: tinted ball sprite
+                local col = COLORS[coin_data] or {1, 1, 1}
+                love.graphics.setColor(col)
+                love.graphics.draw(ballImage, x, y, 0, spriteScale, spriteScale, imgW / 2, imgH / 2)
             end
         end
     end
@@ -667,70 +656,55 @@ function animation.drawMerge(ballImage, font)
 
         -- Only draw active phases (not waiting or done)
         if phase ~= "waiting" and phase ~= "done" then
+            -- Check if this is a 2048-mode merge (has old_number)
+            local is_2048 = box_data.old_number ~= nil
+
             -- For progressive merge, calculate current number based on completed slides
             local current_number = box_data.old_number
-            local current_color = box_data.color
             if box_data.progressive_merge and box_data.current_slide > 0 then
                 current_number = box_data.old_number + box_data.current_slide
-                current_color = coin_utils.numberToColor(current_number, box_data.max_number or 50)
             end
 
             -- Draw stationary coins that are still visible
             for slot = 1, box_data.num_coins do
                 if box_data.coins_visible[slot] then
-                    love.graphics.setColor(box_data.color)
-                    love.graphics.draw(ballImage, box_data.slot_x[slot], box_data.slot_y[slot],
-                        0, base_scale, base_scale, imgW / 2, imgH / 2)
-
-                    if font then
-                        love.graphics.setColor(1, 1, 1)
-                        love.graphics.setFont(font)
-                        local num_str = tostring(box_data.old_number)
-                        local text_width = font:getWidth(num_str)
-                        local text_height = font:getHeight()
-                        love.graphics.print(num_str,
-                            box_data.slot_x[slot] - text_width / 2,
-                            box_data.slot_y[slot] - text_height / 2)
+                    if is_2048 and font then
+                        graphics.drawCoin2048(font, box_data.slot_x[slot], box_data.slot_y[slot],
+                            box_data.old_number, box_data.max_number or 50)
+                    else
+                        love.graphics.setColor(box_data.color)
+                        love.graphics.draw(ballImage, box_data.slot_x[slot], box_data.slot_y[slot],
+                            0, base_scale, base_scale, imgW / 2, imgH / 2)
                     end
                 end
             end
 
             -- Draw sliding coin (during slide and impact phases)
             if phase == "slide" or phase == "impact" then
-                -- Use progressive color/number for sliding coin
-                love.graphics.setColor(current_color)
-                love.graphics.draw(ballImage, box_data.sliding_coin_x, box_data.sliding_coin_y,
-                    0, base_scale, base_scale, imgW / 2, imgH / 2)
-
-                if font then
-                    love.graphics.setColor(1, 1, 1)
-                    love.graphics.setFont(font)
-                    local num_str = tostring(current_number)
-                    local text_width = font:getWidth(num_str)
-                    local text_height = font:getHeight()
-                    love.graphics.print(num_str,
-                        box_data.sliding_coin_x - text_width / 2,
-                        box_data.sliding_coin_y - text_height / 2)
+                if is_2048 and font then
+                    graphics.drawCoin2048(font, box_data.sliding_coin_x, box_data.sliding_coin_y,
+                        current_number, box_data.max_number or 50)
+                else
+                    local current_color = box_data.color
+                    if box_data.progressive_merge and box_data.current_slide > 0 then
+                        current_color = coin_utils.numberToColor(current_number, box_data.max_number or 50)
+                    end
+                    love.graphics.setColor(current_color)
+                    love.graphics.draw(ballImage, box_data.sliding_coin_x, box_data.sliding_coin_y,
+                        0, base_scale, base_scale, imgW / 2, imgH / 2)
                 end
             end
 
             -- Draw merged coin (during pop phase)
             if phase == "pop" then
-                local scale = box_data.merged_scale
-
-                love.graphics.setColor(box_data.new_color)
-                love.graphics.draw(ballImage, box_data.slot_x[1], box_data.slot_y[1],
-                    0, base_scale * scale, base_scale * scale, imgW / 2, imgH / 2)
-
-                if font then
-                    love.graphics.setColor(1, 1, 1)
-                    love.graphics.setFont(font)
-                    local num_str = tostring(box_data.new_number)
-                    local text_width = font:getWidth(num_str)
-                    local text_height = font:getHeight()
-                    love.graphics.print(num_str,
-                        box_data.slot_x[1] - text_width / 2,
-                        box_data.slot_y[1] - text_height / 2)
+                if is_2048 and font then
+                    graphics.drawCoin2048(font, box_data.slot_x[1], box_data.slot_y[1],
+                        box_data.new_number, box_data.max_number or 50, box_data.merged_scale)
+                else
+                    local scale = box_data.merged_scale
+                    love.graphics.setColor(box_data.new_color)
+                    love.graphics.draw(ballImage, box_data.slot_x[1], box_data.slot_y[1],
+                        0, base_scale * scale, base_scale * scale, imgW / 2, imgH / 2)
                 end
             end
         end
@@ -753,33 +727,36 @@ function animation.drawDealing(ballImage, COLORS, font)
         if coin_data.started and not coin_data.done then
             local x = coin_data.current_x or dealer_x
             local y = coin_data.current_y or dealer_y
-            local scale = (coin_data.scale or 1.0) * base_scale
+            local coinScale = coin_data.scale or 1.0
             local rotation = coin_data.rotation or 0
 
-            -- Determine color
-            local col
             if dealing_mode == "2048" and coin_utils.isCoin(coin_data.coin) then
-                col = coin_utils.numberToColor(coin_data.coin.number, 50)
-            else
-                col = COLORS[coin_data.coin] or {1, 1, 1}
-            end
-
-            -- Draw coin with rotation
-            love.graphics.setColor(col)
-            love.graphics.draw(ballImage, x, y, rotation, scale, scale, imgW / 2, imgH / 2)
-
-            -- Draw number for 2048 mode (rotated with coin)
-            if dealing_mode == "2048" and coin_utils.isCoin(coin_data.coin) and font then
-                love.graphics.push()
-                love.graphics.translate(x, y)
-                love.graphics.rotate(rotation)
+                -- 2048 mode: per-color fruit image with rotation
+                local coinImage = coin_utils.numberToImage(coin_data.coin.number)
+                local cImgW, cImgH = coinImage:getDimensions()
+                local cScale = (layout.COIN_R * 2) / cImgW * coinScale
                 love.graphics.setColor(1, 1, 1)
-                love.graphics.setFont(font)
-                local num_str = tostring(coin_data.coin.number)
-                local text_width = font:getWidth(num_str)
-                local text_height = font:getHeight()
-                love.graphics.print(num_str, -text_width / 2, -text_height / 2)
-                love.graphics.pop()
+                love.graphics.draw(coinImage, x, y, rotation, cScale, cScale, cImgW / 2, cImgH / 2)
+
+                -- Draw number rotated with coin
+                if font then
+                    love.graphics.push()
+                    love.graphics.translate(x, y)
+                    love.graphics.rotate(rotation)
+                    love.graphics.setColor(0, 0, 0)
+                    love.graphics.setFont(font)
+                    local num_str = tostring(coin_data.coin.number)
+                    local text_width = font:getWidth(num_str)
+                    local text_height = font:getHeight()
+                    love.graphics.print(num_str, -text_width / 2, -text_height / 2)
+                    love.graphics.pop()
+                end
+            else
+                -- Classic mode: tinted ball sprite
+                local col = COLORS[coin_data.coin] or {1, 1, 1}
+                local scale = coinScale * base_scale
+                love.graphics.setColor(col)
+                love.graphics.draw(ballImage, x, y, rotation, scale, scale, imgW / 2, imgH / 2)
             end
         end
     end

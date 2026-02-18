@@ -581,14 +581,21 @@ function game_2048.autoSort()
             end
         else
             for _, coin in ipairs(coins) do
-                if col_counts[col] >= BOX_ROWS then
+                if col > num_boxes then
+                    leftover[#leftover + 1] = coin
+                elseif col_counts[col] >= BOX_ROWS then
                     col = col + 1
                     if col > num_boxes then
-                        -- Remaining coins in this group go to leftover
                         leftover[#leftover + 1] = coin
+                    else
+                        col_counts[col] = col_counts[col] + 1
+                        result[#result + 1] = {
+                            coin = coin,
+                            dest_box_idx = col,
+                            dest_slot = col_counts[col],
+                        }
                     end
-                end
-                if col <= num_boxes then
+                else
                     col_counts[col] = col_counts[col] + 1
                     result[#result + 1] = {
                         coin = coin,

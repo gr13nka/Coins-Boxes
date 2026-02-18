@@ -15,6 +15,7 @@ local mobile = require("mobile")
 local currency = require("currency")
 local upgrades = require("upgrades")
 local powerups = require("powerups")
+local emoji = require("emoji")
 
 local game_2048_screen = {}
 
@@ -29,10 +30,6 @@ local GRID_X_OFFSET = layout.GRID_LEFT_OFFSET
 -- Screen-local state
 local selection = nil
 local top_x, top_y = 0, 0  -- Bottom-right grid bounds (for hit testing)
-
--- Background scroll speeds
-local bgScrollSpeedX = 10
-local bgScrollSpeedY = 5
 
 -- Shake animation for invalid placement
 local shakeState = {
@@ -160,14 +157,12 @@ local function drawFlyingShards()
     local pulse = 1 + 0.15 * math.sin(love.timer.getTime() * 12)
     local sz = SHARD_SIZE * pulse
 
-    -- Glow halo (larger, semi-transparent)
-    local glow_sz = sz * 1.8
+    -- Glow circle behind emoji
     love.graphics.setColor(rgb[1], rgb[2], rgb[3], 0.3)
-    love.graphics.polygon("fill", s.x, s.y - glow_sz, s.x + glow_sz, s.y, s.x, s.y + glow_sz, s.x - glow_sz, s.y)
+    love.graphics.circle("fill", s.x, s.y, sz * 1.6)
 
-    -- Main diamond
-    love.graphics.setColor(rgb[1], rgb[2], rgb[3])
-    love.graphics.polygon("fill", s.x, s.y - sz, s.x + sz, s.y, s.x, s.y + sz, s.x - sz, s.y)
+    -- Emoji icon
+    emoji.draw(s.color_name, s.x, s.y, sz)
 
     -- "+N" text with dark outline for readability
     local text = "+" .. s.amount
@@ -458,10 +453,9 @@ local function drawCurrencyHUD()
       ps = 1 + (HUD_POP_OVERSHOOT - 1) * math.sin(t * math.pi) * (1 - t * 0.5)
     end
 
-    -- Small diamond (scaled by pop)
+    -- Emoji icon (scaled by pop)
     local ds = 10 * ps
-    love.graphics.setColor(rgb[1], rgb[2], rgb[3])
-    love.graphics.polygon("fill", x, y - ds, x + ds, y, x, y + ds, x - ds, y)
+    emoji.draw(name, x, y, ds)
     -- Crystal count
     love.graphics.setColor(1, 1, 1, 0.8)
     love.graphics.printf(tostring(crystals[name] or 0), x + 15, y - 14, 60, "left")
@@ -503,6 +497,9 @@ function game_2048_screen.enter()
   ROW_STEP = layout.ROW_STEP
   TOP_Y = layout.GRID_TOP_Y
 
+  -- Recreate coin number font to match new COIN_R
+  coinNumberFont = love.graphics.newFont("comic shanns.otf", math.floor(layout.COIN_R * 0.7))
+
   game_2048.init()
   currency.startRun()
   selection = nil
@@ -533,7 +530,6 @@ function game_2048_screen.update(dt)
     end
   end
 
-  graphics.updateBackgroundScroll(dt, bgScrollSpeedX, bgScrollSpeedY)
   updateFlyingShards(dt)
 end
 
@@ -607,9 +603,6 @@ function game_2048_screen.keypressed(key, scancode, isrepeat)
       return
     end
     screens.switch("upgrades")
-  end
-  if key == "space" then
-    graphics.nextBackground()
   end
 end
 

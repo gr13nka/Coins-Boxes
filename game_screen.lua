@@ -27,10 +27,6 @@ local selection = nil
 local merge_timer = 0
 local top_x, top_y = 0, 0  -- Bottom-right grid bounds (for hit testing)
 
--- Background scroll speeds
-local bgScrollSpeedX = 10
-local bgScrollSpeedY = 5
-
 -- Button images and layout (will be set via init)
 local addButtonImage, addButtonPressedImage
 local mergeButtonImage, mergeButtonPressedImage
@@ -216,7 +212,6 @@ function game_screen.update(dt)
   animation.update(dt)
   particles.update(dt)
   updateButtonAnimations(dt)
-  graphics.updateBackgroundScroll(dt, bgScrollSpeedX, bgScrollSpeedY)
 end
 
 function game_screen.draw()
@@ -280,9 +275,6 @@ function game_screen.keypressed(key, scancode, isrepeat)
     state.colors_str[#state.colors_str + 1] = name
     state.non_active[name] = nil
     table.insert(state.boxes, {})
-  end
-  if key == "space" then
-    graphics.nextBackground()
   end
 end
 

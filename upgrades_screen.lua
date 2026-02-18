@@ -9,6 +9,7 @@ local currency = require("currency")
 local upgrades = require("upgrades")
 local coin_utils = require("coin_utils")
 local powerups = require("powerups")
+local emoji = require("emoji")
 
 local upgrades_screen = {}
 
@@ -120,6 +121,7 @@ local function spawnFlyingCrystal(slot, color_name)
     sx = sx, sy = sy,
     dx = dx, dy = dy,
     color = rgb,
+    color_name = color_name,
     elapsed = 0,
     phase = "fly",
     pop_elapsed = 0,
@@ -170,12 +172,7 @@ local function drawFlyingCrystals()
       s = fc.scale
     end
     local size = 16 * s
-    love.graphics.setColor(fc.color[1], fc.color[2], fc.color[3])
-    love.graphics.polygon("fill", x, y - size, x + size, y, x, y + size, x - size, y)
-    -- Sparkle highlight
-    love.graphics.setColor(1, 1, 1, 0.6)
-    local hs = size * 0.4
-    love.graphics.polygon("fill", x, y - hs, x + hs * 0.5, y, x, y + hs, x - hs * 0.5, y)
+    emoji.draw(fc.color_name, x, y, size)
   end
 end
 
@@ -255,9 +252,8 @@ local function drawCurrencyDisplay()
     local y = CRYSTAL_Y + 60
     local rgb = coin_utils.getShardRGB(name)
 
-    -- Diamond shape
-    love.graphics.setColor(rgb[1], rgb[2], rgb[3])
-    love.graphics.polygon("fill", x, y - 18, x + 16, y, x, y + 18, x - 16, y)
+    -- Emoji icon
+    emoji.draw(name, x, y, 18)
 
     -- Crystal count
     love.graphics.setColor(1, 1, 1)
@@ -651,9 +647,9 @@ local function drawBestCoinStat()
   local cx = VW / 2 - 60
   local y = 65
 
-  -- Small diamond in coin color
-  love.graphics.setColor(col[1], col[2], col[3])
-  love.graphics.polygon("fill", cx, y - 8, cx + 8, y, cx, y + 8, cx - 8, y)
+  -- Emoji icon for best coin color
+  local best_color_name = coin_utils.numberToShardColor(best)
+  emoji.draw(best_color_name, cx, y, 10)
 
   -- Label
   love.graphics.setColor(col[1], col[2], col[3], 0.9)

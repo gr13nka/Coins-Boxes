@@ -13,6 +13,7 @@ local mobile = require("mobile")
 local currency = require("currency")
 local upgrades = require("upgrades")
 local powerups = require("powerups")
+local emoji = require("emoji")
 
 utils.debug_stuff1()
 
@@ -70,9 +71,11 @@ function love.load()
   -- Load assets
   love.graphics.setDefaultFilter("nearest", "nearest", 1)
 
+  local coin_utils = require("coin_utils")
+  coin_utils.loadImages()
+
   local ballImage = love.graphics.newImage("assets/ball.png")
   graphics.init(ballImage)
-  graphics.loadBackground(60)
 
   -- Button images
   local addButtonImage = love.graphics.newImage("assets/add_button.png")
@@ -83,10 +86,13 @@ function love.load()
   -- Fonts
   font = love.graphics.newFont("comic shanns.otf", layout.FONT_SIZE)
   love.graphics.setFont(font)
-  coinNumberFont = love.graphics.newFont("comic shanns.otf", math.floor(layout.COIN_R * 1.2))
+  coinNumberFont = love.graphics.newFont("comic shanns.otf", math.floor(layout.COIN_R * 0.7))
 
   -- Initialize particle system
   particles.init()
+
+  -- Initialize emoji icons for currency display
+  emoji.init()
 
   -- Prepare assets bundle for screens
   local assets = {
