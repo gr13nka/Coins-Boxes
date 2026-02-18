@@ -41,7 +41,9 @@ Try to keep your visuals and logic separate.
 - Window scale configurable via `layout.WINDOW_SCALE` (default 0.5 for smaller screens)
 - Screen-to-game coordinate conversion via `ox`, `oy` offsets and `scale` factor
 - Classic mode: coins rendered using `ball.png` sprite, tinted with `setColor()` for each coin color
-- 2048 mode: coins rendered using per-color fruit images (`Red.png`, `Green.png`, `Purple.png`, `Blue.png`, `Pink.png`) drawn white (no tinting), with black number text centered in the white slot
+- 2048 mode coin style controlled by `layout.USE_FRUIT_IMAGES` (default `false`):
+  - `false`: tinted `ball.png` with white number text (original style)
+  - `true`: per-color fruit images (`Red.png`, `Green.png`, `Purple.png`, `Blue.png`, `Pink.png`) drawn white, black number text in center slot
 
 **Game State:**
 - Centralized in `game.lua` module-level variables
@@ -261,12 +263,14 @@ Key settings in `layout.lua`:
 - `BUTTON_AREA_Y`, `BUTTON_WIDTH`, `BUTTON_HEIGHT` - Button layout at bottom
 - `FONT_SIZE` - UI font size
 - `SOUND_TOGGLE_SIZE`, `SOUND_TOGGLE_MARGIN`, `SOUND_TOGGLE_Y` - Sound toggle button layout
+- `USE_FRUIT_IMAGES` - Coin style toggle: `false` = tinted ball.png (default), `true` = per-color fruit images
 
 **Progressive Grid Scaling:**
 - `layout.getColumnStep(num_columns)` - Calculate column step for dynamic grid size: `floor(VW / (num_columns + 1))`
-- `layout.getGridMetrics(cols, rows)` - Compute all sizing from grid dimensions: `column_step`, `coin_r`, `row_step`, `overlapping`, `two_layer`, layer offsets
-- `layout.applyMetrics(metrics)` - Write computed values to layout globals (`COIN_R`, `ROW_STEP`, `COLUMN_STEP`, `TWO_LAYER`, `LAYER_OFFSET_X/Y`)
-- `layout.slotPosition(column, slot)` - Map (column, slot) to screen (x, y, layer), accounting for two-layer mode
+- `layout.getGridMetrics(cols, rows)` - Compute all sizing from grid dimensions: `column_step`, `coin_r`, `row_step`, `overlapping`, `two_layer`, layer offsets, `multi_row`, `cols_per_row`, `row2_top_y`
+- `layout.applyMetrics(metrics)` - Write computed values to layout globals (`COIN_R`, `ROW_STEP`, `COLUMN_STEP`, `TWO_LAYER`, `LAYER_OFFSET_X/Y`, `MULTI_ROW`, `COLS_PER_ROW`, `ROW2_TOP_Y`)
+- `layout.columnPosition(column)` - Get `(x, top_y)` for a column, accounting for multi-row wrapping
+- `layout.slotPosition(column, slot)` - Map (column, slot) to screen (x, y, layer), accounting for multi-row and two-layer mode
 - Coin radius: `min(60, floor(column_step * 0.45))` — shrinks progressively with more columns
 - Row step: `min(130, floor(grid_height / (display_rows + 0.5)))` — uses visual rows in 2-layer mode
 

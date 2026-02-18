@@ -47,11 +47,21 @@ local layout = {
     SAFE_AREA_TOP = 80,     -- Status bar + notch area
     SAFE_AREA_BOTTOM = 60,  -- Home indicator area
 
+    -- Coin style: true = per-color fruit images, false = single ball.png with color tinting
+    USE_FRUIT_IMAGES = false,
+
     -- Two-layer depth mode (poker-chip stacking)
     TWO_LAYER = false,              -- active flag, set by applyMetrics
     TWO_LAYER_THRESHOLD = 8,        -- rows >= this triggers 2-layer
     LAYER_OFFSET_X = 0,             -- horizontal offset between back/front
     LAYER_OFFSET_Y = 0,             -- vertical offset between back/front
+
+    -- Multi-row column layout (wraps columns into 2 visual rows)
+    MULTI_ROW = false,              -- active flag, set by applyMetrics
+    MULTI_ROW_THRESHOLD = 7,        -- columns >= this triggers 2 rows
+    COLS_PER_ROW = 0,               -- columns in each visual row
+    ROW2_TOP_Y = 0,                 -- GRID_TOP_Y for the second row of columns
+    COLUMN_ROW_GAP = 80,            -- pixel gap between the two row bands
 }
 
 -- Calculate column step for a given number of columns
@@ -61,7 +71,12 @@ end
 
 -- Compute all grid sizing from column/row count (progressive scaling)
 function layout.getGridMetrics(cols, rows)
-    local column_step = math.floor(layout.VW / (cols + 1))
+    -- Multi-row: wrap columns into 2 rows when >= threshold
+    local multi_row = cols >= layout.MULTI_ROW_THRESHOLD
+    local cols_per_row = multi_row and math.ceil(cols / 2) or cols
+
+    -- Column step based on cols_per_row (not total) so coins stay large
+    local column_step = math.floor(layout.VW / (cols_per_row + 1))
 
     -- Coin radius: fits within column, capped at 60
     local coin_r = math.min(60, math.floor(column_step * 0.45))
@@ -69,12 +84,20 @@ function layout.getGridMetrics(cols, rows)
     -- Available grid height: from GRID_TOP_Y to BUTTON_AREA_Y minus margin
     local grid_height = layout.BUTTON_AREA_Y - layout.GRID_TOP_Y - 80
 
+    -- In multi-row mode, split height into 2 bands with a gap between them
+    local band_height = grid_height
+    local row2_top_y = 0
+    if multi_row then
+        band_height = math.floor((grid_height - layout.COLUMN_ROW_GAP) / 2)
+        row2_top_y = layout.GRID_TOP_Y + band_height + layout.COLUMN_ROW_GAP
+    end
+
     -- Two-layer mode: at 8+ rows, pair slots into visual rows (halves height)
     local two_layer = rows >= layout.TWO_LAYER_THRESHOLD
     local display_rows = two_layer and math.ceil(rows / 2) or rows
 
-    -- Row step: distribute evenly based on display rows, cap at 130
-    local row_step = math.min(130, math.floor(grid_height / (display_rows + 0.5)))
+    -- Row step: distribute evenly based on display rows, uses band_height in multi-row
+    local row_step = math.min(130, math.floor(band_height / (display_rows + 0.5)))
 
     -- Overlap: coins visually overlap when row_step < coin diameter
     local overlapping = row_step < coin_r * 2
@@ -91,6 +114,9 @@ function layout.getGridMetrics(cols, rows)
         two_layer = two_layer,
         layer_offset_x = layer_offset_x,
         layer_offset_y = layer_offset_y,
+        multi_row = multi_row,
+        cols_per_row = cols_per_row,
+        row2_top_y = row2_top_y,
     }
 end
 
@@ -102,23 +128,41 @@ function layout.applyMetrics(metrics)
     layout.TWO_LAYER = metrics.two_layer
     layout.LAYER_OFFSET_X = metrics.layer_offset_x
     layout.LAYER_OFFSET_Y = metrics.layer_offset_y
+    layout.MULTI_ROW = metrics.multi_row
+    layout.COLS_PER_ROW = metrics.cols_per_row
+    layout.ROW2_TOP_Y = metrics.row2_top_y
 end
 
--- Map (column, slot) to screen position, accounting for two-layer mode
+-- Get (x, top_y) for a column, accounting for multi-row wrapping
+-- In multi-row mode, columns beyond COLS_PER_ROW wrap to the second row band
+function layout.columnPosition(column)
+    local local_col, base_y
+    if layout.MULTI_ROW and column > layout.COLS_PER_ROW then
+        local_col = column - layout.COLS_PER_ROW
+        base_y = layout.ROW2_TOP_Y
+    else
+        local_col = column
+        base_y = layout.GRID_TOP_Y
+    end
+    local x = layout.GRID_LEFT_OFFSET + layout.COLUMN_STEP * local_col
+    return x, base_y
+end
+
+-- Map (column, slot) to screen position, accounting for multi-row and two-layer mode
 -- Returns x, y, layer (0=back, 1=front; always 0 in normal mode)
 function layout.slotPosition(column, slot)
-    local base_x = layout.GRID_LEFT_OFFSET + layout.COLUMN_STEP * column
+    local col_x, col_top_y = layout.columnPosition(column)
     if layout.TWO_LAYER then
         local visual_row = math.ceil(slot / 2)
         local layer = (slot - 1) % 2  -- 0=back, 1=front
-        local base_y = layout.GRID_TOP_Y + layout.ROW_STEP * visual_row
+        local base_y = col_top_y + layout.ROW_STEP * visual_row
         if layer == 0 then
-            return base_x - layout.LAYER_OFFSET_X, base_y - layout.LAYER_OFFSET_Y, 0
+            return col_x - layout.LAYER_OFFSET_X, base_y - layout.LAYER_OFFSET_Y, 0
         else
-            return base_x + layout.LAYER_OFFSET_X, base_y + layout.LAYER_OFFSET_Y, 1
+            return col_x + layout.LAYER_OFFSET_X, base_y + layout.LAYER_OFFSET_Y, 1
         end
     else
-        return base_x, layout.GRID_TOP_Y + layout.ROW_STEP * slot, 0
+        return col_x, col_top_y + layout.ROW_STEP * slot, 0
     end
 end
 

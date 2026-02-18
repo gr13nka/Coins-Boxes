@@ -70,17 +70,32 @@ function graphics.drawCoins(boxes, COLORS, skipBoxes)
   return x, y
 end
 
--- Draw a single 2048 coin at (x, y) using per-color fruit image
+-- Draw a single 2048 coin at (x, y)
+-- Uses fruit images or tinted ball depending on layout.USE_FRUIT_IMAGES
 -- Also used by animation.lua for consistent rendering
 function graphics.drawCoin2048(font, x, y, num, MAX_NUMBER, scaleOverride)
-  local coinImage = coin_utils.numberToImage(num)
-  local cImgW, cImgH = coinImage:getDimensions()
-  local cScale = (COIN_R * 2) / cImgW
-  if scaleOverride then cScale = cScale * scaleOverride end
-  love.graphics.setColor(1, 1, 1)
-  love.graphics.draw(coinImage, x, y, 0, cScale, cScale, cImgW / 2, cImgH / 2)
-  -- Number text centered in the white slot
-  love.graphics.setColor(0, 0, 0)
+  local imgW, imgH, img, scale
+  if layout.USE_FRUIT_IMAGES then
+    img = coin_utils.numberToImage(num)
+    imgW, imgH = img:getDimensions()
+    scale = (COIN_R * 2) / imgW
+    if scaleOverride then scale = scale * scaleOverride end
+    love.graphics.setColor(1, 1, 1)
+  else
+    img = ballImage
+    imgW, imgH = img:getDimensions()
+    scale = (COIN_R * 2) / imgW
+    if scaleOverride then scale = scale * scaleOverride end
+    local col = coin_utils.numberToColor(num, MAX_NUMBER)
+    love.graphics.setColor(col)
+  end
+  love.graphics.draw(img, x, y, 0, scale, scale, imgW / 2, imgH / 2)
+  -- Number text
+  if layout.USE_FRUIT_IMAGES then
+    love.graphics.setColor(0, 0, 0)
+  else
+    love.graphics.setColor(1, 1, 1)
+  end
   love.graphics.setFont(font)
   local num_str = tostring(num)
   local text_width = font:getWidth(num_str)
@@ -172,29 +187,30 @@ function graphics.drawBoxes2048(boxes, BOX_ROWS, shakeState)
       love.graphics.setColor(1, 1, 1)
     end
 
-    x = GRID_X_OFFSET + COLUMN_STEP * column + shake_offset
+    local col_x, col_top_y = layout.columnPosition(column)
+    x = col_x + shake_offset
 
     if two_layer then
       -- Two-layer mode: single wide container per column
       local visual_rows = math.ceil(BOX_ROWS / 2)
       local lx = layout.LAYER_OFFSET_X
       local ly = layout.LAYER_OFFSET_Y
-      local top = TOP_Y + ROW_STEP - COIN_R - ly - 2
+      local top = col_top_y + ROW_STEP - COIN_R - ly - 2
       local height = (visual_rows - 1) * ROW_STEP + COIN_R * 2 + ly * 2 + 4
       local width = COIN_R * 2 + lx * 2 + 4
       love.graphics.rectangle("line", x - COIN_R - lx - 2, top, width, height, 4, 4, 8)
-      y = TOP_Y + ROW_STEP * visual_rows
+      y = col_top_y + ROW_STEP * visual_rows
     elseif overlapping then
       -- Stack mode: single tall column container
-      local top = TOP_Y + ROW_STEP - COIN_R - 2
+      local top = col_top_y + ROW_STEP - COIN_R - 2
       local height = (BOX_ROWS - 1) * ROW_STEP + COIN_R * 2 + 4
       local width = COIN_R * 2 + 4
       love.graphics.rectangle("line", x - COIN_R - 2, top, width, height, 4, 4, 8)
-      y = TOP_Y + ROW_STEP * BOX_ROWS
+      y = col_top_y + ROW_STEP * BOX_ROWS
     else
       -- Normal mode: draw individual cell rectangles
       for row = 1, BOX_ROWS do
-        y = TOP_Y + ROW_STEP * row
+        y = col_top_y + ROW_STEP * row
         love.graphics.rectangle("line", x-COIN_R-2, y-COIN_R-2, COIN_R*2+4, COIN_R*2+4, 2, 2, 8)
       end
     end

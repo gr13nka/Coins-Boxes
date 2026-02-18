@@ -86,7 +86,8 @@ function love.load()
   -- Fonts
   font = love.graphics.newFont("comic shanns.otf", layout.FONT_SIZE)
   love.graphics.setFont(font)
-  coinNumberFont = love.graphics.newFont("comic shanns.otf", math.floor(layout.COIN_R * 0.7))
+  local fontScale = layout.USE_FRUIT_IMAGES and 0.7 or 1.2
+  coinNumberFont = love.graphics.newFont("comic shanns.otf", math.floor(layout.COIN_R * fontScale))
 
   -- Initialize particle system
   particles.init()

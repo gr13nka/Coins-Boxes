@@ -373,10 +373,10 @@ local function drawHammerOverlay()
   local state = game_2048.getState()
   -- Red tint overlay on each column
   for col_idx, box in ipairs(state.boxes) do
-    local col_x = layout.GRID_LEFT_OFFSET + layout.COLUMN_STEP * col_idx
+    local col_x, col_top_y = layout.columnPosition(col_idx)
     local col_w = layout.COIN_R * 2 + 20
     local col_h = layout.ROW_STEP * state.BOX_ROWS + 40
-    local col_top = layout.GRID_TOP_Y + layout.ROW_STEP - 20
+    local col_top = col_top_y + layout.ROW_STEP - 20
     love.graphics.setColor(1, 0.1, 0.1, 0.15)
     love.graphics.rectangle("fill", col_x - col_w/2, col_top, col_w, col_h, 8, 8)
   end
@@ -498,7 +498,8 @@ function game_2048_screen.enter()
   TOP_Y = layout.GRID_TOP_Y
 
   -- Recreate coin number font to match new COIN_R
-  coinNumberFont = love.graphics.newFont("comic shanns.otf", math.floor(layout.COIN_R * 0.7))
+  local fontScale = layout.USE_FRUIT_IMAGES and 0.7 or 1.2
+  coinNumberFont = love.graphics.newFont("comic shanns.otf", math.floor(layout.COIN_R * fontScale))
 
   game_2048.init()
   currency.startRun()

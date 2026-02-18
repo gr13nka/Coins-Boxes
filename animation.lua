@@ -185,7 +185,7 @@ function animation.startMerge(merge_data, callback, boxMergeCallback, particlesR
 
         -- Calculate box center X (use custom if provided, otherwise default grid)
         if not box_data.center_x then
-            box_data.center_x = layout.GRID_LEFT_OFFSET + layout.COLUMN_STEP * box_data.box_idx
+            box_data.center_x = (layout.columnPosition(box_data.box_idx))
         end
 
         -- Get number of coins in this box
@@ -731,11 +731,20 @@ function animation.drawDealing(ballImage, COLORS, font)
             local rotation = coin_data.rotation or 0
 
             if dealing_mode == "2048" and coin_utils.isCoin(coin_data.coin) then
-                -- 2048 mode: per-color fruit image with rotation
-                local coinImage = coin_utils.numberToImage(coin_data.coin.number)
-                local cImgW, cImgH = coinImage:getDimensions()
-                local cScale = (layout.COIN_R * 2) / cImgW * coinScale
-                love.graphics.setColor(1, 1, 1)
+                -- 2048 mode: fruit image or tinted ball depending on config
+                local num = coin_data.coin.number
+                local coinImage, cImgW, cImgH, cScale
+                if layout.USE_FRUIT_IMAGES then
+                    coinImage = coin_utils.numberToImage(num)
+                    cImgW, cImgH = coinImage:getDimensions()
+                    cScale = (layout.COIN_R * 2) / cImgW * coinScale
+                    love.graphics.setColor(1, 1, 1)
+                else
+                    coinImage = ballImage
+                    cImgW, cImgH = coinImage:getDimensions()
+                    cScale = (layout.COIN_R * 2) / cImgW * coinScale
+                    love.graphics.setColor(coin_utils.numberToColor(num, 50))
+                end
                 love.graphics.draw(coinImage, x, y, rotation, cScale, cScale, cImgW / 2, cImgH / 2)
 
                 -- Draw number rotated with coin
@@ -743,9 +752,13 @@ function animation.drawDealing(ballImage, COLORS, font)
                     love.graphics.push()
                     love.graphics.translate(x, y)
                     love.graphics.rotate(rotation)
-                    love.graphics.setColor(0, 0, 0)
+                    if layout.USE_FRUIT_IMAGES then
+                        love.graphics.setColor(0, 0, 0)
+                    else
+                        love.graphics.setColor(1, 1, 1)
+                    end
                     love.graphics.setFont(font)
-                    local num_str = tostring(coin_data.coin.number)
+                    local num_str = tostring(num)
                     local text_width = font:getWidth(num_str)
                     local text_height = font:getHeight()
                     love.graphics.print(num_str, -text_width / 2, -text_height / 2)

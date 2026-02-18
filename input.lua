@@ -37,20 +37,47 @@ function input.boxAt(x, y, boxes, top_y)
 end
 
 --- Determine which box column was clicked (for 2048 mode)
--- Same logic as boxAt, but uses state.boxes from game_2048
+-- Handles multi-row layout: determines band from y, then snaps x to column
 -- @param x Click x coordinate (game space)
 -- @param y Click y coordinate (game space)
 -- @param boxes The boxes array to check column count
 -- @param top_y The bottom-most y coordinate of the grid
 -- @return Column index (1-based) or nil if outside grid
 function input.boxAt2048(x, y, boxes, top_y)
-  local col = math.floor(((x - GRID_X_OFFSET) / COLUMN_STEP) + 0.5)
-  if col < 1 or col > #boxes then return nil end
+  if layout.MULTI_ROW then
+    local cols_per_row = layout.COLS_PER_ROW
+    local total_cols = #boxes
 
-  local y_min = TOP_Y - 10
-  if y < y_min - 10 or y > top_y + 10 then return nil end
+    -- Determine which band based on y (midpoint of gap as boundary)
+    local band_boundary = layout.ROW2_TOP_Y - layout.COLUMN_ROW_GAP / 2
+    local col_offset, max_col
 
-  return col
+    if y < band_boundary then
+      -- Band 1
+      col_offset = 0
+      max_col = cols_per_row
+      if y < TOP_Y - 20 then return nil end
+    else
+      -- Band 2
+      col_offset = cols_per_row
+      max_col = total_cols - cols_per_row
+      if y < layout.ROW2_TOP_Y - 20 then return nil end
+    end
+
+    -- Snap x to nearest column (same spacing for both bands)
+    local local_col = math.floor(((x - GRID_X_OFFSET) / COLUMN_STEP) + 0.5)
+    if local_col < 1 or local_col > max_col then return nil end
+
+    return col_offset + local_col
+  else
+    local col = math.floor(((x - GRID_X_OFFSET) / COLUMN_STEP) + 0.5)
+    if col < 1 or col > #boxes then return nil end
+
+    local y_min = TOP_Y - 10
+    if y < y_min - 10 or y > top_y + 10 then return nil end
+
+    return col
+  end
 end
 
 --- Check if point is inside a rectangular button
