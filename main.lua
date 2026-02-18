@@ -12,6 +12,7 @@ local input = require("input")
 local mobile = require("mobile")
 local currency = require("currency")
 local upgrades = require("upgrades")
+local powerups = require("powerups")
 
 utils.debug_stuff1()
 
@@ -62,6 +63,7 @@ function love.load()
   progression.init(true)  -- true = enable persistence
   currency.init()
   upgrades.init()
+  powerups.init()
   sound.init()
   windowSetup()
 
@@ -148,6 +150,7 @@ function love.keypressed(key, scancode, isrepeat)
     progression.reset()
     currency.init()
     upgrades.init()
+    powerups.init()
     screens.switch("game_2048")
     return
   end

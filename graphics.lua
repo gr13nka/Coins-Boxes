@@ -21,6 +21,15 @@ local bgNumber = 60
 local bgScrollX, bgScrollY = 0, 0
 local BG_SCALE = 3
 
+--- Refresh cached layout values (call after layout.applyMetrics)
+function graphics.updateMetrics()
+  TOP_Y = layout.GRID_TOP_Y
+  COIN_R = layout.COIN_R
+  ROW_STEP = layout.ROW_STEP
+  COLUMN_STEP = layout.COLUMN_STEP
+  GRID_X_OFFSET = layout.GRID_LEFT_OFFSET
+end
+
 --- Initialize the graphics module
 -- @param ball_img The ball/coin sprite image
 function graphics.init(ball_img)
@@ -102,6 +111,19 @@ function graphics.drawCoins(boxes, COLORS, skipBoxes)
   return x, y
 end
 
+-- Helper: draw a single 2048 coin at (x, y)
+local function drawCoin2048(imgW, imgH, spriteScale, font, x, y, num, MAX_NUMBER)
+  local col = coin_utils.numberToColor(num, MAX_NUMBER)
+  love.graphics.setColor(col)
+  love.graphics.draw(ballImage, x, y, 0, spriteScale, spriteScale, imgW/2, imgH/2)
+  love.graphics.setColor(1, 1, 1)
+  love.graphics.setFont(font)
+  local num_str = tostring(num)
+  local text_width = font:getWidth(num_str)
+  local text_height = font:getHeight()
+  love.graphics.print(num_str, x - text_width / 2, y - text_height / 2)
+end
+
 --- Draw all coins for 2048 mode (with numbers)
 -- @param boxes Array of box arrays containing {number=N} coin objects
 -- @param MAX_NUMBER Maximum possible coin number (for color mapping)
@@ -114,27 +136,30 @@ function graphics.drawCoins2048(boxes, MAX_NUMBER, font, skipBoxes)
   local x, y
   skipBoxes = skipBoxes or {}
 
-  for column, box in ipairs(boxes) do
-    -- Skip boxes that are being animated
-    if not skipBoxes[column] then
-      for row, coin in ipairs(box) do
-        local num = coin_utils.getCoinNumber(coin)
-        local col = coin_utils.numberToColor(num, MAX_NUMBER)
-
-        x = GRID_X_OFFSET + COLUMN_STEP * column
-        y = TOP_Y + ROW_STEP * row
-
-        -- Draw coin sprite
-        love.graphics.setColor(col)
-        love.graphics.draw(ballImage, x, y, 0, spriteScale, spriteScale, imgW/2, imgH/2)
-
-        -- Draw number on coin
-        love.graphics.setColor(1, 1, 1)
-        love.graphics.setFont(font)
-        local num_str = tostring(num)
-        local text_width = font:getWidth(num_str)
-        local text_height = font:getHeight()
-        love.graphics.print(num_str, x - text_width / 2, y - text_height / 2)
+  if layout.TWO_LAYER then
+    -- Two-pass rendering: back layer first, then front layer (proper z-order)
+    for layer = 0, 1 do
+      for column, box in ipairs(boxes) do
+        if not skipBoxes[column] then
+          for slot, coin in ipairs(box) do
+            local slot_layer = (slot - 1) % 2
+            if slot_layer == layer then
+              local num = coin_utils.getCoinNumber(coin)
+              x, y = layout.slotPosition(column, slot)
+              drawCoin2048(imgW, imgH, spriteScale, font, x, y, num, MAX_NUMBER)
+            end
+          end
+        end
+      end
+    end
+  else
+    for column, box in ipairs(boxes) do
+      if not skipBoxes[column] then
+        for row, coin in ipairs(box) do
+          local num = coin_utils.getCoinNumber(coin)
+          x, y = layout.slotPosition(column, row)
+          drawCoin2048(imgW, imgH, spriteScale, font, x, y, num, MAX_NUMBER)
+        end
       end
     end
   end
@@ -168,6 +193,8 @@ end
 -- @return top_x, top_y The coordinates of the last drawn cell
 function graphics.drawBoxes2048(boxes, BOX_ROWS, shakeState)
   local x, y
+  local overlapping = ROW_STEP < COIN_R * 2
+  local two_layer = layout.TWO_LAYER
 
   for column = 1, #boxes do
     -- Apply shake offset if this box is shaking
@@ -176,18 +203,38 @@ function graphics.drawBoxes2048(boxes, BOX_ROWS, shakeState)
       shake_offset = math.sin(shakeState.time * 50) * 8 * (1 - shakeState.time / shakeState.duration)
     end
 
-    for row = 1, BOX_ROWS do
-      x = GRID_X_OFFSET + COLUMN_STEP * column + shake_offset
-      y = TOP_Y + ROW_STEP * row
+    -- Red color if shaking, white otherwise
+    if shakeState.active and shakeState.box_index == column then
+      love.graphics.setColor(1, 0.3, 0.3)
+    else
+      love.graphics.setColor(1, 1, 1)
+    end
 
-      -- Red color if shaking, white otherwise
-      if shakeState.active and shakeState.box_index == column then
-        love.graphics.setColor(1, 0.3, 0.3)
-      else
-        love.graphics.setColor(1, 1, 1)
+    x = GRID_X_OFFSET + COLUMN_STEP * column + shake_offset
+
+    if two_layer then
+      -- Two-layer mode: single wide container per column
+      local visual_rows = math.ceil(BOX_ROWS / 2)
+      local lx = layout.LAYER_OFFSET_X
+      local ly = layout.LAYER_OFFSET_Y
+      local top = TOP_Y + ROW_STEP - COIN_R - ly - 2
+      local height = (visual_rows - 1) * ROW_STEP + COIN_R * 2 + ly * 2 + 4
+      local width = COIN_R * 2 + lx * 2 + 4
+      love.graphics.rectangle("line", x - COIN_R - lx - 2, top, width, height, 4, 4, 8)
+      y = TOP_Y + ROW_STEP * visual_rows
+    elseif overlapping then
+      -- Stack mode: single tall column container
+      local top = TOP_Y + ROW_STEP - COIN_R - 2
+      local height = (BOX_ROWS - 1) * ROW_STEP + COIN_R * 2 + 4
+      local width = COIN_R * 2 + 4
+      love.graphics.rectangle("line", x - COIN_R - 2, top, width, height, 4, 4, 8)
+      y = TOP_Y + ROW_STEP * BOX_ROWS
+    else
+      -- Normal mode: draw individual cell rectangles
+      for row = 1, BOX_ROWS do
+        y = TOP_Y + ROW_STEP * row
+        love.graphics.rectangle("line", x-COIN_R-2, y-COIN_R-2, COIN_R*2+4, COIN_R*2+4, 2, 2, 8)
       end
-
-      love.graphics.rectangle("line", x-COIN_R-2, y-COIN_R-2, COIN_R*2+4, COIN_R*2+4, 2, 2, 8)
     end
   end
 

@@ -23,7 +23,7 @@ local snap_crystals = {}
 -- Continue button
 local BTN_W, BTN_H = 400, 120
 local BTN_X = (VW - BTN_W) / 2
-local BTN_Y = 1900
+local BTN_Y = 1520
 
 function game_over_screen.init(assets)
   font = assets.font
@@ -61,21 +61,21 @@ function game_over_screen.draw()
 
   -- Title
   love.graphics.setColor(1, 0.3, 0.3)
-  love.graphics.printf("GAME OVER", 0, 250, VW, "center")
+  love.graphics.printf("GAME OVER", 0, 200, VW, "center")
 
   -- Score
   love.graphics.setColor(1, 1, 1)
-  love.graphics.printf("Score: " .. final_score, 0, 420, VW, "center")
+  love.graphics.printf("Score: " .. final_score, 0, 340, VW, "center")
 
   -- Shard breakdown header
   love.graphics.setColor(0.8, 0.8, 0.8)
-  love.graphics.printf("Shards Earned This Run", 0, 580, VW, "center")
+  love.graphics.printf("Shards Earned This Run", 0, 470, VW, "center")
 
   local names = coin_utils.getShardNames()
   local spc = currency.getShardsPerCrystal()
 
   -- Per-color shard rows with conversion progress
-  local row_y = 680
+  local row_y = 550
   local row_h = 90
   for i, name in ipairs(names) do
     local y = row_y + (i - 1) * row_h

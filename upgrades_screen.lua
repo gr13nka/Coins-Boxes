@@ -8,6 +8,7 @@ local layout = require("layout")
 local currency = require("currency")
 local upgrades = require("upgrades")
 local coin_utils = require("coin_utils")
+local powerups = require("powerups")
 
 local upgrades_screen = {}
 
@@ -46,27 +47,32 @@ local picker = {
 }
 
 -- Layout constants
-local CRYSTAL_Y = 100
-local HOUSE_Y = 460
+local CRYSTAL_Y = 80
+local HOUSE_Y = 370
 local HOUSE_COLS = 3
 local HOUSE_ROWS = 2
 local HOUSE_W = 280
 local HOUSE_H = 250
 local HOUSE_PAD = 30
 
-local UPGRADE_Y = 1200
+local UPGRADE_Y = 960
 local UPGRADE_BTN_W = 420
 local UPGRADE_BTN_H = 110
 local UPGRADE_PAD = 40
 
-local DIFFICULTY_Y = 1450
+local DIFFICULTY_Y = 1160
 local DIFFICULTY_ARROW_W = 90
 local DIFFICULTY_ARROW_H = 80
 local DIFFICULTY_LABEL_W = 600
 
+local POWERUP_SHOP_Y = 1280
+local POWERUP_SHOP_BTN_W = 420
+local POWERUP_SHOP_BTN_H = 110
+local POWERUP_SHOP_PAD = 40
+
 local PLAY_BTN_W = 500
 local PLAY_BTN_H = 140
-local PLAY_BTN_Y = 1800
+local PLAY_BTN_Y = 1540
 
 -- Precomputed positions
 local house_positions = {}
@@ -471,6 +477,80 @@ local function drawDifficultyToggle()
   love.graphics.printf(">", right_x, DIFFICULTY_Y + (DIFFICULTY_ARROW_H - layout.FONT_SIZE) / 2, DIFFICULTY_ARROW_W, "center")
 end
 
+-- Draw a generic cost indicator from a cost table, e.g. {red=2, green=2} or {red=1}
+local function drawCostTable(x, y, cost, affordable)
+  local alpha = affordable and 1 or 0.4
+  local dot_r = 12
+  local offset = 0
+  local first = true
+  -- Sort keys for consistent order
+  local keys = {}
+  for k in pairs(cost) do keys[#keys + 1] = k end
+  table.sort(keys)
+  for _, color in ipairs(keys) do
+    local amount = cost[color]
+    if not first then
+      love.graphics.setColor(1, 1, 1, alpha)
+      love.graphics.printf("+", x + offset, y - 14, 20, "center")
+      offset = offset + 24
+    end
+    local rgb = coin_utils.getShardRGB(color)
+    love.graphics.setColor(rgb[1], rgb[2], rgb[3], alpha)
+    love.graphics.circle("fill", x + offset, y, dot_r)
+    love.graphics.setColor(1, 1, 1, alpha)
+    love.graphics.printf(tostring(amount), x + offset + dot_r + 4, y - 14, 30, "left")
+    offset = offset + dot_r + 38
+    first = false
+  end
+end
+
+local function drawPowerupShop()
+  love.graphics.setFont(font)
+  love.graphics.setColor(0.7, 0.7, 0.7)
+  love.graphics.printf("Power-ups", 0, POWERUP_SHOP_Y - 40, VW, "center")
+
+  local total_w = POWERUP_SHOP_BTN_W * 2 + POWERUP_SHOP_PAD
+  local start_x = (VW - total_w) / 2
+
+  -- Buy Sort button
+  local sort_x = start_x
+  local sort_cost = powerups.getSortCost()
+  local sort_affordable = currency.canAfford(sort_cost)
+  local sort_count = powerups.getAutoSortCount()
+
+  if sort_affordable then
+    love.graphics.setColor(0.2, 0.4, 0.55)
+  else
+    love.graphics.setColor(0.35, 0.2, 0.2)
+  end
+  love.graphics.rectangle("fill", sort_x, POWERUP_SHOP_Y, POWERUP_SHOP_BTN_W, POWERUP_SHOP_BTN_H, 10, 10)
+
+  love.graphics.setColor(1, 1, 1, sort_affordable and 1 or 0.4)
+  love.graphics.printf("Buy Sort (x" .. sort_count .. ")",
+    sort_x, POWERUP_SHOP_Y + 12, POWERUP_SHOP_BTN_W, "center")
+
+  drawCostTable(sort_x + POWERUP_SHOP_BTN_W / 2 - 70, POWERUP_SHOP_Y + POWERUP_SHOP_BTN_H - 25, sort_cost, sort_affordable)
+
+  -- Buy Hammer button
+  local hammer_x = start_x + POWERUP_SHOP_BTN_W + POWERUP_SHOP_PAD
+  local hammer_cost = powerups.getHammerCost()
+  local hammer_affordable = currency.canAfford(hammer_cost)
+  local hammer_count = powerups.getHammerCount()
+
+  if hammer_affordable then
+    love.graphics.setColor(0.55, 0.3, 0.2)
+  else
+    love.graphics.setColor(0.35, 0.2, 0.2)
+  end
+  love.graphics.rectangle("fill", hammer_x, POWERUP_SHOP_Y, POWERUP_SHOP_BTN_W, POWERUP_SHOP_BTN_H, 10, 10)
+
+  love.graphics.setColor(1, 1, 1, hammer_affordable and 1 or 0.4)
+  love.graphics.printf("Buy Hammer (x" .. hammer_count .. ")",
+    hammer_x, POWERUP_SHOP_Y + 12, POWERUP_SHOP_BTN_W, "center")
+
+  drawCostTable(hammer_x + POWERUP_SHOP_BTN_W / 2 - 30, POWERUP_SHOP_Y + POWERUP_SHOP_BTN_H - 25, hammer_cost, hammer_affordable)
+end
+
 local function drawPlayButton()
   local x = (VW - PLAY_BTN_W) / 2
   love.graphics.setColor(0.2, 0.75, 0.3)
@@ -564,6 +644,23 @@ local function drawColorPicker()
   love.graphics.printf("Cancel", cancel_x, cancel_y + 12, 200, "center")
 end
 
+local function drawBestCoinStat()
+  local best = upgrades.getMaxCoinReached()
+  if best <= 0 then return end
+  local col = coin_utils.numberToColor(best, 50)
+  local cx = VW / 2 - 60
+  local y = 65
+
+  -- Small diamond in coin color
+  love.graphics.setColor(col[1], col[2], col[3])
+  love.graphics.polygon("fill", cx, y - 8, cx + 8, y, cx, y + 8, cx - 8, y)
+
+  -- Label
+  love.graphics.setColor(col[1], col[2], col[3], 0.9)
+  love.graphics.setFont(font)
+  love.graphics.printf("Best Coin: " .. best, cx + 14, y - 14, 200, "left")
+end
+
 function upgrades_screen.draw()
   love.graphics.clear(0.08, 0.08, 0.12)
 
@@ -571,10 +668,12 @@ function upgrades_screen.draw()
   love.graphics.setFont(font)
   love.graphics.printf("Upgrades", 0, 30, VW, "center")
 
+  drawBestCoinStat()
   drawCurrencyDisplay()
   drawHouseGrid()
   drawUpgradeButtons()
   drawDifficultyToggle()
+  drawPowerupShop()
   drawPlayButton()
   drawNotification()
   drawFlyingCrystals()
@@ -720,6 +819,37 @@ local function handleDifficultyClick(x, y)
   return false
 end
 
+local function handlePowerupShopClick(x, y)
+  local total_w = POWERUP_SHOP_BTN_W * 2 + POWERUP_SHOP_PAD
+  local start_x = (VW - total_w) / 2
+
+  -- Buy Sort
+  local sort_x = start_x
+  if x >= sort_x and x <= sort_x + POWERUP_SHOP_BTN_W
+     and y >= POWERUP_SHOP_Y and y <= POWERUP_SHOP_Y + POWERUP_SHOP_BTN_H then
+    if not currency.canAfford(powerups.getSortCost()) then
+      showNotification("Not enough crystals! Need 2 red + 2 green")
+    else
+      powerups.buyAutoSort()
+    end
+    return true
+  end
+
+  -- Buy Hammer
+  local hammer_x = start_x + POWERUP_SHOP_BTN_W + POWERUP_SHOP_PAD
+  if x >= hammer_x and x <= hammer_x + POWERUP_SHOP_BTN_W
+     and y >= POWERUP_SHOP_Y and y <= POWERUP_SHOP_Y + POWERUP_SHOP_BTN_H then
+    if not currency.canAfford(powerups.getHammerCost()) then
+      showNotification("Not enough crystals! Need 1 red")
+    else
+      powerups.buyHammer()
+    end
+    return true
+  end
+
+  return false
+end
+
 local function handlePlayClick(x, y)
   local px = (VW - PLAY_BTN_W) / 2
   if x >= px and x <= px + PLAY_BTN_W and y >= PLAY_BTN_Y and y <= PLAY_BTN_Y + PLAY_BTN_H then
@@ -740,6 +870,7 @@ function upgrades_screen.mousepressed(x, y, button)
   if handleHouseClick(x, y) then return end
   if handleUpgradeClick(x, y) then return end
   if handleDifficultyClick(x, y) then return end
+  if handlePowerupShopClick(x, y) then return end
   if handlePlayClick(x, y) then return end
 end
 

@@ -1,5 +1,6 @@
 -- animation.lua
 -- Handles coin hover (bobbing) and flight (arc) animations
+-- Dual-track system: pick/place and background (merge/deal) run independently
 
 local layout = require("layout")
 local coin_utils = require("coin_utils")
@@ -15,8 +16,13 @@ local STATE = {
     DEALING = "dealing"
 }
 
--- Module state
-local state = STATE.IDLE
+-- Dual-track state: pick/place and background can run independently
+local pick_state = STATE.IDLE   -- "idle", "hovering", "flying"
+local bg_state = STATE.IDLE     -- "idle", "merging", "dealing"
+
+-- Global animation speed multiplier (1.5 = 50% faster animations)
+local SPEED_MULT = 1.5
+
 local hovering_coins = {}     -- {coin, offset_x, phase} per coin (coin can be string or table)
 local hover_time = 0          -- Accumulated time for sine wave
 local flight_time = 0         -- 0.0 to 1.0 progress
@@ -65,7 +71,6 @@ local dealer_x, dealer_y = 0, 0       -- dealer hand position
 -- Positions
 local source_box = 0
 local hover_center_x, hover_center_y = 0, 0
-local dest_x, dest_y = 0, 0
 local dest_box_index = 0
 local dest_base_slot = 0
 
@@ -84,7 +89,7 @@ local particles_module = nil    -- Reference to particles module (set at runtime
 
 -- Start hovering animation when coins are picked up
 function animation.startHover(coins, source_box_index)
-    state = STATE.HOVERING
+    pick_state = STATE.HOVERING
     hover_time = 0
     hovering_coins = {}
     source_box = source_box_index
@@ -94,13 +99,14 @@ function animation.startHover(coins, source_box_index)
     hover_center_y = layout.GRID_TOP_Y - layout.ROW_STEP
 
     -- Spread coins horizontally with staggered bob phases
-    local total_width = (#coins - 1) * HOVER_SPREAD
+    local hover_spread = layout.COIN_R * 1.5
+    local total_width = (#coins - 1) * hover_spread
     local start_offset = -total_width / 2
 
     for i, coin_data in ipairs(coins) do
         hovering_coins[i] = {
             coin = coin_data,  -- store full coin (string for classic, table for 2048)
-            offset_x = start_offset + (i - 1) * HOVER_SPREAD,
+            offset_x = start_offset + (i - 1) * hover_spread,
             phase = (i - 1) * 0.3  -- stagger bobbing
         }
     end
@@ -112,7 +118,7 @@ end
 -- opts: optional table with {dest_x, top_y} for custom destination positions
 function animation.startFlight(dest_box_idx, dest_slot, callback, coinLandCallback, opts)
     opts = opts or {}
-    state = STATE.FLYING
+    pick_state = STATE.FLYING
     flight_time = 0
     on_flight_complete = callback
     on_coin_land = coinLandCallback
@@ -125,6 +131,16 @@ function animation.startFlight(dest_box_idx, dest_slot, callback, coinLandCallba
     flight_start_coins = {}
     for i, hcoin in ipairs(hovering_coins) do
         local bob_offset = math.sin((hover_time + hcoin.phase) * HOVER_BOB_SPEED * math.pi * 2) * HOVER_BOB_AMPLITUDE
+        local coin_slot = dest_slot + (i - 1)
+        -- Pre-compute per-coin destination (accounts for 2-layer offsets)
+        local coin_dest_x, coin_dest_y
+        if opts.dest_x then
+            coin_dest_x = opts.dest_x
+            local base_top_y = opts.top_y or layout.GRID_TOP_Y
+            coin_dest_y = base_top_y + layout.ROW_STEP * coin_slot
+        else
+            coin_dest_x, coin_dest_y = layout.slotPosition(dest_box_idx, coin_slot)
+        end
         flight_start_coins[i] = {
             x = hover_center_x + hcoin.offset_x,
             y = hover_center_y + bob_offset,
@@ -132,13 +148,11 @@ function animation.startFlight(dest_box_idx, dest_slot, callback, coinLandCallba
             offset_x = hcoin.offset_x,
             start_delay = (i - 1) * DROP_DELAY,  -- stagger start times
             landed = false,
-            dest_slot = dest_slot + (i - 1),      -- each coin goes to next slot down
-            custom_top_y = opts.top_y             -- optional custom top_y
+            dest_slot = coin_slot,
+            dest_x = coin_dest_x,
+            dest_y = coin_dest_y,
         }
     end
-
-    -- Calculate destination X (use custom or default)
-    dest_x = opts.dest_x or (layout.GRID_LEFT_OFFSET + layout.COLUMN_STEP * dest_box_idx)
 end
 
 -- Start merge animation for multiple boxes
@@ -152,7 +166,7 @@ function animation.startMerge(merge_data, callback, boxMergeCallback, particlesR
         return
     end
 
-    state = STATE.MERGING
+    bg_state = STATE.MERGING
     merge_boxes = merge_data
     merge_time = 0
     current_merge_box = 1
@@ -168,22 +182,30 @@ function animation.startMerge(merge_data, callback, boxMergeCallback, particlesR
         box_data.phase = "waiting"
         box_data.phase_time = 0
 
-        -- Calculate box X position (use custom if provided, otherwise default grid)
+        -- Calculate box center X (use custom if provided, otherwise default grid)
         if not box_data.center_x then
             box_data.center_x = layout.GRID_LEFT_OFFSET + layout.COLUMN_STEP * box_data.box_idx
         end
-
-        -- Use custom top_y if provided, otherwise default
-        local base_top_y = box_data.top_y or layout.GRID_TOP_Y
 
         -- Get number of coins in this box
         local num_coins = #box_data.coins
         box_data.num_coins = num_coins
 
-        -- Slot Y positions for all coins (1=top, N=bottom)
+        -- Slot positions for all coins (using layout.slotPosition for 2-layer support)
+        box_data.slot_x = {}
         box_data.slot_y = {}
-        for slot = 1, num_coins do
-            box_data.slot_y[slot] = base_top_y + layout.ROW_STEP * slot
+        if box_data.top_y then
+            -- Custom positions (e.g. dev mode) - no 2-layer
+            for slot = 1, num_coins do
+                box_data.slot_x[slot] = box_data.center_x
+                box_data.slot_y[slot] = box_data.top_y + layout.ROW_STEP * slot
+            end
+        else
+            for slot = 1, num_coins do
+                local sx, sy = layout.slotPosition(box_data.box_idx, slot)
+                box_data.slot_x[slot] = sx
+                box_data.slot_y[slot] = sy
+            end
         end
 
         -- Track which coins are still visible (bottom coin starts sliding first)
@@ -195,7 +217,8 @@ function animation.startMerge(merge_data, callback, boxMergeCallback, particlesR
         -- Current slide step (1 = bottom slides to second-from-bottom, etc.)
         -- Total slides needed = num_coins - 1
         box_data.current_slide = 0
-        box_data.sliding_coin_y = box_data.slot_y[num_coins]  -- start at bottom
+        box_data.sliding_coin_x = box_data.slot_x[num_coins]  -- start at bottom
+        box_data.sliding_coin_y = box_data.slot_y[num_coins]
         box_data.merged_scale = 1.0
     end
 end
@@ -212,7 +235,7 @@ function animation.startDealing(coins_to_deal, mode, callback, coinLandCallback,
         return
     end
 
-    state = STATE.DEALING
+    bg_state = STATE.DEALING
     dealing_coins = {}
     dealing_time = 0
     dealing_mode = mode or "classic"
@@ -227,9 +250,14 @@ function animation.startDealing(coins_to_deal, mode, callback, coinLandCallback,
 
     -- Initialize each coin with dealer-style flight parameters
     for i, coin_data in ipairs(coins_to_deal) do
-        -- Calculate destination position (use custom if provided, otherwise default grid)
-        local dest_x = coin_data.dest_x or (layout.GRID_LEFT_OFFSET + layout.COLUMN_STEP * coin_data.dest_box_idx)
-        local dest_y = coin_data.dest_y or (layout.GRID_TOP_Y + layout.ROW_STEP * coin_data.dest_slot)
+        -- Calculate destination position (use custom if provided, otherwise slotPosition for 2-layer)
+        local dest_x, dest_y
+        if coin_data.dest_x then
+            dest_x = coin_data.dest_x
+            dest_y = coin_data.dest_y or (layout.GRID_TOP_Y + layout.ROW_STEP * coin_data.dest_slot)
+        else
+            dest_x, dest_y = layout.slotPosition(coin_data.dest_box_idx, coin_data.dest_slot)
+        end
 
         dealing_coins[i] = {
             coin = coin_data.coin,
@@ -255,19 +283,18 @@ end
 
 -- Get position of a coin during animation
 local function getCoinPosition(index)
-    if state == STATE.HOVERING then
+    if pick_state == STATE.HOVERING then
         local coin = hovering_coins[index]
         -- Bobbing: sine wave motion
         local bob_offset = math.sin((hover_time + coin.phase) * HOVER_BOB_SPEED * math.pi * 2) * HOVER_BOB_AMPLITUDE
         return hover_center_x + coin.offset_x, hover_center_y + bob_offset
 
-    elseif state == STATE.FLYING then
+    elseif pick_state == STATE.FLYING then
         local coin = flight_start_coins[index]
 
         -- If coin has landed, return its final position
         if coin.landed then
-            local final_y = layout.GRID_TOP_Y + layout.ROW_STEP * coin.dest_slot
-            return dest_x, final_y
+            return coin.dest_x, coin.dest_y
         end
 
         -- Calculate this coin's individual progress (accounting for stagger delay)
@@ -286,16 +313,16 @@ local function getCoinPosition(index)
         local start_x = coin.x
         local start_y = coin.y
 
-        -- Destination Y for this specific coin (use custom top_y if set)
-        local base_top_y = coin.custom_top_y or layout.GRID_TOP_Y
-        local coin_dest_y = base_top_y + layout.ROW_STEP * coin.dest_slot
+        -- Per-coin destination (pre-computed with 2-layer support)
+        local coin_dest_x = coin.dest_x
+        local coin_dest_y = coin.dest_y
 
         -- Control point for arc (midpoint, elevated)
-        local mid_x = (start_x + dest_x) / 2
+        local mid_x = (start_x + coin_dest_x) / 2
         local mid_y = math.min(start_y, coin_dest_y) - FLIGHT_ARC_HEIGHT
 
         -- Quadratic bezier: B(t) = (1-t)^2*P0 + 2(1-t)t*P1 + t^2*P2
-        local x = (1 - t_eased) * (1 - t_eased) * start_x + 2 * (1 - t_eased) * t_eased * mid_x + t_eased * t_eased * dest_x
+        local x = (1 - t_eased) * (1 - t_eased) * start_x + 2 * (1 - t_eased) * t_eased * mid_x + t_eased * t_eased * coin_dest_x
         local y = (1 - t_eased) * (1 - t_eased) * start_y + 2 * (1 - t_eased) * t_eased * mid_y + t_eased * t_eased * coin_dest_y
 
         -- Converge coins horizontally as they approach destination
@@ -310,10 +337,19 @@ end
 
 -- Update animation each frame
 function animation.update(dt)
-    if state == STATE.HOVERING then
+    dt = dt * SPEED_MULT
+
+    -- Always decay screen shake (shared by merge and dealing)
+    if screen_shake_time > 0 then
+        screen_shake_time = screen_shake_time - dt
+        if screen_shake_time < 0 then screen_shake_time = 0 end
+    end
+
+    -- === Pick/place track ===
+    if pick_state == STATE.HOVERING then
         hover_time = hover_time + dt
 
-    elseif state == STATE.FLYING then
+    elseif pick_state == STATE.FLYING then
         flight_time = flight_time + dt
 
         -- Check each coin for landing
@@ -335,7 +371,7 @@ function animation.update(dt)
 
         -- Check if all coins have landed
         if coins_landed >= #flight_start_coins then
-            state = STATE.IDLE
+            pick_state = STATE.IDLE
 
             -- Execute final callback
             if on_flight_complete then
@@ -347,15 +383,11 @@ function animation.update(dt)
             hovering_coins = {}
             flight_start_coins = {}
         end
+    end
 
-    elseif state == STATE.MERGING then
+    -- === Background track ===
+    if bg_state == STATE.MERGING then
         merge_time = merge_time + dt
-
-        -- Update screen shake
-        if screen_shake_time > 0 then
-            screen_shake_time = screen_shake_time - dt
-            if screen_shake_time < 0 then screen_shake_time = 0 end
-        end
 
         local all_done = true
 
@@ -371,6 +403,7 @@ function animation.update(dt)
                     box_data.phase = "slide"
                     box_data.phase_time = 0
                     box_data.current_slide = 1
+                    box_data.sliding_coin_x = box_data.slot_x[num_coins]
                     box_data.sliding_coin_y = box_data.slot_y[num_coins]  -- start at bottom
                 end
 
@@ -387,6 +420,8 @@ function animation.update(dt)
 
                     local t = math.min(box_data.phase_time / MERGE_SLIDE_DURATION, 1)
                     local eased = 1 - (1 - t) * (1 - t)  -- ease-out
+                    box_data.sliding_coin_x = box_data.slot_x[from_slot] +
+                        (box_data.slot_x[to_slot] - box_data.slot_x[from_slot]) * eased
                     box_data.sliding_coin_y = box_data.slot_y[from_slot] +
                         (box_data.slot_y[to_slot] - box_data.slot_y[from_slot]) * eased
 
@@ -397,6 +432,7 @@ function animation.update(dt)
                         -- Hide the coins that just merged
                         box_data.coins_visible[from_slot] = false
                         box_data.coins_visible[to_slot] = false
+                        box_data.sliding_coin_x = box_data.slot_x[to_slot]
                         box_data.sliding_coin_y = box_data.slot_y[to_slot]
 
                         -- Particles and shake! (intensity increases with each merge)
@@ -412,7 +448,7 @@ function animation.update(dt)
 
                         if particles_module then
                             particles_module.spawnMergeExplosion(
-                                box_data.center_x, box_data.slot_y[to_slot], particle_color
+                                box_data.slot_x[to_slot], box_data.slot_y[to_slot], particle_color
                             )
                         end
                         screen_shake_time = SHAKE_DURATION
@@ -434,7 +470,7 @@ function animation.update(dt)
                             -- Final explosion with new color!
                             if particles_module then
                                 particles_module.spawnMergeExplosion(
-                                    box_data.center_x, box_data.slot_y[1], box_data.new_color
+                                    box_data.slot_x[1], box_data.slot_y[1], box_data.new_color
                                 )
                             end
                         else
@@ -461,7 +497,7 @@ function animation.update(dt)
 
         -- Check if all boxes are done
         if all_done then
-            state = STATE.IDLE
+            bg_state = STATE.IDLE
             screen_shake_time = 0
             if on_merge_complete then
                 on_merge_complete()
@@ -472,14 +508,8 @@ function animation.update(dt)
             particles_module = nil
         end
 
-    elseif state == STATE.DEALING then
+    elseif bg_state == STATE.DEALING then
         dealing_time = dealing_time + dt
-
-        -- Update screen shake
-        if screen_shake_time > 0 then
-            screen_shake_time = screen_shake_time - dt
-            if screen_shake_time < 0 then screen_shake_time = 0 end
-        end
 
         local all_done = true
 
@@ -566,7 +596,7 @@ function animation.update(dt)
 
         -- Check if all coins are done
         if all_done then
-            state = STATE.IDLE
+            bg_state = STATE.IDLE
             screen_shake_time = 0
             if on_dealing_complete then
                 on_dealing_complete()
@@ -584,7 +614,7 @@ end
 -- mode: "classic" or "2048" (optional, default "classic")
 -- font: font for drawing numbers in 2048 mode (optional)
 function animation.draw(ballImage, COLORS, mode, font)
-    if state == STATE.IDLE then
+    if pick_state == STATE.IDLE then
         return
     end
 
@@ -592,7 +622,7 @@ function animation.draw(ballImage, COLORS, mode, font)
     local imgW, imgH = ballImage:getDimensions()
     local spriteScale = (layout.COIN_R * 2) / imgW
 
-    local coins_to_draw = (state == STATE.HOVERING) and hovering_coins or flight_start_coins
+    local coins_to_draw = (pick_state == STATE.HOVERING) and hovering_coins or flight_start_coins
 
     for i, anim_coin in ipairs(coins_to_draw) do
         -- Skip coins that have already landed (they're now in boxes array)
@@ -627,7 +657,7 @@ end
 
 -- Draw merge animation (coins sliding up one by one)
 function animation.drawMerge(ballImage, font)
-    if state ~= STATE.MERGING then return end
+    if bg_state ~= STATE.MERGING then return end
 
     local imgW, imgH = ballImage:getDimensions()
     local base_scale = (layout.COIN_R * 2) / imgW
@@ -649,7 +679,7 @@ function animation.drawMerge(ballImage, font)
             for slot = 1, box_data.num_coins do
                 if box_data.coins_visible[slot] then
                     love.graphics.setColor(box_data.color)
-                    love.graphics.draw(ballImage, box_data.center_x, box_data.slot_y[slot],
+                    love.graphics.draw(ballImage, box_data.slot_x[slot], box_data.slot_y[slot],
                         0, base_scale, base_scale, imgW / 2, imgH / 2)
 
                     if font then
@@ -659,7 +689,7 @@ function animation.drawMerge(ballImage, font)
                         local text_width = font:getWidth(num_str)
                         local text_height = font:getHeight()
                         love.graphics.print(num_str,
-                            box_data.center_x - text_width / 2,
+                            box_data.slot_x[slot] - text_width / 2,
                             box_data.slot_y[slot] - text_height / 2)
                     end
                 end
@@ -669,7 +699,7 @@ function animation.drawMerge(ballImage, font)
             if phase == "slide" or phase == "impact" then
                 -- Use progressive color/number for sliding coin
                 love.graphics.setColor(current_color)
-                love.graphics.draw(ballImage, box_data.center_x, box_data.sliding_coin_y,
+                love.graphics.draw(ballImage, box_data.sliding_coin_x, box_data.sliding_coin_y,
                     0, base_scale, base_scale, imgW / 2, imgH / 2)
 
                 if font then
@@ -679,7 +709,7 @@ function animation.drawMerge(ballImage, font)
                     local text_width = font:getWidth(num_str)
                     local text_height = font:getHeight()
                     love.graphics.print(num_str,
-                        box_data.center_x - text_width / 2,
+                        box_data.sliding_coin_x - text_width / 2,
                         box_data.sliding_coin_y - text_height / 2)
                 end
             end
@@ -689,7 +719,7 @@ function animation.drawMerge(ballImage, font)
                 local scale = box_data.merged_scale
 
                 love.graphics.setColor(box_data.new_color)
-                love.graphics.draw(ballImage, box_data.center_x, box_data.slot_y[1],
+                love.graphics.draw(ballImage, box_data.slot_x[1], box_data.slot_y[1],
                     0, base_scale * scale, base_scale * scale, imgW / 2, imgH / 2)
 
                 if font then
@@ -699,7 +729,7 @@ function animation.drawMerge(ballImage, font)
                     local text_width = font:getWidth(num_str)
                     local text_height = font:getHeight()
                     love.graphics.print(num_str,
-                        box_data.center_x - text_width / 2,
+                        box_data.slot_x[1] - text_width / 2,
                         box_data.slot_y[1] - text_height / 2)
                 end
             end
@@ -713,7 +743,7 @@ end
 -- COLORS: color lookup table for classic mode
 -- font: font for drawing numbers in 2048 mode
 function animation.drawDealing(ballImage, COLORS, font)
-    if state ~= STATE.DEALING then return end
+    if bg_state ~= STATE.DEALING then return end
 
     local imgW, imgH = ballImage:getDimensions()
     local base_scale = (layout.COIN_R * 2) / imgW
@@ -770,28 +800,28 @@ end
 
 -- Query functions
 function animation.isAnimating()
-    return state ~= STATE.IDLE
+    return pick_state ~= STATE.IDLE or bg_state ~= STATE.IDLE
 end
 
 function animation.isHovering()
-    return state == STATE.HOVERING
+    return pick_state == STATE.HOVERING
 end
 
 function animation.isFlying()
-    return state == STATE.FLYING
+    return pick_state == STATE.FLYING
 end
 
 function animation.isMerging()
-    return state == STATE.MERGING
+    return bg_state == STATE.MERGING
 end
 
 function animation.isDealing()
-    return state == STATE.DEALING
+    return bg_state == STATE.DEALING
 end
 
 -- Get table of {box_idx = slot} for coins currently being dealt (for hiding duplicates)
 function animation.getDealingSlots()
-    if state ~= STATE.DEALING then return {} end
+    if bg_state ~= STATE.DEALING then return {} end
 
     local slots = {}
     for _, coin_data in ipairs(dealing_coins) do
@@ -806,9 +836,9 @@ function animation.getDealingSlots()
     return slots
 end
 
--- Get list of box indices currently being animated (for hiding static coins)
+-- Get list of box indices currently being animated (for hiding static coins during draw)
 function animation.getMergingBoxIndices()
-    if state ~= STATE.MERGING then return {} end
+    if bg_state ~= STATE.MERGING then return {} end
 
     local indices = {}
     for _, box_data in ipairs(merge_boxes) do
@@ -821,6 +851,20 @@ function animation.getMergingBoxIndices()
     return indices
 end
 
+-- Get list of box indices locked by merge (includes waiting — for input blocking)
+-- Boxes whose merge hasn't completed yet should not be interacted with
+function animation.getMergeLockedBoxes()
+    if bg_state ~= STATE.MERGING then return {} end
+
+    local locked = {}
+    for _, box_data in ipairs(merge_boxes) do
+        if box_data.phase ~= "done" then
+            locked[box_data.box_idx] = true
+        end
+    end
+    return locked
+end
+
 -- Get coin data of hovering coins (returns array of coin data - strings or tables)
 function animation.getHoveringCoins()
     local coins = {}
@@ -830,9 +874,9 @@ function animation.getHoveringCoins()
     return coins
 end
 
--- Cancel animation and reset to idle
+-- Cancel pick/place animation and reset to idle
 function animation.cancel()
-    state = STATE.IDLE
+    pick_state = STATE.IDLE
     hovering_coins = {}
     flight_start_coins = {}
     on_flight_complete = nil
@@ -846,7 +890,7 @@ end
 -- Split hovering coins: keep first N for placing, return the rest
 -- Returns array of coins that were removed (to be returned to source)
 function animation.splitHoveringCoins(keep_count)
-    if state ~= STATE.HOVERING then
+    if pick_state ~= STATE.HOVERING then
         return {}
     end
 
@@ -859,10 +903,11 @@ function animation.splitHoveringCoins(keep_count)
     end
 
     -- Recalculate horizontal spread for remaining coins
-    local total_width = (#hovering_coins - 1) * HOVER_SPREAD
+    local hover_spread = layout.COIN_R * 1.5
+    local total_width = (#hovering_coins - 1) * hover_spread
     local start_offset = -total_width / 2
     for i, hcoin in ipairs(hovering_coins) do
-        hcoin.offset_x = start_offset + (i - 1) * HOVER_SPREAD
+        hcoin.offset_x = start_offset + (i - 1) * hover_spread
     end
 
     return removed_coins

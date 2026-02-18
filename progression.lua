@@ -47,6 +47,12 @@ local function getDefaultData()
       crystals = {red = 0, green = 0, purple = 0, blue = 0, pink = 0},
     },
 
+    -- Power-ups: consumable counts
+    powerups_data = {
+      auto_sort = 100,
+      hammer = 100,
+    },
+
     -- Upgrades: rows, columns, houses
     upgrades_data = {
       extra_rows = 0,
@@ -502,6 +508,14 @@ end
 
 function progression.setUpgradesData(d)
   data.upgrades_data = d
+end
+
+function progression.getPowerupsData()
+  return data.powerups_data
+end
+
+function progression.setPowerupsData(d)
+  data.powerups_data = d
 end
 
 return progression

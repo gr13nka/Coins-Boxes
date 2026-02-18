@@ -218,11 +218,11 @@ function mode_select.draw()
     local merges = progression.getStat("total_merges")
     local points = progression.getStat("total_points")
     love.graphics.printf(string.format("Total Merges: %d  |  Total Points: %d", merges, points),
-        0, 1500, VW, "center")
+        0, 1200, VW, "center")
 
     -- Footer hint
     love.graphics.setColor(0.5, 0.5, 0.5)
-    love.graphics.printf("Press \\ to quit", 0, 2200, VW, "center")
+    love.graphics.printf("Press \\ to quit", 0, 1760, VW, "center")
 end
 
 function mode_select.mousepressed(x, y, button)

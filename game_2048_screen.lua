@@ -14,6 +14,7 @@ local progression = require("progression")
 local mobile = require("mobile")
 local currency = require("currency")
 local upgrades = require("upgrades")
+local powerups = require("powerups")
 
 local game_2048_screen = {}
 
@@ -58,9 +59,125 @@ local buttonState = {
 local BUTTON_PRESS_SCALE = 0.85
 local BUTTON_ANIM_SPEED = 12
 
+-- Power-up button layout
+local POWERUP_Y = layout.BUTTON_AREA_Y + 150
+local POWERUP_BTN_W = 350
+local POWERUP_BTN_H = 80
+local POWERUP_SPACING = 40
+local SORT_BTN_X, HAMMER_BTN_X
+
+-- Power-up state
+local hammer_mode = false
+
+-- Power-up button animation state
+local powerupButtonState = {
+  sort = { pressed = false, scale = 1.0, targetScale = 1.0 },
+  hammer = { pressed = false, scale = 1.0, targetScale = 1.0 },
+}
+
 -- Fonts (set via init)
 local font
 local coinNumberFont
+
+-- Flying shard animation (merge reward feedback)
+local flying_shards = {}
+local SHARD_FLIGHT_DURATION = 0.55
+local SHARD_ARC_HEIGHT = 180
+local SHARD_SIZE = 24
+
+-- HUD pop effect when shards arrive
+local hud_pops = {}  -- keyed by color_name: {time, amount}
+local HUD_POP_DURATION = 0.55
+local HUD_POP_OVERSHOOT = 2.5
+
+-- Get HUD diamond position for a shard color
+local function getShardHudPosition(color_name)
+  local names = coin_utils.getShardNames()
+  local spacing = 180
+  local total_w = (#names - 1) * spacing
+  local start_x = (VW - total_w) / 2
+  local y = 50
+  for i, name in ipairs(names) do
+    if name == color_name then
+      return start_x + (i - 1) * spacing, y
+    end
+  end
+  return VW / 2, y
+end
+
+-- Spawn flying shard from merge position to HUD
+local function spawnFlyingShards(from_x, from_y, coin_number, coin_count)
+  local color_name = coin_utils.numberToShardColor(coin_number)
+  local rgb = coin_utils.getShardRGB(color_name)
+  local dest_x, dest_y = getShardHudPosition(color_name)
+  local base_amount = coin_count * 5
+  local multiplier = upgrades.getShardBonusMultiplier()
+  local amount = math.floor(base_amount * multiplier)
+
+  table.insert(flying_shards, {
+    x = from_x, y = from_y,
+    start_x = from_x, start_y = from_y,
+    dest_x = dest_x, dest_y = dest_y,
+    time = 0,
+    color = rgb,
+    color_name = color_name,
+    amount = amount,
+  })
+end
+
+-- Update flying shard positions
+local function updateFlyingShards(dt)
+  local i = 1
+  while i <= #flying_shards do
+    local s = flying_shards[i]
+    s.time = s.time + dt
+    local t = math.min(s.time / SHARD_FLIGHT_DURATION, 1)
+    local t_eased = 1 - (1 - t) * (1 - t)  -- ease-out quadratic
+    s.x = s.start_x + (s.dest_x - s.start_x) * t_eased
+    s.y = s.start_y + (s.dest_y - s.start_y) * t_eased - SHARD_ARC_HEIGHT * math.sin(t * math.pi)
+
+    if t >= 1 then
+      hud_pops[s.color_name] = { time = 0, amount = s.amount }
+      table.remove(flying_shards, i)
+    else
+      i = i + 1
+    end
+  end
+
+  for name, pop in pairs(hud_pops) do
+    pop.time = pop.time + dt
+    if pop.time >= HUD_POP_DURATION then
+      hud_pops[name] = nil
+    end
+  end
+end
+
+-- Draw flying shard diamonds
+local function drawFlyingShards()
+  love.graphics.setFont(font)
+  for _, s in ipairs(flying_shards) do
+    local rgb = s.color
+    local pulse = 1 + 0.15 * math.sin(love.timer.getTime() * 12)
+    local sz = SHARD_SIZE * pulse
+
+    -- Glow halo (larger, semi-transparent)
+    local glow_sz = sz * 1.8
+    love.graphics.setColor(rgb[1], rgb[2], rgb[3], 0.3)
+    love.graphics.polygon("fill", s.x, s.y - glow_sz, s.x + glow_sz, s.y, s.x, s.y + glow_sz, s.x - glow_sz, s.y)
+
+    -- Main diamond
+    love.graphics.setColor(rgb[1], rgb[2], rgb[3])
+    love.graphics.polygon("fill", s.x, s.y - sz, s.x + sz, s.y, s.x, s.y + sz, s.x - sz, s.y)
+
+    -- "+N" text with dark outline for readability
+    local text = "+" .. s.amount
+    local tx, ty = s.x + sz + 6, s.y - 14
+    love.graphics.setColor(0, 0, 0, 0.8)
+    love.graphics.print(text, tx + 2, ty + 2)
+    love.graphics.setColor(1, 1, 1)
+    love.graphics.print(text, tx, ty)
+  end
+end
 
 --------------------------------------------------------------------------------
 -- Initialization
@@ -85,6 +202,12 @@ function game_2048_screen.init(assets)
   ADD_BUTTON_Y = layout.BUTTON_AREA_Y
   MERGE_BUTTON_X = startX + BUTTON_WIDTH + BUTTON_SPACING
   MERGE_BUTTON_Y = layout.BUTTON_AREA_Y
+
+  -- Power-up button positions (centered row below main buttons)
+  local puTotalW = POWERUP_BTN_W * 2 + POWERUP_SPACING
+  local puStartX = (VW - puTotalW) / 2
+  SORT_BTN_X = puStartX
+  HAMMER_BTN_X = puStartX + POWERUP_BTN_W + POWERUP_SPACING
 end
 
 --------------------------------------------------------------------------------
@@ -129,6 +252,15 @@ end
 
 local function updateButtonAnimations(dt)
   for _, state in pairs(buttonState) do
+    if state.scale ~= state.targetScale then
+      local diff = state.targetScale - state.scale
+      state.scale = state.scale + diff * BUTTON_ANIM_SPEED * dt
+      if math.abs(diff) < 0.01 then
+        state.scale = state.targetScale
+      end
+    end
+  end
+  for _, state in pairs(powerupButtonState) do
     if state.scale ~= state.targetScale then
       local diff = state.targetScale - state.scale
       state.scale = state.scale + diff * BUTTON_ANIM_SPEED * dt
@@ -199,6 +331,66 @@ local function drawSoundToggles()
   drawMusicIcon(musicX, y, size, sound.isMusicEnabled())
 end
 
+local function drawPowerupButtons()
+  love.graphics.setFont(font)
+
+  -- Sort button
+  local sort_count = powerups.getAutoSortCount()
+  local sort_enabled = sort_count > 0
+  local sort_s = powerupButtonState.sort.scale
+  local sort_cx = SORT_BTN_X + POWERUP_BTN_W / 2
+  local sort_cy = POWERUP_Y + POWERUP_BTN_H / 2
+  local sort_w = POWERUP_BTN_W * sort_s
+  local sort_h = POWERUP_BTN_H * sort_s
+
+  if sort_enabled then
+    love.graphics.setColor(0.2, 0.4, 0.6)
+  else
+    love.graphics.setColor(0.2, 0.2, 0.2)
+  end
+  love.graphics.rectangle("fill", sort_cx - sort_w/2, sort_cy - sort_h/2, sort_w, sort_h, 10, 10)
+  love.graphics.setColor(1, 1, 1, sort_enabled and 1 or 0.4)
+  love.graphics.printf("Sort x" .. sort_count, SORT_BTN_X, POWERUP_Y + (POWERUP_BTN_H - layout.FONT_SIZE) / 2, POWERUP_BTN_W, "center")
+
+  -- Hammer button
+  local hammer_count = powerups.getHammerCount()
+  local hammer_enabled = hammer_count > 0
+  local hammer_s = powerupButtonState.hammer.scale
+  local hammer_cx = HAMMER_BTN_X + POWERUP_BTN_W / 2
+  local hammer_cy = POWERUP_Y + POWERUP_BTN_H / 2
+  local hammer_w = POWERUP_BTN_W * hammer_s
+  local hammer_h = POWERUP_BTN_H * hammer_s
+
+  if hammer_mode then
+    love.graphics.setColor(0.7, 0.2, 0.2)
+  elseif hammer_enabled then
+    love.graphics.setColor(0.6, 0.3, 0.2)
+  else
+    love.graphics.setColor(0.2, 0.2, 0.2)
+  end
+  love.graphics.rectangle("fill", hammer_cx - hammer_w/2, hammer_cy - hammer_h/2, hammer_w, hammer_h, 10, 10)
+  love.graphics.setColor(1, 1, 1, hammer_enabled and 1 or 0.4)
+  love.graphics.printf("Hammer x" .. hammer_count, HAMMER_BTN_X, POWERUP_Y + (POWERUP_BTN_H - layout.FONT_SIZE) / 2, POWERUP_BTN_W, "center")
+end
+
+local function drawHammerOverlay()
+  if not hammer_mode then return end
+  local state = game_2048.getState()
+  -- Red tint overlay on each column
+  for col_idx, box in ipairs(state.boxes) do
+    local col_x = layout.GRID_LEFT_OFFSET + layout.COLUMN_STEP * col_idx
+    local col_w = layout.COIN_R * 2 + 20
+    local col_h = layout.ROW_STEP * state.BOX_ROWS + 40
+    local col_top = layout.GRID_TOP_Y + layout.ROW_STEP - 20
+    love.graphics.setColor(1, 0.1, 0.1, 0.15)
+    love.graphics.rectangle("fill", col_x - col_w/2, col_top, col_w, col_h, 8, 8)
+  end
+  -- Hint text
+  love.graphics.setColor(1, 0.3, 0.3)
+  love.graphics.setFont(font)
+  love.graphics.printf("TAP COLUMN TO CLEAR", 0, POWERUP_Y - 50, VW, "center")
+end
+
 local function handleSoundToggleClick(x, y)
   if input.isOnSfxToggle(x, y) then
     sound.toggleSfx()
@@ -208,6 +400,39 @@ local function handleSoundToggleClick(x, y)
     return true
   end
   return false
+end
+
+-- Draw best coin progress bar
+local function drawProgressBar()
+  local state = game_2048.getState()
+  local best = state.max_coin_reached
+  local max_num = state.MAX_NUMBER
+
+  local bar_w = 600
+  local bar_h = 16
+  local bar_x = (VW - bar_w) / 2
+  local bar_y = 85
+
+  -- Background
+  love.graphics.setColor(0.15, 0.15, 0.15)
+  love.graphics.rectangle("fill", bar_x, bar_y, bar_w, bar_h, 6, 6)
+
+  -- Fill
+  if best > 0 then
+    local fill = math.min(best / max_num, 1) * bar_w
+    local col = coin_utils.numberToColor(best, max_num)
+    love.graphics.setColor(col[1], col[2], col[3], 0.85)
+    love.graphics.rectangle("fill", bar_x, bar_y, fill, bar_h, 6, 6)
+  end
+
+  -- Border
+  love.graphics.setColor(0.3, 0.3, 0.3, 0.6)
+  love.graphics.rectangle("line", bar_x, bar_y, bar_w, bar_h, 6, 6)
+
+  -- Label
+  love.graphics.setColor(1, 1, 1, 0.9)
+  love.graphics.setFont(font)
+  love.graphics.printf("Best: " .. best .. " / " .. max_num, bar_x, bar_y - 2, bar_w, "center")
 end
 
 -- Draw small shard/crystal HUD at top
@@ -224,12 +449,36 @@ local function drawCurrencyHUD()
   for i, name in ipairs(names) do
     local x = start_x + (i - 1) * spacing
     local rgb = coin_utils.getShardRGB(name)
-    -- Small diamond
+
+    -- Pop scale when shards arrive
+    local pop = hud_pops[name]
+    local ps = 1
+    if pop then
+      local t = pop.time / HUD_POP_DURATION
+      ps = 1 + (HUD_POP_OVERSHOOT - 1) * math.sin(t * math.pi) * (1 - t * 0.5)
+    end
+
+    -- Small diamond (scaled by pop)
+    local ds = 10 * ps
     love.graphics.setColor(rgb[1], rgb[2], rgb[3])
-    love.graphics.polygon("fill", x, y - 10, x + 10, y, x, y + 10, x - 10, y)
+    love.graphics.polygon("fill", x, y - ds, x + ds, y, x, y + ds, x - ds, y)
     -- Crystal count
     love.graphics.setColor(1, 1, 1, 0.8)
     love.graphics.printf(tostring(crystals[name] or 0), x + 15, y - 14, 60, "left")
+
+    -- Show shard amount arriving (prominent pop text)
+    if pop then
+      local fade = 1 - pop.time / HUD_POP_DURATION
+      local rise = pop.time / HUD_POP_DURATION * 20  -- float upward
+      local pop_text = "+" .. pop.amount
+      local tx, ty = x - 20, y - 50 - rise
+      -- Dark outline
+      love.graphics.setColor(0, 0, 0, fade * 0.7)
+      love.graphics.printf(pop_text, tx + 2, ty + 2, 100, "center")
+      -- Colored text
+      love.graphics.setColor(rgb[1], rgb[2], rgb[3], fade)
+      love.graphics.printf(pop_text, tx, ty, 100, "center")
+    end
   end
 end
 
@@ -238,15 +487,29 @@ end
 --------------------------------------------------------------------------------
 
 function game_2048_screen.enter()
-  -- Recalculate column step based on upgraded grid size
+  -- Compute progressive grid metrics from current upgrade levels
   local num_columns = upgrades.getBaseColumns()
-  COLUMN_STEP = layout.getColumnStep(num_columns)
-  layout.COLUMN_STEP = COLUMN_STEP
+  local num_rows = upgrades.getBaseRows()
+  local metrics = layout.getGridMetrics(num_columns, num_rows)
+  layout.applyMetrics(metrics)
+
+  -- Refresh all module caches
+  graphics.updateMetrics()
+  input.updateMetrics()
+
+  -- Update screen-local caches
+  COLUMN_STEP = layout.COLUMN_STEP
+  COIN_R = layout.COIN_R
+  ROW_STEP = layout.ROW_STEP
+  TOP_Y = layout.GRID_TOP_Y
 
   game_2048.init()
   currency.startRun()
   selection = nil
   shakeState.active = false
+  hammer_mode = false
+  flying_shards = {}
+  hud_pops = {}
 end
 
 function game_2048_screen.exit()
@@ -271,6 +534,7 @@ function game_2048_screen.update(dt)
   end
 
   graphics.updateBackgroundScroll(dt, bgScrollSpeedX, bgScrollSpeedY)
+  updateFlyingShards(dt)
 end
 
 function game_2048_screen.draw()
@@ -285,6 +549,7 @@ function game_2048_screen.draw()
 
   graphics.drawBackground()
   drawCurrencyHUD()
+  drawProgressBar()
   draw_2048_info()
   draw_points_2048()
 
@@ -318,9 +583,12 @@ function game_2048_screen.draw()
   animation.drawDealing(graphics.getBallImage(), nil, coinNumberFont)
 
   particles.draw()
+  drawFlyingShards()
 
   draw_merge_button()
   draw_add_coins_button()
+  drawPowerupButtons()
+  drawHammerOverlay()
   drawSoundToggles()
 
   -- End screen shake
@@ -334,6 +602,10 @@ function game_2048_screen.keypressed(key, scancode, isrepeat)
     love.event.quit()
   end
   if key == "escape" then
+    if hammer_mode then
+      hammer_mode = false
+      return
+    end
     screens.switch("upgrades")
   end
   if key == "space" then
@@ -349,8 +621,9 @@ function game_2048_screen.mousepressed(x, y, button)
     return
   end
 
-  -- Block input during any animation
-  if animation.isAnimating() and not animation.isHovering() then
+  -- Block all input only during flight (coins in transit)
+  -- Allow picking/placing during merge and dealing for fast gameplay
+  if animation.isFlying() then
     return
   end
 
@@ -371,7 +644,49 @@ function game_2048_screen.mousepressed(x, y, button)
     return
   end
 
+  -- Check sort button
+  if input.isInsideButton(x, y, SORT_BTN_X, POWERUP_Y, POWERUP_BTN_W, POWERUP_BTN_H) then
+    powerupButtonState.sort.pressed = true
+    powerupButtonState.sort.targetScale = BUTTON_PRESS_SCALE
+    return
+  end
+
+  -- Check hammer button
+  if input.isInsideButton(x, y, HAMMER_BTN_X, POWERUP_Y, POWERUP_BTN_W, POWERUP_BTN_H) then
+    powerupButtonState.hammer.pressed = true
+    powerupButtonState.hammer.targetScale = BUTTON_PRESS_SCALE
+    return
+  end
+
+  -- Hammer targeting: click on a column to clear it
+  if hammer_mode and bx then
+    local merge_locked = animation.getMergeLockedBoxes()
+    if not merge_locked[bx] then
+      if powerups.useHammer() then
+        local state = game_2048.getState()
+        local removed = game_2048.clearColumn(bx)
+        -- Spawn particles for each removed coin
+        for slot, coin in ipairs(removed) do
+          local px, py = layout.slotPosition(bx, slot)
+          local num = coin_utils.getCoinNumber(coin)
+          local col = coin_utils.numberToColor(num, state.MAX_NUMBER)
+          particles.spawnMergeExplosion(px, py, col)
+        end
+        sound.playMerge()
+        hammer_mode = false
+        if game_2048.isGameOver() then
+          screens.switch("game_over")
+        end
+      end
+    end
+    return
+  end
+
   if not bx then return end
+
+  -- Don't interact with boxes locked by merge animation
+  local merge_locked = animation.getMergeLockedBoxes()
+  if merge_locked[bx] then return end
 
   if not animation.isHovering() then
     -- Pick up: Start hover animation
@@ -438,8 +753,7 @@ function game_2048_screen.mousepressed(x, y, button)
         sound.playPickup()
         mobile.vibrateDrop()
         -- Spawn particle effect at landing position
-        local px = GRID_X_OFFSET + COLUMN_STEP * bx
-        local py = TOP_Y + ROW_STEP * slot
+        local px, py = layout.slotPosition(bx, slot)
         local num = coin_utils.getCoinNumber(coin_data)
         local col = coin_utils.numberToColor(num, state.MAX_NUMBER)
         particles.spawn(px, py, col)
@@ -473,6 +787,10 @@ function game_2048_screen.mousereleased(x, y, button)
             sound.playMerge()
             mobile.vibrateMerge()
             progression.onMerge("2048", 1)
+            -- Spawn flying shard to HUD
+            local from_x = box_data.slot_x[1]
+            local from_y = box_data.slot_y[1]
+            spawnFlyingShards(from_x, from_y, box_data.old_number, #box_data.coins)
           end,
           -- Particles module reference
           particles
@@ -505,8 +823,7 @@ function game_2048_screen.mousereleased(x, y, button)
             sound.playPickup()
             mobile.vibrateDrop()
             -- Spawn particle effect at landing position
-            local px = GRID_X_OFFSET + COLUMN_STEP * box_idx
-            local py = TOP_Y + ROW_STEP * slot
+            local px, py = layout.slotPosition(box_idx, slot)
             local num = coin_utils.getCoinNumber(coin_data)
             local col = coin_utils.numberToColor(num, state.MAX_NUMBER)
             particles.spawn(px, py, col)
@@ -514,6 +831,57 @@ function game_2048_screen.mousereleased(x, y, button)
           particles
         )
         sound.playAdd()
+      end
+    end
+  end
+
+  -- Release sort button
+  if powerupButtonState.sort.pressed then
+    powerupButtonState.sort.pressed = false
+    powerupButtonState.sort.targetScale = 1.0
+    if input.isInsideButton(x, y, SORT_BTN_X, POWERUP_Y, POWERUP_BTN_W, POWERUP_BTN_H)
+       and not animation.isAnimating()
+       and not animation.isHovering()
+       and powerups.getAutoSortCount() > 0 then
+      if powerups.useAutoSort() then
+        local coins_to_deal = game_2048.autoSort()
+        if #coins_to_deal > 0 then
+          local state = game_2048.getState()
+          animation.startDealing(coins_to_deal, "2048",
+            function()
+              if game_2048.isGameOver() then
+                screens.switch("game_over")
+              end
+            end,
+            function(coin_data, box_idx, slot)
+              game_2048.place_coin(box_idx, coin_data)
+              sound.playPickup()
+              mobile.vibrateDrop()
+              local px, py = layout.slotPosition(box_idx, slot)
+              local num = coin_utils.getCoinNumber(coin_data)
+              local col = coin_utils.numberToColor(num, state.MAX_NUMBER)
+              particles.spawn(px, py, col)
+            end,
+            particles
+          )
+          sound.playAdd()
+        end
+      end
+    end
+  end
+
+  -- Release hammer button
+  if powerupButtonState.hammer.pressed then
+    powerupButtonState.hammer.pressed = false
+    powerupButtonState.hammer.targetScale = 1.0
+    if input.isInsideButton(x, y, HAMMER_BTN_X, POWERUP_Y, POWERUP_BTN_W, POWERUP_BTN_H) then
+      if hammer_mode then
+        -- Toggle off
+        hammer_mode = false
+      elseif not animation.isAnimating()
+         and not animation.isHovering()
+         and powerups.getHammerCount() > 0 then
+        hammer_mode = true
       end
     end
   end

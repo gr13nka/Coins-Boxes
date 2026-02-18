@@ -11,6 +11,13 @@ local TOP_Y = layout.GRID_TOP_Y
 local COLUMN_STEP = layout.COLUMN_STEP
 local GRID_X_OFFSET = layout.GRID_LEFT_OFFSET
 
+--- Refresh cached layout values (call after layout.applyMetrics)
+function input.updateMetrics()
+  TOP_Y = layout.GRID_TOP_Y
+  COLUMN_STEP = layout.COLUMN_STEP
+  GRID_X_OFFSET = layout.GRID_LEFT_OFFSET
+end
+
 --- Determine which box column was clicked (for classic mode)
 -- @param x Click x coordinate (game space)
 -- @param y Click y coordinate (game space)

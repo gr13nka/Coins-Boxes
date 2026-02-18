@@ -19,7 +19,8 @@ Try to keep your visuals and logic separate.
 - `game_2048_screen.lua` - 2048 mode gameplay screen (UI, input handling, drawing)
 - `game_dev_screen.lua` - Dev test mode screen (centered single box layout)
 - `currency.lua` - Shard/crystal currency system: 5 colors, earned from merging, 25 shards auto-convert to 1 crystal
-- `upgrades.lua` - Permanent upgrades: houses (passive crystal production), row/column purchases, difficulty setting
+- `upgrades.lua` - Permanent upgrades: houses (passive crystal production), row/column purchases, difficulty setting, max coin tracking
+- `powerups.lua` - Consumable power-ups: Auto Sort and Hammer, purchasable in upgrades screen
 - `game_over_screen.lua` - Game over stats screen: score, shard breakdown, crystal summary, Continue button
 - `upgrades_screen.lua` - Meta/shop screen: crystal display, house grid (3x2), row/column upgrades, difficulty toggle, Play button
 - `graphics.lua` - Game rendering: coins, boxes, background (NOT UI buttons)
@@ -27,7 +28,7 @@ Try to keep your visuals and logic separate.
 - `sound.lua` - Sound management: loading, playback, toggle state
 - `progression.lua` - Full unlock/achievement system with persistence
 - `coin_utils.lua` - Utility functions for 2048 mode: 5-color cycling, shard color mapping
-- `animation.lua` - Coin animation system for hover (bobbing) and flight (arc trajectory) effects
+- `animation.lua` - Dual-track coin animation: pick/place (hover/flight) and background (merge/deal) run independently, 1.5x speed
 - `particles.lua` - Particle effects system for coin landing visual feedback
 - `screens.lua` - Screen management system with mode selection (includes unlock checks)
 - `layout.lua` - Centralized layout configuration (canvas size, element positions, scaling)
@@ -88,27 +89,36 @@ Each screen is a table with optional methods: `enter()`, `exit()`, `update(dt)`,
 
 Handles visual animations when picking up, placing, and merging coins.
 
+**Dual-Track Architecture:**
+The animation system uses two independent state tracks that can run simultaneously:
+- `pick_state`: IDLE / HOVERING / FLYING — player's pick/place interaction
+- `bg_state`: IDLE / MERGING / DEALING — automated background animations
+This allows players to pick and place coins while merge/dealing animations play.
+
+**Animation Speed:** All animations run at `SPEED_MULT = 1.5` (50% faster). Applied via `dt = dt * SPEED_MULT` in update.
+
 **Animation States:**
 - `IDLE` - No animation active
-- `HOVERING` - Coins bob up and down after being picked up, spread horizontally
-- `FLYING` - Coins fly in arc trajectory to destination, dropping one by one
-- `MERGING` - Coins slide up one-by-one into each other with particles and screen shake
-- `DEALING` - Coins dealt poker-style from bottom of screen to destination boxes
+- `HOVERING` - Coins bob up and down after being picked up, spread horizontally (pick track)
+- `FLYING` - Coins fly in arc trajectory to destination, dropping one by one (pick track)
+- `MERGING` - Coins slide up one-by-one into each other with particles and screen shake (bg track)
+- `DEALING` - Coins dealt poker-style from bottom of screen to destination boxes (bg track)
 
 **Public API:**
 - `animation.startHover(coins, source_box_index)` - Begin hover animation with bobbing
 - `animation.startFlight(dest_box_idx, dest_slot, callback, coinLandCallback)` - Begin flight to destination
 - `animation.startMerge(merge_data, callback, boxMergeCallback, particlesRef)` - Begin merge animation
 - `animation.startDealing(coins_to_deal, mode, callback, coinLandCallback, particlesRef)` - Begin dealing animation
-- `animation.update(dt)` - Called from screen's `update(dt)`
+- `animation.update(dt)` - Called from screen's `update(dt)`, applies SPEED_MULT internally
 - `animation.draw(ballImage, COLORS, mode, font)` - Draw hover/flight animated coins
 - `animation.drawMerge(ballImage, font)` - Draw merge animation (call separately)
 - `animation.drawDealing(ballImage, COLORS, font)` - Draw dealing animation
 - `animation.isAnimating()`, `isHovering()`, `isFlying()`, `isMerging()`, `isDealing()` - State queries
 - `animation.getHoveringCoins()` - Get array of coin data (strings for classic, tables for 2048)
 - `animation.getMergingBoxIndices()` - Get table of box indices being animated (for skipping static draw)
+- `animation.getMergeLockedBoxes()` - Get ALL box indices in merge (including waiting — for input blocking)
 - `animation.getScreenShake()` - Get (x, y) shake offset to apply to drawing
-- `animation.cancel()` - Reset to idle state
+- `animation.cancel()` - Reset pick/place track to idle
 
 **Hover/Flight Animation Flow:**
 1. Click box with coins → `startHover()` → coins bob up/down, spread horizontally
@@ -238,13 +248,34 @@ Chunky bouncy coin fragment particles with custom physics. Fragments scatter, sp
 Key settings in `layout.lua`:
 - `VW`, `VH` - Virtual canvas dimensions (1080x2400)
 - `WINDOW_SCALE` - Initial window size multiplier (0.5 = 540x1200 window)
-- `COIN_R` - Coin radius
-- `ROW_STEP`, `COLUMN_STEP` - Grid spacing (COLUMN_STEP default 216 for 4 columns)
-- `layout.getColumnStep(num_columns)` - Calculate column step for dynamic grid size: `floor(VW / (num_columns + 1))`
+- `COIN_R` - Coin radius (dynamic, set by `applyMetrics`)
+- `ROW_STEP`, `COLUMN_STEP` - Grid spacing (dynamic, set by `applyMetrics`)
 - `GRID_TOP_Y`, `GRID_LEFT_OFFSET` - Grid position
 - `BUTTON_AREA_Y`, `BUTTON_WIDTH`, `BUTTON_HEIGHT` - Button layout at bottom
 - `FONT_SIZE` - UI font size
 - `SOUND_TOGGLE_SIZE`, `SOUND_TOGGLE_MARGIN`, `SOUND_TOGGLE_Y` - Sound toggle button layout
+
+**Progressive Grid Scaling:**
+- `layout.getColumnStep(num_columns)` - Calculate column step for dynamic grid size: `floor(VW / (num_columns + 1))`
+- `layout.getGridMetrics(cols, rows)` - Compute all sizing from grid dimensions: `column_step`, `coin_r`, `row_step`, `overlapping`, `two_layer`, layer offsets
+- `layout.applyMetrics(metrics)` - Write computed values to layout globals (`COIN_R`, `ROW_STEP`, `COLUMN_STEP`, `TWO_LAYER`, `LAYER_OFFSET_X/Y`)
+- `layout.slotPosition(column, slot)` - Map (column, slot) to screen (x, y, layer), accounting for two-layer mode
+- Coin radius: `min(60, floor(column_step * 0.45))` — shrinks progressively with more columns
+- Row step: `min(130, floor(grid_height / (display_rows + 0.5)))` — uses visual rows in 2-layer mode
+
+**Two-Layer Depth Mode (poker-chip stacking):**
+- Activates when `rows >= TWO_LAYER_THRESHOLD` (default 8)
+- Pairs slots into visual rows: 8 slots → 4 visual rows, 10 slots → 5 visual rows
+- Odd slots (1,3,5...) = back layer, offset up-left by `(LAYER_OFFSET_X, LAYER_OFFSET_Y)`
+- Even slots (2,4,6...) = front layer, offset down-right
+- Layer offsets: `X = floor(coin_r * 0.35)`, `Y = floor(coin_r * 0.2)`
+- `graphics.drawCoins2048` renders back layer first, then front layer for proper z-order
+- `graphics.drawBoxes2048` draws wider containers to fit both layers
+
+**Module Cache Refresh:**
+- `graphics.updateMetrics()` / `input.updateMetrics()` - Refresh module-level cached layout values
+- Must be called after `layout.applyMetrics()` (done in `game_2048_screen.enter()`)
+- `animation.lua` reads `layout.*` directly (no cached locals), so positions auto-update
 
 ## Classic Mode (game.lua)
 
@@ -293,7 +324,7 @@ A separate game mode where coins have numbers instead of just colors.
 - `max_spawn_number = min(progression_cap, buffer_cap)`
 
 **Dealing Algorithm (`computeDeal()`):**
-- **Initial deal** (`is_initial=true`): `2 * BOX_ROWS` coins, 50/50 between types 1 and 2
+- **Initial deal** (`is_initial=true`): `2 * BOX_ROWS` coins, uniform across `1..max_spawn_number` (boosted by historical best)
 - **Regular deal**: `BOX_ROWS * uniform(0.5, 0.9)` coins, weighted type distribution
 - Lower numbers appear more often via hand-tuned weight tables (2-5 types) or geometric decay (0.82)
 - 36% chance (`SKIP_TYPE_CHANCE`) to skip each type per deal, creating variety
@@ -316,14 +347,14 @@ A separate game mode where coins have numbers instead of just colors.
 - `BOX_ROWS` - Slots per box (dynamic: 4 + extra_rows from upgrades)
 - `merge_requirement = 2` - Coins needed to trigger merge (configurable)
 - `total_merges` - Progression counter
-- `max_spawn_number` - Current spawn range upper limit
+- `max_spawn_number` - Current spawn range upper limit (boosted by historical best on init: `max(2, max_coin_reached - 2)`)
 - `MAX_NUMBER = 50` - Absolute maximum coin number
 - `MERGE_OUTPUT = 2` - Coins produced per merge
 - Grid size: `upgrades.getBaseColumns()` columns (base 4) x `upgrades.getBaseRows()` rows (base 4)
-- Initial fill: `2 * BOX_ROWS` coins via `computeDeal(true, ...)`
+- Initial fill: `2 * BOX_ROWS` coins via `computeDeal(true, ...)`, uniform across `1..max_spawn_number`
 
 **Public API:**
-- `game_2048.init()` - Initialize with dynamic grid from upgrades, initial deal of 2*BOX_ROWS coins (types 1-2)
+- `game_2048.init()` - Initialize with dynamic grid from upgrades, initial deal of 2*BOX_ROWS coins (types 1..max_spawn_number, boosted by history)
 - `game_2048.pick_coin_from_box(idx, opts)` - Pick same-number coins from top
 - `game_2048.can_place(dest_idx, coins)` - Validate placement, returns (bool, error_msg)
 - `game_2048.place_coin(dest_idx, coin)` - Add single coin to box
@@ -332,15 +363,19 @@ A separate game mode where coins have numbers instead of just colors.
 - `game_2048.executeMergeOnBox(box_idx)` - Merge single box (used by animation callback)
 - `game_2048.add_coins()` - Spawn new coins based on progression
 - `game_2048.calculateCoinsToAdd()` - Pre-calculate coins for dealing animation (returns array of {coin, dest_box_idx, dest_slot})
-- `game_2048.getState()` - Return all state
+- `game_2048.getState()` - Return all state (includes `max_coin_reached` from upgrades)
 - `game_2048.setError(msg)` - Trigger error display
 - `game_2048.isGameOver()` - True only when all boxes are full AND no merges possible
+
+**Max Coin Tracking:**
+- Both `executeMergeOnBox()` and `merge()` call `upgrades.setMaxCoinReached(new_number)` after computing the merged coin
+- On `init()`, `max_spawn_number` is boosted: `max(2, upgrades.getMaxCoinReached() - 2)` so returning players start with higher coin types
 
 **Animated Merge Flow:**
 1. Call `getMergeableBoxes()` - returns array of `{box_idx, coins, old_number, new_number, color, new_color}`
 2. Pass to `animation.startMerge()` with callbacks
 3. Animation calls `executeMergeOnBox()` when each box's animation completes
-4. This updates game state (removes coins, adds merged coin, awards points)
+4. This updates game state (removes coins, adds merged coin, awards points, tracks max coin)
 
 ## Dev Test Mode (game_dev.lua)
 
@@ -447,6 +482,7 @@ Hit testing and coordinate conversion utilities.
 - `input.isInsideButton(x, y, btnX, btnY, btnW, btnH)` - Check if point is inside button
 - `input.isOnSfxToggle(x, y)` / `input.isOnMusicToggle(x, y)` - Check sound toggle clicks
 - `input.toGameCoords(x, y, ox, oy, scale)` - Convert screen to game coordinates
+- `input.updateMetrics()` - Refresh cached layout values after `layout.applyMetrics()`
 
 ## Graphics System (graphics.lua)
 
@@ -462,7 +498,8 @@ Game rendering for coins, boxes, and background (NOT UI buttons).
 - `graphics.drawCoins(boxes, COLORS, skipBoxes)` - Draw coins (classic mode, skipBoxes for merge animation)
 - `graphics.drawCoins2048(boxes, MAX_NUMBER, font, skipBoxes)` - Draw coins with numbers (2048 mode)
 - `graphics.drawBoxes(boxes, BOX_ROWS)` - Draw box grid (classic mode)
-- `graphics.drawBoxes2048(boxes, BOX_ROWS, shakeState)` - Draw box grid with shake (2048 mode)
+- `graphics.drawBoxes2048(boxes, BOX_ROWS, shakeState)` - Draw box grid with shake (2048 mode); auto-detects stack/2-layer mode
+- `graphics.updateMetrics()` - Refresh cached layout values after `layout.applyMetrics()`
 
 ## Currency System (currency.lua)
 
@@ -501,7 +538,7 @@ Permanent upgrades: houses, grid size, and difficulty. Pure data module (no draw
 
 **Grid Upgrades:**
 - Row/column upgrades each cost 1 red + 1 green crystal (flat, not escalating)
-- Max 4 extra rows, max 4 extra columns
+- Max 6 extra rows, max 11 extra columns (grid can reach 10 rows x 15 columns)
 - Base grid: 4 columns x 4 rows (before upgrades)
 
 **Difficulty Setting:**
@@ -527,6 +564,45 @@ Permanent upgrades: houses, grid size, and difficulty. Pure data module (no draw
 - `upgrades.setDifficultyExtraTypes(n)` - Set and persist difficulty
 - `upgrades.getMaxDifficultyExtraTypes()` - Max allowed for current column count
 - `upgrades.getShardBonusMultiplier()` - Returns 1.0 + bonus (e.g., 1.2 for +20%)
+- `upgrades.getMaxCoinReached()` - Highest coin number ever created across all runs
+- `upgrades.setMaxCoinReached(n)` - Sets if n > current max, auto-saves
+
+## Power-ups System (powerups.lua)
+
+Consumable power-ups purchasable on upgrades screen, usable during 2048 gameplay. Pure data module (no drawing).
+
+**Power-ups:**
+- **Auto Sort** - Rearranges all coins so each column contains one number type (maximizing merge potential). Uses dealing animation.
+- **Hammer** - Clears an entire column. Player clicks hammer button, then taps a column to clear.
+
+**Costs:**
+- Auto Sort: 2 red + 2 green crystals per purchase
+- Hammer: 1 red crystal per purchase
+- Both start with 100 uses for dev/testing
+
+**Persistence:** Via `progression.getPowerupsData()` / `setPowerupsData()`, defaults `{auto_sort=100, hammer=100}`.
+
+**Public API:**
+- `powerups.init()` / `save()` - Load/save via progression
+- `powerups.getAutoSortCount()` / `getHammerCount()` - Current charges
+- `powerups.useAutoSort()` / `useHammer()` - Decrement if >0, returns bool
+- `powerups.buyAutoSort()` / `buyHammer()` - Spend crystals + increment, returns bool
+- `powerups.getSortCost()` - Returns `{red=2, green=2}`
+- `powerups.getHammerCost()` - Returns `{red=1}`
+
+**Game Logic (in game_2048.lua):**
+- `game_2048.autoSort()` - Collects all coins, sorts by number, redistributes left-to-right. Clears all boxes, returns `coins_to_deal` array for dealing animation.
+- `game_2048.clearColumn(col_idx)` - Removes all coins from a column. Returns removed coins for particle effects.
+
+**Hammer Targeting Mode (in game_2048_screen.lua):**
+- `hammer_mode` flag activates when hammer button is released
+- Red tint overlay drawn on columns, "TAP COLUMN TO CLEAR" hint shown
+- Clicking a column: uses charge, clears column, spawns explosion particles
+- Cancel: click hammer button again, press Escape
+
+**UI Locations:**
+- In-game: Sort/Hammer buttons at `POWERUP_Y` (below ADD/MERGE buttons)
+- Upgrades screen: Buy Sort / Buy Hammer section at `POWERUP_SHOP_Y = 1280`
 
 ## Game Over Screen (game_over_screen.lua)
 
@@ -545,6 +621,7 @@ Shows run results after game over, transitions to upgrades.
 Meta/shop screen between runs.
 
 **Layout (1080x2400 canvas):**
+- Best coin stat (y~65): "Best Coin: N" with coin-colored diamond icon (hidden if 0)
 - Currency display (y~100): 5 color diamonds with crystal counts + shard progress bars (X/25)
 - House grid (y~460): 3x2 grid, empty slots show pulsating "+" (green if affordable, dim red if not), built slots show color + progress bar + M:SS countdown timer
 - Upgrade panel (y~1200): Buy Row / Buy Column buttons with costs (green if affordable, red if not, gray if maxed)
@@ -571,6 +648,21 @@ Meta/shop screen between runs.
 - `"Not enough crystals! Need 1 red + 1 green"` when clicking unaffordable upgrade
 - `"Rows/Columns already at maximum!"` when clicking maxed upgrade
 - Fade out over last 0.3s of 2s duration
+
+## 2048 Gameplay Screen (game_2048_screen.lua)
+
+**HUD Elements (top of screen):**
+- Currency diamonds (y=50): 5 color diamonds with crystal counts
+- Best coin progress bar (y=85): 600px wide, 16px tall, filled to `max_coin_reached / MAX_NUMBER`, colored by coin color via `coin_utils.numberToColor()`, label "Best: N / 50"
+- Merge/spawn info (y=HINT_Y): "Merges: N | Max Spawn: N"
+- Points (y=POINTS_Y): "Points: N"
+
+**Responsive Input (fast gameplay):**
+- Input is only blocked during coin flight (~0.23s with 1.5x speed) — NOT during merge or dealing
+- Player can pick up and place coins while merge/dealing animations play in the background
+- Boxes locked by an active merge animation (`getMergeLockedBoxes()`) cannot be interacted with
+- Merge/Add buttons still require full idle state (`not animation.isAnimating()`) to fire
+- Classic mode and dev mode screens retain old blocking behavior (block all non-hover animations)
 
 ## Screen Flow (Roguelike Loop)
 

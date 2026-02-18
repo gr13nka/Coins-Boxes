@@ -16,8 +16,8 @@ local MAX_HOUSES = 6
 local HOUSE_RATE = 0.25  -- crystals per minute per house
 
 -- Row/column limits
-local MAX_EXTRA_ROWS = 4
-local MAX_EXTRA_COLUMNS = 4
+local MAX_EXTRA_ROWS = 6      -- max 10 rows (4 base + 6)
+local MAX_EXTRA_COLUMNS = 11  -- max 15 columns (4 base + 11)
 
 -- Buffer ratio used as reference for shard bonus calculation
 local DEFAULT_BUFFER_MIN = 0.30
@@ -27,6 +27,7 @@ local extra_rows = 0
 local extra_columns = 0
 local houses = {}
 local difficulty_extra_types = 0  -- 0 = normal, +1 = hard, +2 = extreme, etc.
+local max_coin_reached = 0  -- highest coin number ever created across all runs
 
 local function defaultHouses()
   local h = {}
@@ -41,6 +42,7 @@ function upgrades.init()
   extra_rows = d.extra_rows or 0
   extra_columns = d.extra_columns or 0
   difficulty_extra_types = d.difficulty_extra_types or 0
+  max_coin_reached = d.max_coin_reached or 0
   houses = d.houses or defaultHouses()
   for i = #houses + 1, MAX_HOUSES do
     houses[i] = {built = false, color = "red", progress = 0}
@@ -52,6 +54,7 @@ function upgrades.save()
     extra_rows = extra_rows,
     extra_columns = extra_columns,
     difficulty_extra_types = difficulty_extra_types,
+    max_coin_reached = max_coin_reached,
     houses = houses,
   })
   progression.save()
@@ -200,6 +203,18 @@ end
 
 function upgrades.getExtraColumns()
   return extra_columns
+end
+
+-- Max coin level ever reached (across all runs)
+function upgrades.getMaxCoinReached()
+  return max_coin_reached
+end
+
+function upgrades.setMaxCoinReached(n)
+  if n > max_coin_reached then
+    max_coin_reached = n
+    upgrades.save()
+  end
 end
 
 return upgrades

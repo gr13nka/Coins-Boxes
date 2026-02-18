@@ -85,7 +85,7 @@ end
 
 -- Shared deal computation used by init, add_coins, and calculateCoinsToAdd.
 -- Returns array of {coin, dest_box_idx, dest_slot}.
--- When is_initial=true: deals 2*BOX_ROWS coins, 50/50 between types 1 and 2.
+-- When is_initial=true: deals 2*BOX_ROWS coins, uniform across 1..max_spawn_number.
 -- When is_initial=false: deals BOX_ROWS * uniform(0.5, 0.9) coins with weighted types.
 -- temp_box_counts is mutated in-place to track slot usage.
 local function computeDeal(is_initial, temp_box_counts)
@@ -116,7 +116,7 @@ local function computeDeal(is_initial, temp_box_counts)
             end
 
             local dest_slot = temp_box_counts[box_idx] + 1
-            local number = math.random(1, 2)
+            local number = math.random(1, max_spawn_number)
             temp_box_counts[box_idx] = temp_box_counts[box_idx] + 1
 
             result[#result + 1] = {
@@ -201,6 +201,7 @@ function game_2048.getState()
         merge_requirement = merge_requirement,
         max_spawn_number = max_spawn_number,
         MAX_NUMBER = MAX_NUMBER,
+        max_coin_reached = upgrades.getMaxCoinReached(),
     }
 end
 
@@ -241,6 +242,12 @@ function game_2048.init()
     error_message = ""
     total_merges = 0
     max_spawn_number = 2  -- Initial deal uses types 1-2
+
+    -- Boost initial spawn range from historical best
+    local history_max = upgrades.getMaxCoinReached()
+    if history_max > 2 then
+        max_spawn_number = math.max(max_spawn_number, history_max - 2)
+    end
 
     -- Use computeDeal for initial fill
     local temp_counts = {}
@@ -446,6 +453,9 @@ function game_2048.executeMergeOnBox(box_idx)
         table.insert(box, coin_utils.createCoin(new_number))
     end
 
+    -- Track highest coin ever created
+    upgrades.setMaxCoinReached(new_number)
+
     -- Award points
     points = points + points_per_merge * new_number * coin_count
 
@@ -499,6 +509,9 @@ function game_2048.merge()
                     table.insert(box, coin_utils.createCoin(new_number))
                 end
 
+                -- Track highest coin ever created
+                upgrades.setMaxCoinReached(new_number)
+
                 -- Award points based on the new number and how many coins merged
                 points = points + points_per_merge * new_number * coin_count
 
@@ -519,6 +532,107 @@ function game_2048.merge()
     end
 
     return merged
+end
+
+-- Auto Sort: group coins by number, each column gets only one number type.
+-- Higher numbers get dedicated columns first. No coins are ever lost.
+-- If columns run out, remaining coins fill leftover space.
+-- Clears all boxes, returns coins_to_deal array: {coin, dest_box_idx, dest_slot}
+function game_2048.autoSort()
+    -- Group coins by number
+    local groups = {}  -- number -> list of coins
+    local numbers = {} -- ordered list of unique numbers
+    for _, box in ipairs(boxes) do
+        for _, coin in ipairs(box) do
+            local num = coin_utils.getCoinNumber(coin)
+            if not groups[num] then
+                groups[num] = {}
+                numbers[#numbers + 1] = num
+            end
+            groups[num][#groups[num] + 1] = coin
+        end
+    end
+
+    -- Sort by number descending (higher numbers get priority for clean columns)
+    table.sort(numbers, function(a, b) return a > b end)
+
+    -- Clear all boxes
+    local num_boxes = #boxes
+    for i = 1, num_boxes do
+        boxes[i] = {}
+    end
+
+    -- Track how many slots each column has used
+    local col_counts = {}
+    for i = 1, num_boxes do
+        col_counts[i] = 0
+    end
+
+    -- Pass 1: assign each number group to dedicated columns
+    local result = {}
+    local leftover = {} -- coins that didn't fit in dedicated columns
+    local col = 1
+    for _, num in ipairs(numbers) do
+        local coins = groups[num]
+        if col > num_boxes then
+            -- No more dedicated columns; save all for leftover pass
+            for _, coin in ipairs(coins) do
+                leftover[#leftover + 1] = coin
+            end
+        else
+            for _, coin in ipairs(coins) do
+                if col_counts[col] >= BOX_ROWS then
+                    col = col + 1
+                    if col > num_boxes then
+                        -- Remaining coins in this group go to leftover
+                        leftover[#leftover + 1] = coin
+                    end
+                end
+                if col <= num_boxes then
+                    col_counts[col] = col_counts[col] + 1
+                    result[#result + 1] = {
+                        coin = coin,
+                        dest_box_idx = col,
+                        dest_slot = col_counts[col],
+                    }
+                end
+            end
+            -- Next number starts a new column
+            col = col + 1
+        end
+    end
+
+    -- Pass 2: stuff leftover coins into any remaining space
+    if #leftover > 0 then
+        local li = 1
+        for c = 1, num_boxes do
+            while col_counts[c] < BOX_ROWS and li <= #leftover do
+                col_counts[c] = col_counts[c] + 1
+                result[#result + 1] = {
+                    coin = leftover[li],
+                    dest_box_idx = c,
+                    dest_slot = col_counts[c],
+                }
+                li = li + 1
+            end
+            if li > #leftover then break end
+        end
+    end
+
+    return result
+end
+
+-- Clear Column: remove all coins from a column.
+-- Returns array of removed coins (for particle effects).
+function game_2048.clearColumn(col_idx)
+    local box = boxes[col_idx]
+    if not box then return {} end
+    local removed = {}
+    for i = 1, #box do
+        removed[i] = box[i]
+    end
+    boxes[col_idx] = {}
+    return removed
 end
 
 -- Check if the game is over: all boxes full AND no merges possible.
