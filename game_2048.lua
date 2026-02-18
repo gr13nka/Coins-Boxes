@@ -24,6 +24,171 @@ local merge_requirement = 2  -- how many coins needed to merge
 local max_spawn_number = 1   -- increases with progression
 local MAX_NUMBER = 50        -- maximum possible number
 
+-- Balance constants
+local MERGE_OUTPUT = 2  -- coins produced per merge (BOX_ROWS coins -> 2 of next type)
+
+-- Weighted type distribution tables (hand-tuned for small type counts)
+local WEIGHT_TABLES = {
+    [2] = {0.55, 0.45},
+    [3] = {0.36, 0.38, 0.26},
+    [4] = {0.30, 0.28, 0.22, 0.20},
+    [5] = {0.25, 0.23, 0.20, 0.17, 0.15},
+}
+
+-- Deal sizing: coins dealt = BOX_ROWS * uniform(DEAL_MIN_FRACTION, DEAL_MAX_FRACTION)
+local DEAL_MIN_FRACTION = 0.5
+local DEAL_MAX_FRACTION = 0.9
+
+-- Probability of skipping a type entirely in a given deal
+local SKIP_TYPE_CHANCE = 0.36
+
+-- Default buffer: fraction of columns kept free of new types
+local DEFAULT_BUFFER_MIN = 0.30
+
+-- Generate geometric-decay weights for type counts > 5
+local function generateWeights(n)
+    local decay = 0.82
+    local weights = {}
+    local total = 0
+    for i = 1, n do
+        weights[i] = decay ^ (i - 1)
+        total = total + weights[i]
+    end
+    for i = 1, n do
+        weights[i] = weights[i] / total
+    end
+    return weights
+end
+
+-- Look up or generate weight table for n types
+local function getWeights(n)
+    if WEIGHT_TABLES[n] then
+        return WEIGHT_TABLES[n]
+    end
+    local w = generateWeights(n)
+    WEIGHT_TABLES[n] = w
+    return w
+end
+
+-- CDF-based weighted random selection: returns index 1..#weights
+local function weightedRandom(weights)
+    local r = math.random()
+    local cumulative = 0
+    for i = 1, #weights do
+        cumulative = cumulative + weights[i]
+        if r <= cumulative then
+            return i
+        end
+    end
+    return #weights
+end
+
+-- Shared deal computation used by init, add_coins, and calculateCoinsToAdd.
+-- Returns array of {coin, dest_box_idx, dest_slot}.
+-- When is_initial=true: deals 2*BOX_ROWS coins, 50/50 between types 1 and 2.
+-- When is_initial=false: deals BOX_ROWS * uniform(0.5, 0.9) coins with weighted types.
+-- temp_box_counts is mutated in-place to track slot usage.
+local function computeDeal(is_initial, temp_box_counts)
+    local num_boxes = #boxes
+    local result = {}
+
+    if is_initial then
+        -- Initial deal: 2 * BOX_ROWS coins, 50/50 type 1 and 2
+        local total_coins = 2 * BOX_ROWS
+        for _ = 1, total_coins do
+            -- Find a box with space
+            local box_idx
+            local attempts = 0
+            repeat
+                box_idx = math.random(num_boxes)
+                attempts = attempts + 1
+            until temp_box_counts[box_idx] < BOX_ROWS or attempts > 100
+
+            if attempts > 100 then
+                local all_full = true
+                for j = 1, num_boxes do
+                    if temp_box_counts[j] < BOX_ROWS then
+                        all_full = false
+                        break
+                    end
+                end
+                if all_full then break end
+            end
+
+            local dest_slot = temp_box_counts[box_idx] + 1
+            local number = math.random(1, 2)
+            temp_box_counts[box_idx] = temp_box_counts[box_idx] + 1
+
+            result[#result + 1] = {
+                coin = coin_utils.createCoin(number),
+                dest_box_idx = box_idx,
+                dest_slot = dest_slot,
+            }
+        end
+    else
+        -- Regular deal: variable size with weighted type distribution
+        local frac = DEAL_MIN_FRACTION + math.random() * (DEAL_MAX_FRACTION - DEAL_MIN_FRACTION)
+        local will_add = math.max(1, math.floor(BOX_ROWS * frac + 0.5))
+
+        -- Build active weights (skip some types with SKIP_TYPE_CHANCE)
+        local active_types = {}
+        local active_weights = {}
+        local raw_weights = getWeights(max_spawn_number)
+        for i = 1, max_spawn_number do
+            if max_spawn_number == 1 or math.random() >= SKIP_TYPE_CHANCE then
+                active_types[#active_types + 1] = i
+                active_weights[#active_weights + 1] = raw_weights[i]
+            end
+        end
+        -- Guarantee at least one type
+        if #active_types == 0 then
+            active_types[1] = 1
+            active_weights[1] = 1.0
+        end
+        -- Renormalize
+        local total_w = 0
+        for i = 1, #active_weights do
+            total_w = total_w + active_weights[i]
+        end
+        for i = 1, #active_weights do
+            active_weights[i] = active_weights[i] / total_w
+        end
+
+        for _ = 1, will_add do
+            local box_idx
+            local attempts = 0
+            repeat
+                box_idx = math.random(num_boxes)
+                attempts = attempts + 1
+            until temp_box_counts[box_idx] < BOX_ROWS or attempts > 100
+
+            if attempts > 100 then
+                local all_full = true
+                for j = 1, num_boxes do
+                    if temp_box_counts[j] < BOX_ROWS then
+                        all_full = false
+                        break
+                    end
+                end
+                if all_full then break end
+            end
+
+            local dest_slot = temp_box_counts[box_idx] + 1
+            local type_idx = weightedRandom(active_weights)
+            local number = active_types[type_idx]
+            temp_box_counts[box_idx] = temp_box_counts[box_idx] + 1
+
+            result[#result + 1] = {
+                coin = coin_utils.createCoin(number),
+                dest_box_idx = box_idx,
+                dest_slot = dest_slot,
+            }
+        end
+    end
+
+    return result
+end
+
 function game_2048.getState()
     return {
         boxes = boxes,
@@ -39,12 +204,24 @@ function game_2048.getState()
     }
 end
 
--- Update progression based on total merges
+-- Update progression based on total merges.
+-- Buffer cap limits max_spawn_number so at least DEFAULT_BUFFER_MIN columns are free.
 local function updateProgression()
-    -- Start at 3, then every 10 merges increase max spawn number (capped at 10)
-    max_spawn_number = 3 + math.floor(total_merges / 10)
-    if max_spawn_number > 10 then
-        max_spawn_number = 10
+    local cols = #boxes
+    -- Default cap: keep at least DEFAULT_BUFFER_MIN fraction of columns as buffer
+    local default_cap = math.floor(cols * (1 - DEFAULT_BUFFER_MIN))
+    -- Difficulty adds extra types (shrinks buffer)
+    local difficulty_extra = upgrades.getDifficultyExtraTypes()
+    local type_cap = default_cap + difficulty_extra
+    -- Hard cap: types must be < cols (at least 1 buffer column)
+    if type_cap >= cols then
+        type_cap = cols - 1
+    end
+    -- Progression cap: starts at 3, +1 per 10 merges, max 10
+    local progression_cap = math.min(10, 3 + math.floor(total_merges / 10))
+    max_spawn_number = math.min(progression_cap, type_cap)
+    if max_spawn_number < 1 then
+        max_spawn_number = 1
     end
 end
 
@@ -63,20 +240,16 @@ function game_2048.init()
     error_timer = 0
     error_message = ""
     total_merges = 0
-    max_spawn_number = 3  -- Start with 1-3 to match initial coin variety
+    max_spawn_number = 2  -- Initial deal uses types 1-2
 
-    -- Initialize with coins (~35% fill so placement rules don't choke)
-    local total_coins = math.max(#boxes, math.floor(#boxes * BOX_ROWS * 0.35))
-
-    for i = 1, total_coins do
-        local box
-        repeat
-            box = math.random(#boxes)
-        until #boxes[box] < BOX_ROWS
-
-        -- Starting coins are 1, 2, or 3
-        local number = math.random(1, 3)
-        table.insert(boxes[box], coin_utils.createCoin(number))
+    -- Use computeDeal for initial fill
+    local temp_counts = {}
+    for i = 1, num_columns do
+        temp_counts[i] = 0
+    end
+    local deal = computeDeal(true, temp_counts)
+    for _, entry in ipairs(deal) do
+        table.insert(boxes[entry.dest_box_idx], entry.coin)
     end
 end
 
@@ -180,106 +353,26 @@ function game_2048.setError(message)
     error_message = message or "Invalid!"
 end
 
--- Add new coins to boxes
+-- Add new coins to boxes (uses computeDeal internally)
 function game_2048.add_coins()
-    -- Count current coins
-    local total_coins = 0
-    for _, box in ipairs(boxes) do
-        total_coins = total_coins + #box
+    local temp_counts = {}
+    for i, box in ipairs(boxes) do
+        temp_counts[i] = #box
     end
-
-    -- Calculate how many to add
-    local max_possible = #boxes * BOX_ROWS
-    local will_add = math.floor(((max_possible - total_coins) / 2) + 0.5)
-    if will_add < 1 then will_add = 1 end
-
-    for i = 1, will_add do
-        -- Find a box with space
-        local box_idx
-        local attempts = 0
-        repeat
-            box_idx = math.random(#boxes)
-            attempts = attempts + 1
-        until #boxes[box_idx] < BOX_ROWS or attempts > 100
-
-        -- Check if all boxes are full
-        if attempts > 100 then
-            local all_full = true
-            for _, box in ipairs(boxes) do
-                if #box < BOX_ROWS then
-                    all_full = false
-                    break
-                end
-            end
-            if all_full then break end
-        end
-
-        -- Spawn a number in range [1, max_spawn_number]
-        local number = math.random(1, max_spawn_number)
-        table.insert(boxes[box_idx], coin_utils.createCoin(number))
+    local deal = computeDeal(false, temp_counts)
+    for _, entry in ipairs(deal) do
+        table.insert(boxes[entry.dest_box_idx], entry.coin)
     end
 end
 
 -- Calculate what coins would be added (for dealing animation)
 -- Returns: array of {coin={number=N}, dest_box_idx=N, dest_slot=N}
 function game_2048.calculateCoinsToAdd()
-    -- Count current coins
-    local total_coins = 0
-    for _, box in ipairs(boxes) do
-        total_coins = total_coins + #box
-    end
-
-    -- Calculate how many to add
-    local max_possible = #boxes * BOX_ROWS
-    local will_add = math.floor(((max_possible - total_coins) / 2) + 0.5)
-    if will_add < 1 then will_add = 1 end
-
-    local result = {}
-    -- Track temporary box counts
-    local temp_box_counts = {}
+    local temp_counts = {}
     for i, box in ipairs(boxes) do
-        temp_box_counts[i] = #box
+        temp_counts[i] = #box
     end
-
-    for i = 1, will_add do
-        -- Find valid box
-        local box_idx
-        local attempts = 0
-        repeat
-            box_idx = math.random(#boxes)
-            attempts = attempts + 1
-            if attempts > 100 then break end
-        until temp_box_counts[box_idx] < BOX_ROWS
-
-        -- Check if all boxes are full
-        if attempts > 100 then
-            local all_full = true
-            for j = 1, #boxes do
-                if temp_box_counts[j] < BOX_ROWS then
-                    all_full = false
-                    break
-                end
-            end
-            if all_full then break end
-        end
-
-        -- Calculate slot (1-indexed from bottom)
-        local dest_slot = temp_box_counts[box_idx] + 1
-
-        -- Spawn a number in range [1, max_spawn_number]
-        local number = math.random(1, max_spawn_number)
-
-        -- Update tracking
-        temp_box_counts[box_idx] = temp_box_counts[box_idx] + 1
-
-        table.insert(result, {
-            coin = coin_utils.createCoin(number),
-            dest_box_idx = box_idx,
-            dest_slot = dest_slot
-        })
-    end
-
-    return result
+    return computeDeal(false, temp_counts)
 end
 
 function game_2048.update(dt)
@@ -344,12 +437,14 @@ function game_2048.executeMergeOnBox(box_idx)
         table.remove(box)
     end
 
-    -- Add merged coin
+    -- Add MERGE_OUTPUT coins of the next number
     local new_number = first_number + 1
     if new_number > MAX_NUMBER then
         new_number = MAX_NUMBER
     end
-    table.insert(box, coin_utils.createCoin(new_number))
+    for _ = 1, MERGE_OUTPUT do
+        table.insert(box, coin_utils.createCoin(new_number))
+    end
 
     -- Award points
     points = points + points_per_merge * new_number * coin_count
@@ -367,7 +462,7 @@ function game_2048.executeMergeOnBox(box_idx)
     return true
 end
 
--- 2048-style merge: All coins in a full box become 1 coin of (number+1)
+-- 2048-style merge: All coins in a full box become MERGE_OUTPUT coins of (number+1)
 -- Only merges when box is full (BOX_ROWS coins) and all coins have same number
 function game_2048.merge()
     local merged = false
@@ -388,10 +483,9 @@ function game_2048.merge()
             end
 
             if all_same then
-                -- All coins have the same number - merge them all into one
                 local new_number = first_number + 1
                 if new_number > MAX_NUMBER then
-                    new_number = MAX_NUMBER  -- cap at max
+                    new_number = MAX_NUMBER
                 end
 
                 -- Remove all coins from the box
@@ -400,8 +494,10 @@ function game_2048.merge()
                     table.remove(box)
                 end
 
-                -- Add one merged coin
-                table.insert(box, coin_utils.createCoin(new_number))
+                -- Add MERGE_OUTPUT coins of the next number
+                for _ = 1, MERGE_OUTPUT do
+                    table.insert(box, coin_utils.createCoin(new_number))
+                end
 
                 -- Award points based on the new number and how many coins merged
                 points = points + points_per_merge * new_number * coin_count
@@ -425,12 +521,22 @@ function game_2048.merge()
     return merged
 end
 
--- Check if the game is over (all boxes full and no merges possible)
+-- Check if the game is over: all boxes full AND no merges possible.
+-- Player can always press "Add Coins" when empty slots remain, so only
+-- a completely full board with no mergeable boxes is a true loss.
 function game_2048.isGameOver()
+    -- If any box has empty space, player can still add coins
     for _, box in ipairs(boxes) do
-        if #box < BOX_ROWS then return false end
+        if #box < BOX_ROWS then
+            return false
+        end
     end
-    return #game_2048.getMergeableBoxes() == 0
+
+    -- All boxes are full — check if any merge is available
+    if #game_2048.getMergeableBoxes() > 0 then return false end
+
+    -- All full, no merges — game over
+    return true
 end
 
 return game_2048

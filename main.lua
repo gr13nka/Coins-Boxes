@@ -144,6 +144,13 @@ function love.draw()
 end
 
 function love.keypressed(key, scancode, isrepeat)
+  if key == "f1" then
+    progression.reset()
+    currency.init()
+    upgrades.init()
+    screens.switch("game_2048")
+    return
+  end
   screens.keypressed(key, scancode, isrepeat)
 end
 

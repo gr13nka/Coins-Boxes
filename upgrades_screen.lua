@@ -1,5 +1,7 @@
 -- upgrades_screen.lua
 -- Meta/shop screen: crystal display, house grid, row/column upgrades, play button.
+-- All upgrades cost 1 red + 1 green crystal. Row/column buy directly (no picker).
+-- Houses use picker only for choosing production color.
 
 local screens = require("screens")
 local layout = require("layout")
@@ -22,17 +24,25 @@ local notification = {
   duration = 2.0,
 }
 
+-- Flying crystal animation state
+local flying_crystals = {}
+
+-- Flying crystal config
+local FLY_DURATION = 0.6
+local FLY_ARC_HEIGHT = 200
+local FLY_POP_DURATION = 0.25
+local FLY_POP_OVERSHOOT = 1.4
+
 local function showNotification(msg)
   notification.message = msg
   notification.timer = notification.duration
 end
 
--- Color picker state
+-- Color picker state (only used for house production color)
 local picker = {
   active = false,
   slot = 0,
-  mode = "build",  -- "build", "change", "buy_row", "buy_column"
-  cost = 0,        -- crystal cost (0 for "change" mode)
+  mode = "build",  -- "build" or "change"
 }
 
 -- Layout constants
@@ -48,6 +58,11 @@ local UPGRADE_Y = 1200
 local UPGRADE_BTN_W = 420
 local UPGRADE_BTN_H = 110
 local UPGRADE_PAD = 40
+
+local DIFFICULTY_Y = 1450
+local DIFFICULTY_ARROW_W = 90
+local DIFFICULTY_ARROW_H = 80
+local DIFFICULTY_LABEL_W = 600
 
 local PLAY_BTN_W = 500
 local PLAY_BTN_H = 140
@@ -70,14 +85,92 @@ local function calcHousePositions()
   end
 end
 
--- Check if any crystal color can afford a cost
-local function canAffordAny(cost)
-  if cost <= 0 then return true end
-  local cr = currency.getCrystals()
-  for _, name in ipairs(coin_utils.getShardNames()) do
-    if (cr[name] or 0) >= cost then return true end
+-- Flying crystal animation helpers (after layout constants so locals are visible)
+local function getCurrencyDiamondPos(color_name)
+  local names = coin_utils.getShardNames()
+  local spacing = 190
+  local total_w = (#names - 1) * spacing
+  local start_x = (VW - total_w) / 2
+  for i, name in ipairs(names) do
+    if name == color_name then
+      return start_x + (i - 1) * spacing, CRYSTAL_Y + 60
+    end
   end
-  return false
+  return VW / 2, CRYSTAL_Y + 60
+end
+
+local function spawnFlyingCrystal(slot, color_name)
+  local pos = house_positions[slot]
+  if not pos then return end
+  local rgb = coin_utils.getShardRGB(color_name)
+  local bar_x = pos.x + 30
+  local bar_y = pos.y + 140
+  local bar_w = HOUSE_W - 60
+  local bar_h = 24
+  local sx = bar_x + bar_w / 2
+  local sy = bar_y + bar_h / 2
+  local dx, dy = getCurrencyDiamondPos(color_name)
+  flying_crystals[#flying_crystals + 1] = {
+    sx = sx, sy = sy,
+    dx = dx, dy = dy,
+    color = rgb,
+    elapsed = 0,
+    phase = "fly",
+    pop_elapsed = 0,
+    scale = 1,
+  }
+end
+
+local function updateFlyingCrystals(dt)
+  local i = 1
+  while i <= #flying_crystals do
+    local fc = flying_crystals[i]
+    if fc.phase == "fly" then
+      fc.elapsed = fc.elapsed + dt
+      local t = math.min(fc.elapsed / FLY_DURATION, 1)
+      if t >= 1 then
+        fc.phase = "pop"
+        fc.pop_elapsed = 0
+        fc.scale = FLY_POP_OVERSHOOT
+      end
+      i = i + 1
+    elseif fc.phase == "pop" then
+      fc.pop_elapsed = fc.pop_elapsed + dt
+      local pt = math.min(fc.pop_elapsed / FLY_POP_DURATION, 1)
+      fc.scale = 1 + (FLY_POP_OVERSHOOT - 1) * math.sin(pt * math.pi) * (1 - pt * 0.5)
+      if pt >= 1 then
+        table.remove(flying_crystals, i)
+      else
+        i = i + 1
+      end
+    else
+      i = i + 1
+    end
+  end
+end
+
+local function drawFlyingCrystals()
+  for _, fc in ipairs(flying_crystals) do
+    local x, y, s
+    if fc.phase == "fly" then
+      local t = math.min(fc.elapsed / FLY_DURATION, 1)
+      local ease = 1 - (1 - t) * (1 - t)
+      x = fc.sx + (fc.dx - fc.sx) * ease
+      y = fc.sy + (fc.dy - fc.sy) * ease - FLY_ARC_HEIGHT * math.sin(t * math.pi)
+      s = 1 + 0.3 * math.sin(t * math.pi)
+    else
+      x = fc.dx
+      y = fc.dy
+      s = fc.scale
+    end
+    local size = 16 * s
+    love.graphics.setColor(fc.color[1], fc.color[2], fc.color[3])
+    love.graphics.polygon("fill", x, y - size, x + size, y, x, y + size, x - size, y)
+    -- Sparkle highlight
+    love.graphics.setColor(1, 1, 1, 0.6)
+    local hs = size * 0.4
+    love.graphics.polygon("fill", x, y - hs, x + hs * 0.5, y, x, y + hs, x - hs * 0.5, y)
+  end
 end
 
 function upgrades_screen.init(assets)
@@ -89,6 +182,7 @@ function upgrades_screen.enter()
   picker.active = false
   anim_time = 0
   notification.timer = 0
+  flying_crystals = {}
 end
 
 function upgrades_screen.exit()
@@ -99,11 +193,42 @@ function upgrades_screen.update(dt)
   if notification.timer > 0 then
     notification.timer = notification.timer - dt
   end
+
+  -- Tick house production and spawn flying crystals on events
+  local events = upgrades.updateProduction(dt)
+  for _, ev in ipairs(events) do
+    spawnFlyingCrystal(ev.slot, ev.color)
+  end
+
+  updateFlyingCrystals(dt)
 end
 
 --------------------------------------------------------------------------------
--- Drawing
+-- Drawing helpers
 --------------------------------------------------------------------------------
+
+-- Draw the flat cost indicator: red dot + "1" + green dot + "1"
+local function drawCostIndicator(x, y, affordable)
+  local red_rgb = coin_utils.getShardRGB("red")
+  local green_rgb = coin_utils.getShardRGB("green")
+  local alpha = affordable and 1 or 0.4
+  local dot_r = 12
+
+  -- Red crystal dot + "1"
+  love.graphics.setColor(red_rgb[1], red_rgb[2], red_rgb[3], alpha)
+  love.graphics.circle("fill", x, y, dot_r)
+  love.graphics.setColor(1, 1, 1, alpha)
+  love.graphics.printf("1", x + dot_r + 4, y - 14, 30, "left")
+
+  -- "+" separator
+  love.graphics.printf("+", x + dot_r + 30, y - 14, 20, "center")
+
+  -- Green crystal dot + "1"
+  love.graphics.setColor(green_rgb[1], green_rgb[2], green_rgb[3], alpha)
+  love.graphics.circle("fill", x + dot_r + 60, y, dot_r)
+  love.graphics.setColor(1, 1, 1, alpha)
+  love.graphics.printf("1", x + dot_r + 76, y - 14, 30, "left")
+end
 
 local function drawCurrencyDisplay()
   love.graphics.setFont(font)
@@ -112,7 +237,6 @@ local function drawCurrencyDisplay()
   local sh = currency.getShards()
   local spc = currency.getShardsPerCrystal()
 
-  -- Title
   love.graphics.setColor(0.9, 0.85, 0.3)
   love.graphics.printf("Crystals & Shards", 0, CRYSTAL_Y, VW, "center")
 
@@ -125,12 +249,11 @@ local function drawCurrencyDisplay()
     local y = CRYSTAL_Y + 60
     local rgb = coin_utils.getShardRGB(name)
 
-    -- Diamond shape for crystal
+    -- Diamond shape
     love.graphics.setColor(rgb[1], rgb[2], rgb[3])
-    love.graphics.polygon("fill",
-      x, y - 18, x + 16, y, x, y + 18, x - 16, y)
+    love.graphics.polygon("fill", x, y - 18, x + 16, y, x, y + 18, x - 16, y)
 
-    -- Crystal count (big)
+    -- Crystal count
     love.graphics.setColor(1, 1, 1)
     love.graphics.printf(tostring(cr[name] or 0), x - 40, y + 25, 80, "center")
 
@@ -146,7 +269,6 @@ local function drawCurrencyDisplay()
     love.graphics.setColor(rgb[1] * 0.7, rgb[2] * 0.7, rgb[3] * 0.7)
     love.graphics.rectangle("fill", bar_x, bar_y, fill, bar_h, 3, 3)
 
-    -- Shard count text
     love.graphics.setColor(0.6, 0.6, 0.6)
     love.graphics.printf(shard_count .. "/" .. spc, x - 40, bar_y + bar_h + 2, 80, "center")
   end
@@ -154,6 +276,8 @@ end
 
 local function drawHouseGrid()
   local houses = upgrades.getHouses()
+  local cost = upgrades.getUpgradeCost()
+  local affordable = currency.canAfford(cost)
   love.graphics.setFont(font)
 
   love.graphics.setColor(0.7, 0.7, 0.7)
@@ -170,7 +294,6 @@ local function drawHouseGrid()
       love.graphics.setColor(rgb[1], rgb[2], rgb[3])
       love.graphics.rectangle("line", pos.x, pos.y, HOUSE_W, HOUSE_H, 10, 10)
 
-      -- Color indicator circle
       love.graphics.setColor(rgb[1], rgb[2], rgb[3])
       love.graphics.circle("fill", pos.x + HOUSE_W / 2, pos.y + 70, 35)
 
@@ -185,19 +308,26 @@ local function drawHouseGrid()
       love.graphics.setColor(rgb[1], rgb[2], rgb[3])
       love.graphics.rectangle("fill", bar_x, bar_y, fill_w, bar_h, 4, 4)
 
+      -- Countdown timer on progress bar
+      local rate = upgrades.getHouseRate()
+      local remaining_progress = 1.0 - house.progress
+      local remaining_secs = remaining_progress / (rate / 60)
+      local mins = math.floor(remaining_secs / 60)
+      local secs = math.floor(remaining_secs % 60)
+      local timer_text = string.format("%d:%02d", mins, secs)
+      love.graphics.setColor(1, 1, 1, 0.9)
+      love.graphics.printf(timer_text, bar_x, bar_y + 2, bar_w, "center")
+
       love.graphics.setColor(0.6, 0.6, 0.6)
       love.graphics.printf("tap: color", pos.x, pos.y + HOUSE_H - 40, HOUSE_W, "center")
     else
       -- Empty slot
-      local cost = upgrades.getHouseCost(idx)
-      local affordable = cost and canAffordAny(cost)
-
       love.graphics.setColor(0.15, 0.15, 0.15)
       love.graphics.rectangle("fill", pos.x, pos.y, HOUSE_W, HOUSE_H, 10, 10)
       love.graphics.setColor(affordable and {0.3, 0.5, 0.3} or {0.3, 0.2, 0.2})
       love.graphics.rectangle("line", pos.x, pos.y, HOUSE_W, HOUSE_H, 10, 10)
 
-      -- Pulsating "+" (green if affordable, dim red if not)
+      -- Pulsating "+"
       local pulse = 0.5 + 0.5 * math.sin(anim_time * 2 + idx)
       local scale = 0.9 + 0.1 * pulse
       if affordable then
@@ -205,78 +335,140 @@ local function drawHouseGrid()
       else
         love.graphics.setColor(0.5, 0.2, 0.2, 0.3 + 0.2 * pulse)
       end
-      local cx, cy = pos.x + HOUSE_W / 2, pos.y + HOUSE_H / 2 - 20
+      local cx, cy = pos.x + HOUSE_W / 2, pos.y + HOUSE_H / 2 - 30
       local arm = 30 * scale
       love.graphics.setLineWidth(8)
       love.graphics.line(cx - arm, cy, cx + arm, cy)
       love.graphics.line(cx, cy - arm, cx, cy + arm)
       love.graphics.setLineWidth(1)
 
-      -- Cost label
-      if cost then
-        love.graphics.setColor(affordable and {0.9, 0.85, 0.3} or {0.5, 0.3, 0.3})
-        love.graphics.printf(cost .. " crystals", pos.x, pos.y + HOUSE_H - 45, HOUSE_W, "center")
-      end
+      -- Cost indicator (red dot + green dot)
+      drawCostIndicator(pos.x + HOUSE_W / 2 - 50, pos.y + HOUSE_H - 35, affordable)
     end
   end
 end
 
 local function drawUpgradeButtons()
   love.graphics.setFont(font)
+  local cost = upgrades.getUpgradeCost()
+  local affordable = currency.canAfford(cost)
   local total_w = UPGRADE_BTN_W * 2 + UPGRADE_PAD
   local start_x = (VW - total_w) / 2
 
   -- Row upgrade
   local row_x = start_x
-  local row_cost = upgrades.getRowCost()
-  local row_maxed = row_cost == nil
-  local row_affordable = row_cost and canAffordAny(row_cost)
-  local row_label
-  if row_maxed then
-    row_label = "Rows MAX"
-  else
-    row_label = "Buy Row  [" .. row_cost .. "]"
-  end
+  local row_maxed = not upgrades.canBuyRow()
 
   if row_maxed then
     love.graphics.setColor(0.25, 0.25, 0.25)
-  elseif row_affordable then
+  elseif affordable then
     love.graphics.setColor(0.2, 0.5, 0.2)
   else
     love.graphics.setColor(0.4, 0.2, 0.2)
   end
   love.graphics.rectangle("fill", row_x, UPGRADE_Y, UPGRADE_BTN_W, UPGRADE_BTN_H, 10, 10)
-  love.graphics.setColor(1, 1, 1, (row_maxed or not row_affordable) and 0.4 or 1)
-  love.graphics.printf(row_label, row_x, UPGRADE_Y + (UPGRADE_BTN_H - layout.FONT_SIZE) / 2, UPGRADE_BTN_W, "center")
+
+  love.graphics.setColor(1, 1, 1, (row_maxed or not affordable) and 0.4 or 1)
+  love.graphics.printf(row_maxed and "Rows MAX" or "Buy Row",
+    row_x, UPGRADE_Y + 15, UPGRADE_BTN_W, "center")
+
+  if not row_maxed then
+    drawCostIndicator(row_x + UPGRADE_BTN_W / 2 - 50, UPGRADE_Y + UPGRADE_BTN_H - 25, affordable)
+  end
 
   love.graphics.setColor(0.6, 0.6, 0.6)
-  love.graphics.printf("Rows: " .. upgrades.getBaseRows(), row_x, UPGRADE_Y + UPGRADE_BTN_H + 10, UPGRADE_BTN_W, "center")
+  love.graphics.printf("Rows: " .. upgrades.getBaseRows(),
+    row_x, UPGRADE_Y + UPGRADE_BTN_H + 10, UPGRADE_BTN_W, "center")
 
   -- Column upgrade
   local col_x = start_x + UPGRADE_BTN_W + UPGRADE_PAD
-  local col_cost = upgrades.getColumnCost()
-  local col_maxed = col_cost == nil
-  local col_affordable = col_cost and canAffordAny(col_cost)
-  local col_label
-  if col_maxed then
-    col_label = "Cols MAX"
-  else
-    col_label = "Buy Col  [" .. col_cost .. "]"
-  end
+  local col_maxed = not upgrades.canBuyColumn()
 
   if col_maxed then
     love.graphics.setColor(0.25, 0.25, 0.25)
-  elseif col_affordable then
+  elseif affordable then
     love.graphics.setColor(0.2, 0.5, 0.2)
   else
     love.graphics.setColor(0.4, 0.2, 0.2)
   end
   love.graphics.rectangle("fill", col_x, UPGRADE_Y, UPGRADE_BTN_W, UPGRADE_BTN_H, 10, 10)
-  love.graphics.setColor(1, 1, 1, (col_maxed or not col_affordable) and 0.4 or 1)
-  love.graphics.printf(col_label, col_x, UPGRADE_Y + (UPGRADE_BTN_H - layout.FONT_SIZE) / 2, UPGRADE_BTN_W, "center")
+
+  love.graphics.setColor(1, 1, 1, (col_maxed or not affordable) and 0.4 or 1)
+  love.graphics.printf(col_maxed and "Cols MAX" or "Buy Column",
+    col_x, UPGRADE_Y + 15, UPGRADE_BTN_W, "center")
+
+  if not col_maxed then
+    drawCostIndicator(col_x + UPGRADE_BTN_W / 2 - 50, UPGRADE_Y + UPGRADE_BTN_H - 25, affordable)
+  end
 
   love.graphics.setColor(0.6, 0.6, 0.6)
-  love.graphics.printf("Cols: " .. upgrades.getBaseColumns(), col_x, UPGRADE_Y + UPGRADE_BTN_H + 10, UPGRADE_BTN_W, "center")
+  love.graphics.printf("Cols: " .. upgrades.getBaseColumns(),
+    col_x, UPGRADE_Y + UPGRADE_BTN_H + 10, UPGRADE_BTN_W, "center")
+end
+
+local function getDifficultyLabel(extra)
+  if extra == 0 then return "Normal" end
+  if extra == 1 then return "Hard" end
+  if extra == 2 then return "Extreme" end
+  return "Extreme+" .. (extra - 2)
+end
+
+local function getDifficultyColor(extra)
+  if extra == 0 then return {1, 1, 1} end
+  if extra == 1 then return {1, 0.75, 0.2} end
+  return {1, 0.3, 0.3}
+end
+
+local function drawDifficultyToggle()
+  love.graphics.setFont(font)
+  local current = upgrades.getDifficultyExtraTypes()
+  local max_extra = upgrades.getMaxDifficultyExtraTypes()
+  local multiplier = upgrades.getShardBonusMultiplier()
+  local bonus_pct = math.floor((multiplier - 1.0) * 100 + 0.5)
+
+  local label = getDifficultyLabel(current)
+  local tint = getDifficultyColor(current)
+
+  -- Center the row: [<] LABEL [>]
+  local total_w = DIFFICULTY_ARROW_W + DIFFICULTY_LABEL_W + DIFFICULTY_ARROW_W
+  local start_x = (VW - total_w) / 2
+
+  -- Left arrow
+  local left_x = start_x
+  local can_decrease = current > 0
+  love.graphics.setColor(can_decrease and {0.3, 0.3, 0.4} or {0.15, 0.15, 0.15})
+  love.graphics.rectangle("fill", left_x, DIFFICULTY_Y, DIFFICULTY_ARROW_W, DIFFICULTY_ARROW_H, 8, 8)
+  love.graphics.setColor(1, 1, 1, can_decrease and 1 or 0.3)
+  love.graphics.printf("<", left_x, DIFFICULTY_Y + (DIFFICULTY_ARROW_H - layout.FONT_SIZE) / 2, DIFFICULTY_ARROW_W, "center")
+
+  -- Center label area
+  local label_x = left_x + DIFFICULTY_ARROW_W
+  love.graphics.setColor(0.12, 0.12, 0.16)
+  love.graphics.rectangle("fill", label_x, DIFFICULTY_Y, DIFFICULTY_LABEL_W, DIFFICULTY_ARROW_H, 8, 8)
+
+  -- Difficulty name + bonus
+  love.graphics.setColor(tint[1], tint[2], tint[3])
+  local bonus_text = bonus_pct > 0 and (" (+" .. bonus_pct .. "% shards)") or ""
+  love.graphics.printf("DIFFICULTY: " .. label .. bonus_text,
+    label_x, DIFFICULTY_Y + 10, DIFFICULTY_LABEL_W, "center")
+
+  -- Buffer / types stats line
+  local cols = upgrades.getBaseColumns()
+  local default_types = math.floor(cols * 0.70)
+  local actual_types = default_types + current
+  if actual_types >= cols then actual_types = cols - 1 end
+  local buffer_pct = math.floor(((cols - actual_types) / cols) * 100 + 0.5)
+  love.graphics.setColor(0.5, 0.5, 0.5)
+  love.graphics.printf("Buffer: " .. buffer_pct .. "%  |  Types: " .. actual_types .. "/" .. cols .. " cols",
+    label_x, DIFFICULTY_Y + 46, DIFFICULTY_LABEL_W, "center")
+
+  -- Right arrow
+  local right_x = label_x + DIFFICULTY_LABEL_W
+  local can_increase = current < max_extra
+  love.graphics.setColor(can_increase and {0.3, 0.3, 0.4} or {0.15, 0.15, 0.15})
+  love.graphics.rectangle("fill", right_x, DIFFICULTY_Y, DIFFICULTY_ARROW_W, DIFFICULTY_ARROW_H, 8, 8)
+  love.graphics.setColor(1, 1, 1, can_increase and 1 or 0.3)
+  love.graphics.printf(">", right_x, DIFFICULTY_Y + (DIFFICULTY_ARROW_H - layout.FONT_SIZE) / 2, DIFFICULTY_ARROW_W, "center")
 end
 
 local function drawPlayButton()
@@ -290,14 +482,14 @@ end
 
 local function drawNotification()
   if notification.timer <= 0 then return end
-  local alpha = math.min(notification.timer / 0.3, 1)  -- fade out in last 0.3s
+  local alpha = math.min(notification.timer / 0.3, 1)
   love.graphics.setColor(1, 0.25, 0.25, alpha)
   love.graphics.setFont(font)
   love.graphics.printf(notification.message, 0, PLAY_BTN_Y - 80, VW, "center")
 end
 
--- Picker panel layout constants
-local PICKER_W, PICKER_H = 700, 550
+-- Color picker (house production color only)
+local PICKER_W, PICKER_H = 700, 450
 local PICKER_X = (VW - PICKER_W) / 2
 local PICKER_BTN_SIZE = 80
 local PICKER_BTN_PAD = 20
@@ -310,7 +502,7 @@ local function getPickerColorPositions()
   local names = coin_utils.getShardNames()
   local total = #names * PICKER_BTN_SIZE + (#names - 1) * PICKER_BTN_PAD
   local sx = PICKER_X + (PICKER_W - total) / 2
-  local sy = getPickerY() + 130
+  local sy = getPickerY() + 120
   local positions = {}
   for i = 1, #names do
     positions[i] = {
@@ -325,9 +517,6 @@ local function drawColorPicker()
   if not picker.active then return end
 
   local py = getPickerY()
-  local cr = currency.getCrystals()
-  local names = coin_utils.getShardNames()
-  local cost = picker.cost
 
   -- Overlay
   love.graphics.setColor(0, 0, 0, 0.7)
@@ -342,59 +531,33 @@ local function drawColorPicker()
   -- Title
   love.graphics.setColor(1, 1, 1)
   love.graphics.setFont(font)
-  local titles = {
-    build = "Choose Color to Build",
-    change = "Change Production Color",
-    buy_row = "Pay With Which Crystal?",
-    buy_column = "Pay With Which Crystal?",
-  }
-  love.graphics.printf(titles[picker.mode] or "Choose Color", PICKER_X, py + 25, PICKER_W, "center")
+  local title = picker.mode == "build" and "Choose Production Color" or "Change Production Color"
+  love.graphics.printf(title, PICKER_X, py + 25, PICKER_W, "center")
 
-  -- Cost line (if applicable)
-  if cost > 0 then
+  if picker.mode == "build" then
     love.graphics.setColor(0.9, 0.85, 0.3)
-    love.graphics.printf("Cost: " .. cost .. " crystals", PICKER_X, py + 70, PICKER_W, "center")
+    love.graphics.printf("Cost:", PICKER_X + PICKER_W / 2 - 120, py + 70, 80, "right")
+    drawCostIndicator(PICKER_X + PICKER_W / 2 - 30, py + 82, true)
   end
 
-  -- Color buttons with "Have: X" labels
+  -- Color buttons
+  local names = coin_utils.getShardNames()
   local positions = getPickerColorPositions()
   for i, name in ipairs(names) do
     local pos = positions[i]
     local rgb = coin_utils.getShardRGB(name)
-    local have = cr[name] or 0
-    local can_afford = cost <= 0 or have >= cost
     local cx, cy = pos.x + PICKER_BTN_SIZE / 2, pos.y + PICKER_BTN_SIZE / 2
 
-    -- Circle (dimmed if can't afford)
-    if can_afford then
-      love.graphics.setColor(rgb[1], rgb[2], rgb[3])
-    else
-      love.graphics.setColor(rgb[1] * 0.3, rgb[2] * 0.3, rgb[3] * 0.3)
-    end
+    love.graphics.setColor(rgb[1], rgb[2], rgb[3])
     love.graphics.circle("fill", cx, cy, PICKER_BTN_SIZE / 2)
 
-    -- Border highlight if affordable
-    if can_afford and cost > 0 then
-      love.graphics.setColor(1, 1, 1, 0.6)
-      love.graphics.setLineWidth(3)
-      love.graphics.circle("line", cx, cy, PICKER_BTN_SIZE / 2 + 2)
-      love.graphics.setLineWidth(1)
-    end
-
-    -- Color name
-    love.graphics.setColor(1, 1, 1, can_afford and 1 or 0.3)
+    love.graphics.setColor(1, 1, 1)
     love.graphics.printf(name, pos.x - 10, pos.y + PICKER_BTN_SIZE + 8, PICKER_BTN_SIZE + 20, "center")
-
-    -- "Have: X" count
-    if cost > 0 then
-      love.graphics.setColor(can_afford and {0.5, 1, 0.5} or {1, 0.3, 0.3})
-      love.graphics.printf("Have: " .. have, pos.x - 10, pos.y + PICKER_BTN_SIZE + 45, PICKER_BTN_SIZE + 20, "center")
-    end
   end
 
   -- Cancel button
   local cancel_x = PICKER_X + PICKER_W / 2 - 100
-  local cancel_y = py + PICKER_H - 80
+  local cancel_y = py + PICKER_H - 70
   love.graphics.setColor(0.5, 0.2, 0.2)
   love.graphics.rectangle("fill", cancel_x, cancel_y, 200, 55, 8, 8)
   love.graphics.setColor(1, 1, 1)
@@ -411,8 +574,10 @@ function upgrades_screen.draw()
   drawCurrencyDisplay()
   drawHouseGrid()
   drawUpgradeButtons()
+  drawDifficultyToggle()
   drawPlayButton()
   drawNotification()
+  drawFlyingCrystals()
   drawColorPicker()
 end
 
@@ -420,14 +585,11 @@ end
 -- Input
 --------------------------------------------------------------------------------
 
--- Unified picker click handler for all modes
 local function handlePickerClick(x, y)
   if not picker.active then return false end
 
   local py = getPickerY()
   local names = coin_utils.getShardNames()
-  local cr = currency.getCrystals()
-  local cost = picker.cost
   local positions = getPickerColorPositions()
 
   -- Check color button clicks
@@ -436,28 +598,14 @@ local function handlePickerClick(x, y)
     local cx, cy = pos.x + PICKER_BTN_SIZE / 2, pos.y + PICKER_BTN_SIZE / 2
     local dist = math.sqrt((x - cx) ^ 2 + (y - cy) ^ 2)
     if dist <= PICKER_BTN_SIZE / 2 then
-      local have = cr[name] or 0
-
-      -- Check affordability (skip for free actions like color change)
-      if cost > 0 and have < cost then
-        showNotification("Not enough " .. name .. " crystals! Need " .. cost .. ", have " .. have)
-        return true  -- absorb click, keep picker open
-      end
-
-      -- Execute the action
-      local success = true
       if picker.mode == "build" then
-        success = upgrades.buildHouse(picker.slot, name)
-      elseif picker.mode == "change" then
+        local success = upgrades.buildHouse(picker.slot, name)
+        if not success then
+          showNotification("Not enough red + green crystals!")
+          return true
+        end
+      else
         upgrades.setHouseColor(picker.slot, name)
-      elseif picker.mode == "buy_row" then
-        success = upgrades.buyRow(name)
-      elseif picker.mode == "buy_column" then
-        success = upgrades.buyColumn(name)
-      end
-
-      if not success then
-        showNotification("Purchase failed!")
       end
       picker.active = false
       return true
@@ -466,7 +614,7 @@ local function handlePickerClick(x, y)
 
   -- Cancel button
   local cancel_x = PICKER_X + PICKER_W / 2 - 100
-  local cancel_y = py + PICKER_H - 80
+  local cancel_y = py + PICKER_H - 70
   if x >= cancel_x and x <= cancel_x + 200 and y >= cancel_y and y <= cancel_y + 55 then
     picker.active = false
     return true
@@ -478,7 +626,7 @@ local function handlePickerClick(x, y)
     return true
   end
 
-  return true  -- absorb click while picker is open
+  return true
 end
 
 local function handleHouseClick(x, y)
@@ -490,16 +638,14 @@ local function handleHouseClick(x, y)
         picker.active = true
         picker.slot = idx
         picker.mode = "change"
-        picker.cost = 0
       else
-        local cost = upgrades.getHouseCost(idx)
-        if not canAffordAny(cost) then
-          showNotification("Not enough crystals! Need " .. cost)
+        -- Check affordability before opening picker
+        if not currency.canAfford(upgrades.getUpgradeCost()) then
+          showNotification("Not enough crystals! Need 1 red + 1 green")
         else
           picker.active = true
           picker.slot = idx
           picker.mode = "build"
-          picker.cost = cost
         end
       end
       return true
@@ -512,36 +658,61 @@ local function handleUpgradeClick(x, y)
   local total_w = UPGRADE_BTN_W * 2 + UPGRADE_PAD
   local start_x = (VW - total_w) / 2
 
-  -- Row upgrade button
+  -- Row upgrade button (direct buy, no picker)
   local row_x = start_x
   if x >= row_x and x <= row_x + UPGRADE_BTN_W and y >= UPGRADE_Y and y <= UPGRADE_Y + UPGRADE_BTN_H then
-    local cost = upgrades.getRowCost()
-    if not cost then
+    if not upgrades.canBuyRow() then
       showNotification("Rows already at maximum!")
-    elseif not canAffordAny(cost) then
-      showNotification("Not enough crystals! Need " .. cost)
+    elseif not currency.canAfford(upgrades.getUpgradeCost()) then
+      showNotification("Not enough crystals! Need 1 red + 1 green")
     else
-      picker.active = true
-      picker.slot = 0
-      picker.mode = "buy_row"
-      picker.cost = cost
+      upgrades.buyRow()
     end
     return true
   end
 
-  -- Column upgrade button
+  -- Column upgrade button (direct buy, no picker)
   local col_x = start_x + UPGRADE_BTN_W + UPGRADE_PAD
   if x >= col_x and x <= col_x + UPGRADE_BTN_W and y >= UPGRADE_Y and y <= UPGRADE_Y + UPGRADE_BTN_H then
-    local cost = upgrades.getColumnCost()
-    if not cost then
+    if not upgrades.canBuyColumn() then
       showNotification("Columns already at maximum!")
-    elseif not canAffordAny(cost) then
-      showNotification("Not enough crystals! Need " .. cost)
+    elseif not currency.canAfford(upgrades.getUpgradeCost()) then
+      showNotification("Not enough crystals! Need 1 red + 1 green")
     else
-      picker.active = true
-      picker.slot = 0
-      picker.mode = "buy_column"
-      picker.cost = cost
+      upgrades.buyColumn()
+    end
+    return true
+  end
+
+  return false
+end
+
+local function handleDifficultyClick(x, y)
+  local total_w = DIFFICULTY_ARROW_W + DIFFICULTY_LABEL_W + DIFFICULTY_ARROW_W
+  local start_x = (VW - total_w) / 2
+
+  -- Only respond to clicks in the difficulty row area
+  if y < DIFFICULTY_Y or y > DIFFICULTY_Y + DIFFICULTY_ARROW_H then
+    return false
+  end
+
+  local current = upgrades.getDifficultyExtraTypes()
+  local max_extra = upgrades.getMaxDifficultyExtraTypes()
+
+  -- Left arrow
+  local left_x = start_x
+  if x >= left_x and x <= left_x + DIFFICULTY_ARROW_W then
+    if current > 0 then
+      upgrades.setDifficultyExtraTypes(current - 1)
+    end
+    return true
+  end
+
+  -- Right arrow
+  local right_x = start_x + DIFFICULTY_ARROW_W + DIFFICULTY_LABEL_W
+  if x >= right_x and x <= right_x + DIFFICULTY_ARROW_W then
+    if current < max_extra then
+      upgrades.setDifficultyExtraTypes(current + 1)
     end
     return true
   end
@@ -568,6 +739,7 @@ function upgrades_screen.mousepressed(x, y, button)
 
   if handleHouseClick(x, y) then return end
   if handleUpgradeClick(x, y) then return end
+  if handleDifficultyClick(x, y) then return end
   if handlePlayClick(x, y) then return end
 end
 

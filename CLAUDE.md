@@ -19,9 +19,9 @@ Try to keep your visuals and logic separate.
 - `game_2048_screen.lua` - 2048 mode gameplay screen (UI, input handling, drawing)
 - `game_dev_screen.lua` - Dev test mode screen (centered single box layout)
 - `currency.lua` - Shard/crystal currency system: 5 colors, earned from merging, 25 shards auto-convert to 1 crystal
-- `upgrades.lua` - Permanent upgrades: houses (passive crystal production), row/column purchases with escalating costs
+- `upgrades.lua` - Permanent upgrades: houses (passive crystal production), row/column purchases, difficulty setting
 - `game_over_screen.lua` - Game over stats screen: score, shard breakdown, crystal summary, Continue button
-- `upgrades_screen.lua` - Meta/shop screen: crystal display, house grid (3x2), row/column upgrades, Play button
+- `upgrades_screen.lua` - Meta/shop screen: crystal display, house grid (3x2), row/column upgrades, difficulty toggle, Play button
 - `graphics.lua` - Game rendering: coins, boxes, background (NOT UI buttons)
 - `input.lua` - Input handling: hit testing, coordinate conversion
 - `sound.lua` - Sound management: loading, playback, toggle state
@@ -279,7 +279,7 @@ A separate game mode where coins have numbers instead of just colors.
 **Core Mechanics:**
 - Coins are objects `{number=N}` where N is 1-50
 - Placement rule: Can only place coin on top of SAME number OR in empty slot
-- Merging (2048-style): 2 coins of same number → 1 coin of (number+1)
+- Merging (2048-style): Full box of same number → `MERGE_OUTPUT` (2) coins of (number+1)
 - Numbers displayed on coins with white text
 
 **Coin Colors:**
@@ -288,8 +288,23 @@ A separate game mode where coins have numbers instead of just colors.
 
 **Progression System:**
 - `total_merges` tracks how many merges the player has done
-- `max_spawn_number` starts at 3, increases by 1 every 10 merges (caps at 10)
-- New coins spawn with random number in range `[1, max_spawn_number]`
+- `max_spawn_number` governed by buffer cap: `floor(COLS * 0.70) + difficulty_extra_types` (hard cap: cols-1)
+- Also respects progression cap: `min(10, 3 + floor(merges/10))`
+- `max_spawn_number = min(progression_cap, buffer_cap)`
+
+**Dealing Algorithm (`computeDeal()`):**
+- **Initial deal** (`is_initial=true`): `2 * BOX_ROWS` coins, 50/50 between types 1 and 2
+- **Regular deal**: `BOX_ROWS * uniform(0.5, 0.9)` coins, weighted type distribution
+- Lower numbers appear more often via hand-tuned weight tables (2-5 types) or geometric decay (0.82)
+- 36% chance (`SKIP_TYPE_CHANCE`) to skip each type per deal, creating variety
+- CDF-based weighted random selection for type choice
+- Single `computeDeal()` function used by `init()`, `add_coins()`, and `calculateCoinsToAdd()`
+
+**Balance Constants:**
+- `MERGE_OUTPUT = 2` — coins produced per merge (tunable)
+- `DEAL_MIN_FRACTION = 0.5`, `DEAL_MAX_FRACTION = 0.9` — deal size range as fraction of BOX_ROWS
+- `SKIP_TYPE_CHANCE = 0.36` — per-type skip probability
+- `DEFAULT_BUFFER_MIN = 0.30` — minimum fraction of columns kept as buffer
 
 **Invalid Placement Feedback:**
 - Box shakes with red highlight
@@ -303,11 +318,12 @@ A separate game mode where coins have numbers instead of just colors.
 - `total_merges` - Progression counter
 - `max_spawn_number` - Current spawn range upper limit
 - `MAX_NUMBER = 50` - Absolute maximum coin number
+- `MERGE_OUTPUT = 2` - Coins produced per merge
 - Grid size: `upgrades.getBaseColumns()` columns (base 4) x `upgrades.getBaseRows()` rows (base 4)
-- Initial fill: `~35%` of total slots (`max(#boxes, floor(#boxes * BOX_ROWS * 0.35))`)
+- Initial fill: `2 * BOX_ROWS` coins via `computeDeal(true, ...)`
 
 **Public API:**
-- `game_2048.init()` - Initialize with dynamic grid from upgrades, ~35% fill with coins numbered 1-3
+- `game_2048.init()` - Initialize with dynamic grid from upgrades, initial deal of 2*BOX_ROWS coins (types 1-2)
 - `game_2048.pick_coin_from_box(idx, opts)` - Pick same-number coins from top
 - `game_2048.can_place(dest_idx, coins)` - Validate placement, returns (bool, error_msg)
 - `game_2048.place_coin(dest_idx, coin)` - Add single coin to box
@@ -318,7 +334,7 @@ A separate game mode where coins have numbers instead of just colors.
 - `game_2048.calculateCoinsToAdd()` - Pre-calculate coins for dealing animation (returns array of {coin, dest_box_idx, dest_slot})
 - `game_2048.getState()` - Return all state
 - `game_2048.setError(msg)` - Trigger error display
-- `game_2048.isGameOver()` - True when all boxes full and no merges possible
+- `game_2048.isGameOver()` - True only when all boxes are full AND no merges possible
 
 **Animated Merge Flow:**
 1. Call `getMergeableBoxes()` - returns array of `{box_idx, coins, old_number, new_number, color, new_color}`
@@ -454,7 +470,8 @@ Shard/crystal currency earned from merging. Pure data module (no drawing).
 
 **Mechanics:**
 - 5 shard colors: red, green, purple, blue, pink (mapped from coin number via `((number-1) % 5) + 1`)
-- Each merge awards `coin_count * 5` shards of the mapped color
+- Each merge awards `floor(coin_count * 5 * shard_bonus_multiplier)` shards of the mapped color
+- Shard bonus multiplier from `upgrades.getShardBonusMultiplier()` (1.0 at normal, higher with difficulty)
 - 25 shards auto-convert to 1 crystal (checked after every award)
 - Per-run tracking reset with `currency.startRun()`
 - Persistence via `progression.getCurrencyData()` / `setCurrencyData()`
@@ -465,34 +482,51 @@ Shard/crystal currency earned from merging. Pure data module (no drawing).
 - `currency.startRun()` - Reset per-run shard tracking
 - `currency.onMerge(coin_count, coin_number)` - Award shards + auto-convert
 - `currency.getShards()` / `getCrystals()` / `getRunShards()` - Read state
-- `currency.spendCrystals(color, amount)` - Deduct if affordable, returns bool
+- `currency.spendCrystals(color, amount)` - Deduct single color if affordable, returns bool
+- `currency.canAfford(cost_table)` - Check multi-color cost, e.g. `{red=1, green=1}`
+- `currency.spendMulti(cost_table)` - Deduct multi-color cost if affordable, returns bool
 - `currency.addCrystal(color, amount)` - Add crystals (house production)
 - `currency.getShardsPerCrystal()` - Returns 25
 
 ## Upgrades System (upgrades.lua)
 
-Permanent upgrades: houses and grid size. Pure data module (no drawing).
+Permanent upgrades: houses, grid size, and difficulty. Pure data module (no drawing).
+
+**Flat Cost:** All upgrades (houses, rows, columns) cost 1 red + 1 green crystal.
 
 **Houses:**
-- Up to 6 slots (3x2 grid), escalating crystal cost: 5, 10, 15, 20, 25, 30
-- Each house produces 0.25 crystals/minute of its selected color (while in-game)
-- Color changeable after build
+- Up to 6 slots (3x2 grid), each costs 1 red + 1 green crystal
+- Each house produces 0.25 crystals/minute of its selected color (ticks on all screens)
+- Color changeable after build (free)
 
 **Grid Upgrades:**
-- Row costs: 10, 20, 35, 50 crystals (max 4 extra rows)
-- Column costs: 15, 30, 50, 75 crystals (max 4 extra columns)
+- Row/column upgrades each cost 1 red + 1 green crystal (flat, not escalating)
+- Max 4 extra rows, max 4 extra columns
 - Base grid: 4 columns x 4 rows (before upgrades)
+
+**Difficulty Setting:**
+- `difficulty_extra_types` (0 = Normal, 1 = Hard, 2 = Extreme, etc.)
+- Adds extra coin types beyond the default buffer cap, shrinking the buffer
+- Default buffer: 30% of columns. Each extra type removes ~1/COLS from buffer
+- Shard bonus: +10% per 5% buffer decrease (e.g., 4 cols, +1 type → +20% shards)
+- Max extra types: `(cols - 1) - floor(cols * 0.70)` (at least 1 buffer column must remain)
+- Persisted alongside other upgrades data
 
 **Public API:**
 - `upgrades.init()` / `save()` - Load/save via progression
+- `upgrades.getUpgradeCost()` - Returns `{red=1, green=1}` cost table
 - `upgrades.getBaseRows()` / `getBaseColumns()` - Current grid size (4+extra, 4+extra)
-- `upgrades.buyRow(color)` / `buyColumn(color)` - Purchase with crystals of specified color
-- `upgrades.getRowCost()` / `getColumnCost()` - Next upgrade cost or nil if maxed
-- `upgrades.canBuyRow()` / `canBuyColumn()` - Check if upgrade available
-- `upgrades.buildHouse(slot, color)` - Build at slot, spend crystals
-- `upgrades.setHouseColor(slot, color)` - Change production color
-- `upgrades.updateProduction(dt)` - Tick house production (call in game update)
+- `upgrades.buyRow()` / `buyColumn()` - Purchase (no color param, uses flat cost)
+- `upgrades.canBuyRow()` / `canBuyColumn()` - Check if upgrade available (not maxed)
+- `upgrades.buildHouse(slot, production_color)` - Build at slot with flat cost, set production color
+- `upgrades.setHouseColor(slot, color)` - Change production color (free)
+- `upgrades.updateProduction(dt)` - Tick house production, returns `{slot, color}` events for each crystal produced
+- `upgrades.getHouseRate()` - Returns crystals-per-minute rate (0.25)
 - `upgrades.getHouses()` / `getMaxHouses()` - House state
+- `upgrades.getDifficultyExtraTypes()` - Current difficulty setting (0, 1, 2...)
+- `upgrades.setDifficultyExtraTypes(n)` - Set and persist difficulty
+- `upgrades.getMaxDifficultyExtraTypes()` - Max allowed for current column count
+- `upgrades.getShardBonusMultiplier()` - Returns 1.0 + bonus (e.g., 1.2 for +20%)
 
 ## Game Over Screen (game_over_screen.lua)
 
@@ -512,8 +546,9 @@ Meta/shop screen between runs.
 
 **Layout (1080x2400 canvas):**
 - Currency display (y~100): 5 color diamonds with crystal counts + shard progress bars (X/25)
-- House grid (y~460): 3x2 grid, empty slots show pulsating "+" (green if affordable, dim red if not), built slots show color + progress bar
+- House grid (y~460): 3x2 grid, empty slots show pulsating "+" (green if affordable, dim red if not), built slots show color + progress bar + M:SS countdown timer
 - Upgrade panel (y~1200): Buy Row / Buy Column buttons with costs (green if affordable, red if not, gray if maxed)
+- Difficulty toggle (y~1450): `[<] DIFFICULTY: Hard (+40% shards) [>]` with buffer/types stats line
 - Play button (y~1800): Large green button -> starts new 2048 run
 - Notification area (y~1720): Red error text with 2s fade for failed purchases
 
@@ -522,15 +557,18 @@ Meta/shop screen between runs.
 - Row/Column buttons: green background if affordable, dark red if not, gray if maxed
 - Text dims to 40% alpha when unaffordable or maxed
 
-**Color Picker Popup:**
-- Shown when building/changing house or buying row/column upgrade
-- Shows cost line and per-color `"Have: X"` labels (green text if affordable, red if not)
-- Clicking unaffordable color shows notification: `"Not enough [color] crystals! Need X, have Y"` and keeps picker open
-- Clicking outside or Cancel closes picker
+**Color Picker Popup (houses only):**
+- Shown when building a house (choose production color) or changing a built house's color
+- Row/column upgrades buy directly on click (no picker needed - flat cost)
+
+**Flying Crystal Animation (self-contained in upgrades_screen):**
+- When a house produces a crystal, a diamond flies from the house progress bar to the matching currency diamond at top
+- Arc trajectory with ease-out, sparkle highlight, elastic pop/overshoot on landing
+- Config: 0.6s flight, 200px arc height, 0.25s pop with 1.4x overshoot
+- Multiple crystals animate independently; cleared on screen enter
 
 **Error Notifications:**
-- `"Not enough crystals! Need X"` when clicking unaffordable house/upgrade button
-- `"Not enough [color] crystals! Need X, have Y"` when picking unaffordable color in picker
+- `"Not enough crystals! Need 1 red + 1 green"` when clicking unaffordable upgrade
 - `"Rows/Columns already at maximum!"` when clicking maxed upgrade
 - Fade out over last 0.3s of 2s duration
 
@@ -558,4 +596,4 @@ App launches directly into 2048 mode (no mode select menu). Escape key goes to u
 5. "Continue" → `upgrades_screen` for buying houses/rows/columns
 6. "Play" → back to step 1 with upgraded grid
 
-**House production:** `upgrades.updateProduction(dt)` ticks during gameplay (step 2), accumulating crystals passively.
+**House production:** `upgrades.updateProduction(dt)` ticks on all screens (game_2048, game_over, upgrades), accumulating crystals passively. On the upgrades screen, production events trigger a flying crystal animation.

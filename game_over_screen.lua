@@ -7,6 +7,7 @@ local currency = require("currency")
 local coin_utils = require("coin_utils")
 local game_2048 = require("game_2048")
 local progression = require("progression")
+local upgrades = require("upgrades")
 
 local game_over_screen = {}
 
@@ -52,6 +53,7 @@ function game_over_screen.exit()
 end
 
 function game_over_screen.update(dt)
+  upgrades.updateProduction(dt)
 end
 
 function game_over_screen.draw()

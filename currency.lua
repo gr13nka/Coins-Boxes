@@ -48,9 +48,14 @@ function currency.startRun()
 end
 
 -- Award shards for a merge. coin_count = number of coins consumed, coin_number = their number.
+-- Applies difficulty shard bonus multiplier from upgrades module.
 function currency.onMerge(coin_count, coin_number)
   local color = coin_utils.numberToShardColor(coin_number)
-  local amount = coin_count * SHARDS_PER_COIN
+  local base_amount = coin_count * SHARDS_PER_COIN
+  -- Lazy require to avoid circular dependency (upgrades requires currency)
+  local upgrades = require("upgrades")
+  local multiplier = upgrades.getShardBonusMultiplier()
+  local amount = math.floor(base_amount * multiplier)
   shards[color] = shards[color] + amount
   run_shards[color] = run_shards[color] + amount
   autoConvert(color)
@@ -85,6 +90,24 @@ function currency.addCrystal(color, amount)
   if crystals[color] then
     crystals[color] = crystals[color] + amount
   end
+end
+
+-- Check if player can afford a multi-color cost table, e.g. {red=1, green=1}
+function currency.canAfford(cost_table)
+  for color, amount in pairs(cost_table) do
+    if (crystals[color] or 0) < amount then return false end
+  end
+  return true
+end
+
+-- Spend multiple crystal colors at once. Returns true if affordable.
+function currency.spendMulti(cost_table)
+  if not currency.canAfford(cost_table) then return false end
+  for color, amount in pairs(cost_table) do
+    crystals[color] = crystals[color] - amount
+  end
+  currency.save()
+  return true
 end
 
 function currency.getShardsPerCrystal()
