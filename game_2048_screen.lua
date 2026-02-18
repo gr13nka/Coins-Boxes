@@ -497,8 +497,8 @@ function game_2048_screen.enter()
   ROW_STEP = layout.ROW_STEP
   TOP_Y = layout.GRID_TOP_Y
 
-  -- Recreate coin number font to match new COIN_R
-  local fontScale = layout.USE_FRUIT_IMAGES and 0.7 or 1.2
+  -- Recreate coin number font to match new COIN_R (halved for tight stacking)
+  local fontScale = layout.USE_FRUIT_IMAGES and 0.35 or 0.6
   coinNumberFont = love.graphics.newFont("comic shanns.otf", math.floor(layout.COIN_R * fontScale))
 
   game_2048.init()

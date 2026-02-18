@@ -93,11 +93,13 @@ function layout.getGridMetrics(cols, rows)
     end
 
     -- Two-layer mode: at 8+ rows, pair slots into visual rows (halves height)
-    local two_layer = rows >= layout.TWO_LAYER_THRESHOLD
+    -- Disabled in multi-row mode to keep coins straight within boxes
+    local two_layer = not multi_row and rows >= layout.TWO_LAYER_THRESHOLD
     local display_rows = two_layer and math.ceil(rows / 2) or rows
 
     -- Row step: distribute evenly based on display rows, uses band_height in multi-row
-    local row_step = math.min(130, math.floor(band_height / (display_rows + 0.5)))
+    -- Capped at coin_r so coins overlap ~50% (tight chip-stack look)
+    local row_step = math.min(coin_r, math.floor(band_height / (display_rows + 0.5)))
 
     -- Overlap: coins visually overlap when row_step < coin diameter
     local overlapping = row_step < coin_r * 2

@@ -163,57 +163,77 @@ function graphics.drawBoxes(boxes, BOX_ROWS)
   return x, y
 end
 
---- Draw box grid for 2048 mode (with shake effect)
+--- Draw coin-tube tray for a single column
+-- Rounded tube with horizontal groove lines (poker chip holder style)
+local function drawTray(x, col_top_y, BOX_ROWS, is_shaking)
+  local pad = 8
+  local tray_w = COIN_R * 2 + pad * 2
+  local corner_r = tray_w / 2  -- full semicircle caps
+
+  -- Tray spans from first slot to last slot, plus coin radius padding
+  local first_y = col_top_y + ROW_STEP
+  local last_y  = col_top_y + ROW_STEP * BOX_ROWS
+  local tray_top = first_y - COIN_R - pad
+  local tray_h   = (last_y + COIN_R + pad) - tray_top
+
+  -- Body fill
+  if is_shaking then
+    love.graphics.setColor(0.35, 0.12, 0.12, 0.45)
+  else
+    love.graphics.setColor(0.22, 0.24, 0.30, 0.35)
+  end
+  love.graphics.rectangle("fill", x - tray_w / 2, tray_top, tray_w, tray_h, corner_r, corner_r)
+
+  -- Horizontal groove lines (slot dividers)
+  local groove_inset = 8
+  for row = 1, BOX_ROWS do
+    local gy = col_top_y + ROW_STEP * row
+    -- Darker groove
+    love.graphics.setColor(0.15, 0.16, 0.20, 0.25)
+    love.graphics.line(x - tray_w / 2 + groove_inset, gy + 1,
+                       x + tray_w / 2 - groove_inset, gy + 1)
+    -- Lighter highlight above
+    love.graphics.setColor(0.45, 0.48, 0.55, 0.15)
+    love.graphics.line(x - tray_w / 2 + groove_inset, gy,
+                       x + tray_w / 2 - groove_inset, gy)
+  end
+
+  -- Top highlight arc for 3D roundness
+  love.graphics.setColor(0.5, 0.52, 0.58, 0.2)
+  love.graphics.arc("line", "open", x, tray_top + corner_r, corner_r - 2,
+                    -math.pi * 0.85, -math.pi * 0.15, 16)
+
+  -- Border outline
+  if is_shaking then
+    love.graphics.setColor(0.8, 0.25, 0.25, 0.5)
+  else
+    love.graphics.setColor(0.38, 0.40, 0.48, 0.4)
+  end
+  love.graphics.setLineWidth(2)
+  love.graphics.rectangle("line", x - tray_w / 2, tray_top, tray_w, tray_h, corner_r, corner_r)
+  love.graphics.setLineWidth(1)
+end
+
+--- Draw box grid for 2048 mode (coin-tube trays with shake effect)
 -- @param boxes Array of boxes (for column count)
 -- @param BOX_ROWS Number of rows per box
 -- @param shakeState Table with {active, box_index, time, duration} for shake animation
 -- @return top_x, top_y The coordinates of the last drawn cell
 function graphics.drawBoxes2048(boxes, BOX_ROWS, shakeState)
   local x, y
-  local overlapping = ROW_STEP < COIN_R * 2
-  local two_layer = layout.TWO_LAYER
 
   for column = 1, #boxes do
-    -- Apply shake offset if this box is shaking
     local shake_offset = 0
     if shakeState.active and shakeState.box_index == column then
       shake_offset = math.sin(shakeState.time * 50) * 8 * (1 - shakeState.time / shakeState.duration)
     end
 
-    -- Red color if shaking, white otherwise
-    if shakeState.active and shakeState.box_index == column then
-      love.graphics.setColor(1, 0.3, 0.3)
-    else
-      love.graphics.setColor(1, 1, 1)
-    end
-
     local col_x, col_top_y = layout.columnPosition(column)
     x = col_x + shake_offset
+    y = col_top_y + ROW_STEP * BOX_ROWS
 
-    if two_layer then
-      -- Two-layer mode: single wide container per column
-      local visual_rows = math.ceil(BOX_ROWS / 2)
-      local lx = layout.LAYER_OFFSET_X
-      local ly = layout.LAYER_OFFSET_Y
-      local top = col_top_y + ROW_STEP - COIN_R - ly - 2
-      local height = (visual_rows - 1) * ROW_STEP + COIN_R * 2 + ly * 2 + 4
-      local width = COIN_R * 2 + lx * 2 + 4
-      love.graphics.rectangle("line", x - COIN_R - lx - 2, top, width, height, 4, 4, 8)
-      y = col_top_y + ROW_STEP * visual_rows
-    elseif overlapping then
-      -- Stack mode: single tall column container
-      local top = col_top_y + ROW_STEP - COIN_R - 2
-      local height = (BOX_ROWS - 1) * ROW_STEP + COIN_R * 2 + 4
-      local width = COIN_R * 2 + 4
-      love.graphics.rectangle("line", x - COIN_R - 2, top, width, height, 4, 4, 8)
-      y = col_top_y + ROW_STEP * BOX_ROWS
-    else
-      -- Normal mode: draw individual cell rectangles
-      for row = 1, BOX_ROWS do
-        y = col_top_y + ROW_STEP * row
-        love.graphics.rectangle("line", x-COIN_R-2, y-COIN_R-2, COIN_R*2+4, COIN_R*2+4, 2, 2, 8)
-      end
-    end
+    local is_shaking = shakeState.active and shakeState.box_index == column
+    drawTray(x, col_top_y, BOX_ROWS, is_shaking)
   end
 
   return x, y

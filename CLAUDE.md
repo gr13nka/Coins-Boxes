@@ -283,6 +283,18 @@ Key settings in `layout.lua`:
 - `graphics.drawCoins2048` renders back layer first, then front layer for proper z-order
 - `graphics.drawBoxes2048` draws wider containers to fit both layers
 
+**Multi-Row Column Layout:**
+- Activates when `cols >= MULTI_ROW_THRESHOLD` (default 7)
+- Wraps columns into 2 visual rows: `cols_per_row = ceil(total_cols / 2)` (e.g., 10 cols → 5+5, 7 cols → 4+3)
+- `column_step` calculated from `cols_per_row` (not total cols) so coins stay large
+- Available height split into 2 bands: `band_height = floor((grid_height - COLUMN_ROW_GAP) / 2)`
+- `ROW2_TOP_Y = GRID_TOP_Y + band_height + COLUMN_ROW_GAP` (default gap = 80px)
+- `layout.columnPosition(column)` returns `(x, top_y)` — transparently handles row wrapping
+- Columns 1..COLS_PER_ROW use `GRID_TOP_Y`, columns COLS_PER_ROW+1..total use `ROW2_TOP_Y`
+- `input.boxAt2048` uses gap midpoint as band boundary for y-based hit detection
+- Can combine with two-layer mode (7+ cols AND 8+ rows)
+- `graphics.drawBoxes2048`, `animation.startMerge`, hammer overlay all use `layout.columnPosition()`
+
 **Module Cache Refresh:**
 - `graphics.updateMetrics()` / `input.updateMetrics()` - Refresh module-level cached layout values
 - Must be called after `layout.applyMetrics()` (done in `game_2048_screen.enter()`)
