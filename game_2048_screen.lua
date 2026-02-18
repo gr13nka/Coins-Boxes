@@ -87,6 +87,17 @@ local hud_pops = {}  -- keyed by color_name: {time, amount}
 local HUD_POP_DURATION = 0.55
 local HUD_POP_OVERSHOOT = 2.5
 
+-- Debug size slider
+local SLIDER_X = 200
+local SLIDER_W = 680
+local SLIDER_Y = 1860
+local SLIDER_H = 36
+local SLIDER_HANDLE_R = 22
+local size_scale = 1.0
+local slider_dragging = false
+local base_coin_r = 0
+local base_row_step = 0
+
 -- Get HUD diamond position for a shard color
 local function getShardHudPosition(color_name)
   local names = coin_utils.getShardNames()
@@ -386,6 +397,61 @@ local function drawHammerOverlay()
   love.graphics.printf("TAP COLUMN TO CLEAR", 0, POWERUP_Y - 50, VW, "center")
 end
 
+-- Apply the slider scale to coin/tray sizing
+local function applySliderScale()
+  layout.COIN_R = math.max(10, math.floor(base_coin_r * size_scale))
+  layout.ROW_STEP = math.max(5, math.floor(base_row_step * size_scale))
+  graphics.updateMetrics()
+  input.updateMetrics()
+  COIN_R = layout.COIN_R
+  ROW_STEP = layout.ROW_STEP
+  local fs = layout.USE_FRUIT_IMAGES and 0.35 or 0.6
+  coinNumberFont = love.graphics.newFont("comic shanns.otf", math.max(8, math.floor(layout.COIN_R * fs)))
+end
+
+-- Update slider drag tracking
+local function updateSliderDrag()
+  if not slider_dragging then return end
+  if not love.mouse.isDown(1) then
+    slider_dragging = false
+    return
+  end
+  local mx, my = love.mouse.getPosition()
+  local ww, wh = love.graphics.getDimensions()
+  local sc = math.min(ww / VW, wh / VH)
+  local ox = (ww - VW * sc) / 2
+  local gx = (mx - ox) / sc
+  local t = math.max(0, math.min(1, (gx - SLIDER_X) / SLIDER_W))
+  size_scale = 0.5 + t * 1.5  -- 50% to 200%
+  applySliderScale()
+end
+
+-- Draw the debug size slider
+local function drawSlider()
+  -- Bar background
+  love.graphics.setColor(0.15, 0.15, 0.2, 0.8)
+  love.graphics.rectangle("fill", SLIDER_X, SLIDER_Y, SLIDER_W, SLIDER_H, 6, 6)
+
+  -- Fill
+  local t = (size_scale - 0.5) / 1.5
+  love.graphics.setColor(0.25, 0.45, 0.7, 0.6)
+  love.graphics.rectangle("fill", SLIDER_X, SLIDER_Y, SLIDER_W * t, SLIDER_H, 6, 6)
+
+  -- Handle
+  local hx = SLIDER_X + SLIDER_W * t
+  local hy = SLIDER_Y + SLIDER_H / 2
+  love.graphics.setColor(1, 1, 1, 0.9)
+  love.graphics.circle("fill", hx, hy, SLIDER_HANDLE_R)
+  love.graphics.setColor(0.3, 0.3, 0.4)
+  love.graphics.circle("line", hx, hy, SLIDER_HANDLE_R)
+
+  -- Label
+  local pct = math.floor(size_scale * 100)
+  love.graphics.setColor(1, 1, 1)
+  love.graphics.setFont(font)
+  love.graphics.printf("Size: " .. pct .. "%", 0, SLIDER_Y - 36, VW, "center")
+end
+
 local function handleSoundToggleClick(x, y)
   if input.isOnSfxToggle(x, y) then
     sound.toggleSfx()
@@ -406,7 +472,7 @@ local function drawProgressBar()
   local bar_w = 600
   local bar_h = 16
   local bar_x = (VW - bar_w) / 2
-  local bar_y = 85
+  local bar_y = 250
 
   -- Background
   love.graphics.setColor(0.15, 0.15, 0.15)
@@ -501,6 +567,11 @@ function game_2048_screen.enter()
   local fontScale = layout.USE_FRUIT_IMAGES and 0.35 or 0.6
   coinNumberFont = love.graphics.newFont("comic shanns.otf", math.floor(layout.COIN_R * fontScale))
 
+  -- Store base values for debug slider
+  base_coin_r = layout.COIN_R
+  base_row_step = layout.ROW_STEP
+  slider_dragging = false
+
   game_2048.init()
   currency.startRun()
   selection = nil
@@ -522,6 +593,7 @@ function game_2048_screen.update(dt)
   particles.update(dt)
   updateButtonAnimations(dt)
   upgrades.updateProduction(dt)
+  updateSliderDrag()
 
   -- Update shake animation
   if shakeState.active then
@@ -547,8 +619,6 @@ function game_2048_screen.draw()
   graphics.drawBackground()
   drawCurrencyHUD()
   drawProgressBar()
-  draw_2048_info()
-  draw_points_2048()
 
   -- Show merge message
   if state.merge_timer > 0 then
@@ -587,6 +657,7 @@ function game_2048_screen.draw()
   drawPowerupButtons()
   drawHammerOverlay()
   drawSoundToggles()
+  drawSlider()
 
   -- End screen shake
   if shake_x ~= 0 or shake_y ~= 0 then
@@ -605,6 +676,15 @@ function game_2048_screen.keypressed(key, scancode, isrepeat)
     end
     screens.switch("upgrades")
   end
+  if key == "f3" then
+    -- Debug: give +10 of each crystal and go to upgrades
+    local names = coin_utils.getShardNames()
+    for _, name in ipairs(names) do
+      currency.addCrystal(name, 10)
+    end
+    currency.save()
+    screens.switch("upgrades")
+  end
 end
 
 function game_2048_screen.mousepressed(x, y, button)
@@ -612,6 +692,16 @@ function game_2048_screen.mousepressed(x, y, button)
 
   -- Check sound toggle buttons first
   if handleSoundToggleClick(x, y) then
+    return
+  end
+
+  -- Check debug size slider
+  if y >= SLIDER_Y - SLIDER_HANDLE_R and y <= SLIDER_Y + SLIDER_H + SLIDER_HANDLE_R
+     and x >= SLIDER_X - SLIDER_HANDLE_R and x <= SLIDER_X + SLIDER_W + SLIDER_HANDLE_R then
+    slider_dragging = true
+    local t = math.max(0, math.min(1, (x - SLIDER_X) / SLIDER_W))
+    size_scale = 0.5 + t * 1.5
+    applySliderScale()
     return
   end
 
@@ -759,6 +849,9 @@ end
 
 function game_2048_screen.mousereleased(x, y, button)
   if button ~= 1 then return end
+
+  -- Stop slider drag
+  slider_dragging = false
 
   -- Release merge button
   if buttonState.merge.pressed then

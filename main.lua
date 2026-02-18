@@ -108,19 +108,16 @@ function love.load()
   -- Load and register game screens
   local game_screen = require("game_screen")
   local game_2048_screen = require("game_2048_screen")
-  local game_dev_screen = require("game_dev_screen")
   local game_over_screen = require("game_over_screen")
   local upgrades_screen = require("upgrades_screen")
 
   game_screen.init(assets)
   game_2048_screen.init(assets)
-  game_dev_screen.init(assets)
   game_over_screen.init(assets)
   upgrades_screen.init(assets)
 
   screens.register("game", game_screen)
   screens.register("game_2048", game_2048_screen)
-  screens.register("game_dev", game_dev_screen)
   screens.register("game_over", game_over_screen)
   screens.register("upgrades", upgrades_screen)
 

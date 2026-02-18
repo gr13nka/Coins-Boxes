@@ -130,16 +130,6 @@ function mode_select.enter()
                 screens.switch("game_2048")
             end
         },
-        {
-            label = "Dev Test Mode",
-            x = (VW - 400) / 2,
-            y = 1200,
-            width = 400,
-            height = 120,
-            action = function()
-                screens.switch("game_dev")
-            end
-        },
     }
 
     -- Check unlock status for each button

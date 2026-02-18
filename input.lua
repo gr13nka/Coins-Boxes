@@ -44,24 +44,24 @@ end
 -- @param top_y The bottom-most y coordinate of the grid
 -- @return Column index (1-based) or nil if outside grid
 function input.boxAt2048(x, y, boxes, top_y)
+  -- Reject clicks outside the grid area
+  if y < layout.GRID_TOP_Y or y > layout.BUTTON_AREA_Y then return nil end
+
   if layout.MULTI_ROW then
     local cols_per_row = layout.COLS_PER_ROW
     local total_cols = #boxes
 
-    -- Determine which band based on y (midpoint of gap as boundary)
-    local band_boundary = layout.ROW2_TOP_Y - layout.COLUMN_ROW_GAP / 2
+    -- Determine which band based on y (centered band boundary)
     local col_offset, max_col
 
-    if y < band_boundary then
-      -- Band 1
+    if y < layout.BAND_BOUNDARY_Y then
+      -- Top row
       col_offset = 0
       max_col = cols_per_row
-      if y < TOP_Y - 20 then return nil end
     else
-      -- Band 2
+      -- Bottom row
       col_offset = cols_per_row
       max_col = total_cols - cols_per_row
-      if y < layout.ROW2_TOP_Y - 20 then return nil end
     end
 
     -- Snap x to nearest column (same spacing for both bands)
@@ -72,9 +72,6 @@ function input.boxAt2048(x, y, boxes, top_y)
   else
     local col = math.floor(((x - GRID_X_OFFSET) / COLUMN_STEP) + 0.5)
     if col < 1 or col > #boxes then return nil end
-
-    local y_min = TOP_Y - 10
-    if y < y_min - 10 or y > top_y + 10 then return nil end
 
     return col
   end

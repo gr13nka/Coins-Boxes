@@ -73,7 +73,8 @@ end
 -- Draw a single 2048 coin at (x, y)
 -- Uses fruit images or tinted ball depending on layout.USE_FRUIT_IMAGES
 -- Also used by animation.lua for consistent rendering
-function graphics.drawCoin2048(font, x, y, num, MAX_NUMBER, scaleOverride)
+-- hideNumber: optional, if true skip drawing the number text
+function graphics.drawCoin2048(font, x, y, num, MAX_NUMBER, scaleOverride, hideNumber)
   local imgW, imgH, img, scale
   if layout.USE_FRUIT_IMAGES then
     img = coin_utils.numberToImage(num)
@@ -90,17 +91,19 @@ function graphics.drawCoin2048(font, x, y, num, MAX_NUMBER, scaleOverride)
     love.graphics.setColor(col)
   end
   love.graphics.draw(img, x, y, 0, scale, scale, imgW / 2, imgH / 2)
-  -- Number text
-  if layout.USE_FRUIT_IMAGES then
-    love.graphics.setColor(0, 0, 0)
-  else
-    love.graphics.setColor(1, 1, 1)
+  -- Number text (skip if hideNumber)
+  if not hideNumber then
+    if layout.USE_FRUIT_IMAGES then
+      love.graphics.setColor(0, 0, 0)
+    else
+      love.graphics.setColor(1, 1, 1)
+    end
+    love.graphics.setFont(font)
+    local num_str = tostring(num)
+    local text_width = font:getWidth(num_str)
+    local text_height = font:getHeight()
+    love.graphics.print(num_str, x - text_width / 2, y - text_height / 2)
   end
-  love.graphics.setFont(font)
-  local num_str = tostring(num)
-  local text_width = font:getWidth(num_str)
-  local text_height = font:getHeight()
-  love.graphics.print(num_str, x - text_width / 2, y - text_height / 2)
 end
 
 --- Draw all coins for 2048 mode (with numbers)
@@ -118,12 +121,13 @@ function graphics.drawCoins2048(boxes, MAX_NUMBER, font, skipBoxes)
     for layer = 0, 1 do
       for column, box in ipairs(boxes) do
         if not skipBoxes[column] then
+          local bottom_slot = #box
           for slot, coin in ipairs(box) do
             local slot_layer = (slot - 1) % 2
             if slot_layer == layer then
               local num = coin_utils.getCoinNumber(coin)
               x, y = layout.slotPosition(column, slot)
-              graphics.drawCoin2048(font, x, y, num, MAX_NUMBER)
+              graphics.drawCoin2048(font, x, y, num, MAX_NUMBER, nil, slot ~= bottom_slot)
             end
           end
         end
@@ -132,10 +136,11 @@ function graphics.drawCoins2048(boxes, MAX_NUMBER, font, skipBoxes)
   else
     for column, box in ipairs(boxes) do
       if not skipBoxes[column] then
+        local bottom_slot = #box
         for row, coin in ipairs(box) do
           local num = coin_utils.getCoinNumber(coin)
           x, y = layout.slotPosition(column, row)
-          graphics.drawCoin2048(font, x, y, num, MAX_NUMBER)
+          graphics.drawCoin2048(font, x, y, num, MAX_NUMBER, nil, row ~= bottom_slot)
         end
       end
     end
@@ -163,18 +168,14 @@ function graphics.drawBoxes(boxes, BOX_ROWS)
   return x, y
 end
 
---- Draw coin-tube tray for a single column
--- Rounded tube with horizontal groove lines (poker chip holder style)
+--- Draw coin tray for a single column
+-- Thin-line rectangle with uniform horizontal groove lines
 local function drawTray(x, col_top_y, BOX_ROWS, is_shaking)
-  local pad = 8
-  local tray_w = COIN_R * 2 + pad * 2
-  local corner_r = tray_w / 2  -- full semicircle caps
+  local tray_w = COIN_R * 2 + 4
 
-  -- Tray spans from first slot to last slot, plus coin radius padding
-  local first_y = col_top_y + ROW_STEP
-  local last_y  = col_top_y + ROW_STEP * BOX_ROWS
-  local tray_top = first_y - COIN_R - pad
-  local tray_h   = (last_y + COIN_R + pad) - tray_top
+  -- Tray edges align with coin image edges (center ± COIN_R)
+  local tray_top = col_top_y + ROW_STEP - COIN_R
+  local tray_h   = ROW_STEP * (BOX_ROWS - 1) + COIN_R * 2
 
   -- Body fill
   if is_shaking then
@@ -182,36 +183,27 @@ local function drawTray(x, col_top_y, BOX_ROWS, is_shaking)
   else
     love.graphics.setColor(0.22, 0.24, 0.30, 0.35)
   end
-  love.graphics.rectangle("fill", x - tray_w / 2, tray_top, tray_w, tray_h, corner_r, corner_r)
+  love.graphics.rectangle("fill", x - tray_w / 2, tray_top, tray_w, tray_h)
 
-  -- Horizontal groove lines (slot dividers)
-  local groove_inset = 8
-  for row = 1, BOX_ROWS do
-    local gy = col_top_y + ROW_STEP * row
-    -- Darker groove
-    love.graphics.setColor(0.15, 0.16, 0.20, 0.25)
-    love.graphics.line(x - tray_w / 2 + groove_inset, gy + 1,
-                       x + tray_w / 2 - groove_inset, gy + 1)
-    -- Lighter highlight above
-    love.graphics.setColor(0.45, 0.48, 0.55, 0.15)
-    love.graphics.line(x - tray_w / 2 + groove_inset, gy,
-                       x + tray_w / 2 - groove_inset, gy)
+  -- Horizontal divider lines between cells (uniform thickness)
+  if is_shaking then
+    love.graphics.setColor(0.6, 0.2, 0.2, 0.4)
+  else
+    love.graphics.setColor(0.38, 0.40, 0.48, 0.3)
+  end
+  love.graphics.setLineWidth(1)
+  for row = 1, BOX_ROWS - 1 do
+    local gy = col_top_y + ROW_STEP * (row + 0.5)
+    love.graphics.line(x - tray_w / 2, gy, x + tray_w / 2, gy)
   end
 
-  -- Top highlight arc for 3D roundness
-  love.graphics.setColor(0.5, 0.52, 0.58, 0.2)
-  love.graphics.arc("line", "open", x, tray_top + corner_r, corner_r - 2,
-                    -math.pi * 0.85, -math.pi * 0.15, 16)
-
-  -- Border outline
+  -- Border outline (same thin line as dividers)
   if is_shaking then
     love.graphics.setColor(0.8, 0.25, 0.25, 0.5)
   else
     love.graphics.setColor(0.38, 0.40, 0.48, 0.4)
   end
-  love.graphics.setLineWidth(2)
-  love.graphics.rectangle("line", x - tray_w / 2, tray_top, tray_w, tray_h, corner_r, corner_r)
-  love.graphics.setLineWidth(1)
+  love.graphics.rectangle("line", x - tray_w / 2, tray_top, tray_w, tray_h)
 end
 
 --- Draw box grid for 2048 mode (coin-tube trays with shake effect)

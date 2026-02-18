@@ -14,10 +14,8 @@ Try to keep your visuals and logic separate.
 - `main.lua` - Minimal entry point: LÖVE callbacks, window setup, asset loading, screen registration (~140 lines)
 - `game.lua` - Classic mode game state and mechanics. Coins are color strings.
 - `game_2048.lua` - 2048 mode game state and mechanics. Coins are `{number=N}` objects.
-- `game_dev.lua` - Dev test mode: single centered box with 12 slots, all filled with "1" coins.
 - `game_screen.lua` - Classic mode gameplay screen (UI, input handling, drawing)
 - `game_2048_screen.lua` - 2048 mode gameplay screen (UI, input handling, drawing)
-- `game_dev_screen.lua` - Dev test mode screen (centered single box layout)
 - `currency.lua` - Shard/crystal currency system: 5 colors, earned from merging, 25 shards auto-convert to 1 crystal
 - `upgrades.lua` - Permanent upgrades: houses (passive crystal production), row/column purchases, difficulty setting, max coin tracking
 - `powerups.lua` - Consumable power-ups: Auto Sort and Hammer, purchasable in upgrades screen
@@ -78,7 +76,6 @@ Each screen is a table with optional methods: `enter()`, `exit()`, `update(dt)`,
 - `mode_select` - Menu with game mode buttons (includes unlock status display)
 - `game` - Classic mode gameplay screen (defined in `game_screen.lua`)
 - `game_2048` - 2048 mode gameplay screen (defined in `game_2048_screen.lua`) — **default start screen**
-- `game_dev` - Dev test mode screen (defined in `game_dev_screen.lua`)
 - `game_over` - Post-run stats: score, per-color shard breakdown with progress bars, crystal totals (defined in `game_over_screen.lua`)
 - `upgrades` - Meta/shop screen: crystal+shard display, house grid, row/column purchases, Play button (defined in `upgrades_screen.lua`)
 
@@ -247,9 +244,6 @@ Chunky bouncy coin fragment particles with custom physics. Fragments scatter, sp
 - `comic shanns.otf` - Custom UI font
 
 ## Keyboard Shortcuts (In-Game)
-
-- `a` - Add new row to boxes (increases BOX_ROWS)
-- `b` - Add new box column (adds box and new color)
 - `\` - Quit the game
 
 ## Layout Configuration (layout.lua)
@@ -399,38 +393,6 @@ A separate game mode where coins have numbers instead of just colors.
 2. Pass to `animation.startMerge()` with callbacks
 3. Animation calls `executeMergeOnBox()` when each box's animation completes
 4. This updates game state (removes coins, adds merged coin, awards points, tracks max coin)
-
-## Dev Test Mode (game_dev.lua)
-
-A testing/development mode with a single tall centered box filled with "1" coins.
-
-**Purpose:**
-- Quick testing of merge animations and mechanics
-- Debugging coin stacking behavior
-- Testing with many coins in a single column
-
-**Configuration:**
-- 1 centered box at `VW/2`
-- 12 row slots (fills most of screen height)
-- All coins initialized as `{number=1}`
-- TOP_Y = 200 (higher start position for taller box)
-
-**Key Differences from 2048 Mode:**
-- Single box instead of 5 columns
-- Centered layout instead of grid
-- Custom hit testing via `isOnDevBox(x, y)`
-- Custom drawing via `drawDevBox()` and `drawDevCoins()`
-
-**Public API (same pattern as game_2048):**
-- `game_dev.init()` - Initialize with single box full of "1" coins
-- `game_dev.pick_coin_from_box(idx, opts)` - Pick same-number coins
-- `game_dev.can_place(dest_idx, coins)` - Validate placement
-- `game_dev.place_coin(dest_idx, coin)` - Add coin to box
-- `game_dev.getMergeableBoxes()` - Get boxes that can merge (2+ same coins)
-- `game_dev.executeMergeOnBox(box_idx)` - Execute merge on box
-- `game_dev.add_coins()` - Refill with "1" coins
-- `game_dev.calculateCoinsToAdd()` - Pre-calculate for dealing animation
-- `game_dev.getState()` - Return state
 
 ## Coin Utilities (coin_utils.lua)
 
@@ -689,7 +651,7 @@ Meta/shop screen between runs.
 - Player can pick up and place coins while merge/dealing animations play in the background
 - Boxes locked by an active merge animation (`getMergeLockedBoxes()`) cannot be interacted with
 - Merge/Add buttons still require full idle state (`not animation.isAnimating()`) to fire
-- Classic mode and dev mode screens retain old blocking behavior (block all non-hover animations)
+- Classic mode screen retains old blocking behavior (block all non-hover animations)
 
 ## Screen Flow (Roguelike Loop)
 
