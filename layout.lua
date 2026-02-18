@@ -13,7 +13,7 @@ local layout = {
     -- Coin/box sizing
     COIN_R = 60,
     ROW_STEP = 130,     -- vertical spacing (unchanged)
-    COLUMN_STEP = 180,  -- fits 5 columns in 1080px
+    COLUMN_STEP = 216,  -- fits 4 columns in 1080px
 
     -- Grid positioning (centered vertically)
     GRID_TOP_Y = 500,
@@ -47,5 +47,10 @@ local layout = {
     SAFE_AREA_TOP = 80,     -- Status bar + notch area
     SAFE_AREA_BOTTOM = 60,  -- Home indicator area
 }
+
+-- Calculate column step for a given number of columns
+function layout.getColumnStep(num_columns)
+  return math.floor(layout.VW / (num_columns + 1))
+end
 
 return layout

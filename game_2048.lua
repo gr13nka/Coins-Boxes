@@ -4,6 +4,8 @@
 local game_2048 = {}
 
 local coin_utils = require("coin_utils")
+local upgrades = require("upgrades")
+local currency = require("currency")
 
 -- Timers
 local merge_timer = 0
@@ -16,7 +18,7 @@ local points = 0
 local points_per_merge = 10
 
 -- 2048-specific state
-local BOX_ROWS = 3
+local BOX_ROWS = 4
 local total_merges = 0
 local merge_requirement = 2  -- how many coins needed to merge
 local max_spawn_number = 1   -- increases with progression
@@ -47,7 +49,15 @@ local function updateProgression()
 end
 
 function game_2048.init()
-    boxes = { {}, {}, {}, {}, {} }
+    -- Dynamic grid size from upgrades
+    local num_columns = upgrades.getBaseColumns()
+    BOX_ROWS = upgrades.getBaseRows()
+
+    boxes = {}
+    for i = 1, num_columns do
+        boxes[i] = {}
+    end
+
     points = 0
     merge_timer = 0
     error_timer = 0
@@ -55,15 +65,14 @@ function game_2048.init()
     total_merges = 0
     max_spawn_number = 3  -- Start with 1-3 to match initial coin variety
 
-    -- Initialize with coins numbered 1-3
-    local total_coins = #boxes * (BOX_ROWS - 1)
+    -- Initialize with coins (~35% fill so placement rules don't choke)
+    local total_coins = math.max(#boxes, math.floor(#boxes * BOX_ROWS * 0.35))
 
     for i = 1, total_coins do
-        ::box::
-        local box = math.random(#boxes)
-        if #boxes[box] >= BOX_ROWS then
-            goto box
-        end
+        local box
+        repeat
+            box = math.random(#boxes)
+        until #boxes[box] < BOX_ROWS
 
         -- Starting coins are 1, 2, or 3
         local number = math.random(1, 3)
@@ -185,10 +194,16 @@ function game_2048.add_coins()
     if will_add < 1 then will_add = 1 end
 
     for i = 1, will_add do
-        ::box::
-        local box_idx = math.random(#boxes)
-        if #boxes[box_idx] >= BOX_ROWS then
-            -- Check if all boxes are full
+        -- Find a box with space
+        local box_idx
+        local attempts = 0
+        repeat
+            box_idx = math.random(#boxes)
+            attempts = attempts + 1
+        until #boxes[box_idx] < BOX_ROWS or attempts > 100
+
+        -- Check if all boxes are full
+        if attempts > 100 then
             local all_full = true
             for _, box in ipairs(boxes) do
                 if #box < BOX_ROWS then
@@ -196,10 +211,7 @@ function game_2048.add_coins()
                     break
                 end
             end
-            if all_full then
-                break
-            end
-            goto box
+            if all_full then break end
         end
 
         -- Spawn a number in range [1, max_spawn_number]
@@ -342,6 +354,9 @@ function game_2048.executeMergeOnBox(box_idx)
     -- Award points
     points = points + points_per_merge * new_number * coin_count
 
+    -- Award shards
+    currency.onMerge(coin_count, first_number)
+
     -- Update progression
     total_merges = total_merges + 1
     updateProgression()
@@ -391,6 +406,9 @@ function game_2048.merge()
                 -- Award points based on the new number and how many coins merged
                 points = points + points_per_merge * new_number * coin_count
 
+                -- Award shards
+                currency.onMerge(coin_count, first_number)
+
                 -- Update progression
                 total_merges = total_merges + 1
                 updateProgression()
@@ -405,6 +423,14 @@ function game_2048.merge()
     end
 
     return merged
+end
+
+-- Check if the game is over (all boxes full and no merges possible)
+function game_2048.isGameOver()
+    for _, box in ipairs(boxes) do
+        if #box < BOX_ROWS then return false end
+    end
+    return #game_2048.getMergeableBoxes() == 0
 end
 
 return game_2048

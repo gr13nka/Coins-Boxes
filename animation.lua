@@ -109,7 +109,9 @@ end
 -- Start flight animation to destination box
 -- callback: called when ALL coins have landed
 -- coinLandCallback: called when EACH coin lands (receives coin data)
-function animation.startFlight(dest_box_idx, dest_slot, callback, coinLandCallback)
+-- opts: optional table with {dest_x, top_y} for custom destination positions
+function animation.startFlight(dest_box_idx, dest_slot, callback, coinLandCallback, opts)
+    opts = opts or {}
     state = STATE.FLYING
     flight_time = 0
     on_flight_complete = callback
@@ -130,12 +132,13 @@ function animation.startFlight(dest_box_idx, dest_slot, callback, coinLandCallba
             offset_x = hcoin.offset_x,
             start_delay = (i - 1) * DROP_DELAY,  -- stagger start times
             landed = false,
-            dest_slot = dest_slot + (i - 1)      -- each coin goes to next slot down
+            dest_slot = dest_slot + (i - 1),      -- each coin goes to next slot down
+            custom_top_y = opts.top_y             -- optional custom top_y
         }
     end
 
-    -- Calculate destination X (same for all coins in column)
-    dest_x = layout.GRID_LEFT_OFFSET + layout.COLUMN_STEP * dest_box_idx
+    -- Calculate destination X (use custom or default)
+    dest_x = opts.dest_x or (layout.GRID_LEFT_OFFSET + layout.COLUMN_STEP * dest_box_idx)
 end
 
 -- Start merge animation for multiple boxes
@@ -283,8 +286,9 @@ local function getCoinPosition(index)
         local start_x = coin.x
         local start_y = coin.y
 
-        -- Destination Y for this specific coin
-        local coin_dest_y = layout.GRID_TOP_Y + layout.ROW_STEP * coin.dest_slot
+        -- Destination Y for this specific coin (use custom top_y if set)
+        local base_top_y = coin.custom_top_y or layout.GRID_TOP_Y
+        local coin_dest_y = base_top_y + layout.ROW_STEP * coin.dest_slot
 
         -- Control point for arc (midpoint, elevated)
         local mid_x = (start_x + dest_x) / 2

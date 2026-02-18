@@ -1,9 +1,10 @@
 -- game_dev.lua
--- Dev/test mode: single long box filled with "1" coins for testing merges
+-- Dev/test mode: multiple boxes spanning screen width, filled with "1" coins
 
 local game_dev = {}
 
 local coin_utils = require("coin_utils")
+local layout = require("layout")
 
 -- Timers
 local merge_timer = 0
@@ -15,9 +16,17 @@ local boxes = {}
 local points = 0
 local points_per_merge = 10
 
--- Dev mode specific: 1 box, many rows
-local BOX_ROWS = 12  -- Tall box that spans most of screen
+-- Dev mode specific: many boxes spanning screen width
+local BOX_ROWS = 12  -- Tall boxes
 local MAX_NUMBER = 50
+local NUM_BOXES = 6  -- Number of boxes spanning screen width
+local COLUMN_STEP = 180  -- Matches layout column step
+local TOP_Y = 200
+
+-- Calculate box center X position
+local function getBoxCenterX(box_index)
+    return COLUMN_STEP * box_index - COLUMN_STEP / 2
+end
 
 function game_dev.getState()
     return {
@@ -28,20 +37,27 @@ function game_dev.getState()
         error_timer = error_timer,
         error_message = error_message,
         MAX_NUMBER = MAX_NUMBER,
+        NUM_BOXES = NUM_BOXES,
+        COLUMN_STEP = COLUMN_STEP,
+        TOP_Y = TOP_Y,
+        getBoxCenterX = getBoxCenterX,
     }
 end
 
 function game_dev.init()
-    -- Single box filled with "1" coins
-    boxes = { {} }
+    -- Create multiple boxes spanning screen width
+    boxes = {}
     points = 0
     merge_timer = 0
     error_timer = 0
     error_message = ""
 
-    -- Fill the box with "1" coins
-    for i = 1, BOX_ROWS do
-        table.insert(boxes[1], coin_utils.createCoin(1))
+    -- Create boxes and fill each with "1" coins
+    for b = 1, NUM_BOXES do
+        boxes[b] = {}
+        for i = 1, BOX_ROWS do
+            table.insert(boxes[b], coin_utils.createCoin(1))
+        end
     end
 end
 
@@ -138,31 +154,34 @@ function game_dev.setError(message)
     error_message = message or "Invalid!"
 end
 
--- Add coins (refill with "1"s)
+-- Add coins (refill all boxes with "1"s)
 function game_dev.add_coins()
-    local box = boxes[1]
-    local available = BOX_ROWS - #box
-    for i = 1, available do
-        table.insert(box, coin_utils.createCoin(1))
+    for b = 1, NUM_BOXES do
+        local box = boxes[b]
+        local available = BOX_ROWS - #box
+        for i = 1, available do
+            table.insert(box, coin_utils.createCoin(1))
+        end
     end
 end
 
 -- Calculate coins to add (for dealing animation)
 function game_dev.calculateCoinsToAdd()
-    local box = boxes[1]
-    local available = BOX_ROWS - #box
     local result = {}
 
-    for i = 1, available do
-        local dest_slot = #box + i
-        table.insert(result, {
-            coin = coin_utils.createCoin(1),
-            dest_box_idx = 1,
-            dest_slot = dest_slot,
-            -- Custom positions for dev mode (centered box)
-            dest_x = DEV_BOX_CENTER_X,
-            dest_y = DEV_TOP_Y + layout.ROW_STEP * dest_slot
-        })
+    for b = 1, NUM_BOXES do
+        local box = boxes[b]
+        local available = BOX_ROWS - #box
+        for i = 1, available do
+            local dest_slot = #box + i
+            table.insert(result, {
+                coin = coin_utils.createCoin(1),
+                dest_box_idx = b,
+                dest_slot = dest_slot,
+                dest_x = getBoxCenterX(b),
+                dest_y = TOP_Y + layout.ROW_STEP * dest_slot
+            })
+        end
     end
 
     return result
@@ -177,11 +196,6 @@ function game_dev.update(dt)
     end
     return merge_timer
 end
-
--- Layout for dev mode (centered box)
-local layout = require("layout")
-local DEV_TOP_Y = 200
-local DEV_BOX_CENTER_X = layout.VW / 2
 
 -- Get mergeable boxes (2+ same number coins at top)
 function game_dev.getMergeableBoxes()
@@ -221,9 +235,9 @@ function game_dev.getMergeableBoxes()
                     new_number = new_number,
                     color = coin_utils.numberToColor(top_number, MAX_NUMBER),
                     new_color = coin_utils.numberToColor(new_number, MAX_NUMBER),
-                    -- Custom position for dev mode (centered box)
-                    center_x = DEV_BOX_CENTER_X,
-                    top_y = DEV_TOP_Y,
+                    -- Position for this box
+                    center_x = getBoxCenterX(box_index),
+                    top_y = TOP_Y,
                     -- Progressive merge: number increases with each merge step
                     progressive_merge = true,
                     max_number = MAX_NUMBER

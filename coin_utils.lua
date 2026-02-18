@@ -1,52 +1,42 @@
 -- coin_utils.lua
 -- Utility functions for coin colors and operations in 2048 mode
+-- Uses 5 cycling shard colors: red, green, purple, blue, pink
 
 local coin_utils = {}
 
--- Convert HSL to RGB (all values 0-1)
--- h: hue (0-1), s: saturation (0-1), l: lightness (0-1)
-function coin_utils.hslToRgb(h, s, l)
-    if s == 0 then
-        return l, l, l
-    end
+-- 5 shard colors that cycle with coin number
+local SHARD_RGB = {
+  {0.9, 0.2, 0.2},   -- red    (1, 6, 11...)
+  {0.2, 0.8, 0.3},   -- green  (2, 7, 12...)
+  {0.6, 0.2, 0.8},   -- purple (3, 8, 13...)
+  {0.2, 0.4, 0.9},   -- blue   (4, 9, 14...)
+  {0.9, 0.4, 0.7},   -- pink   (5, 10, 15...)
+}
+local SHARD_NAMES = {"red", "green", "purple", "blue", "pink"}
 
-    local function hueToRgb(p, q, t)
-        if t < 0 then t = t + 1 end
-        if t > 1 then t = t - 1 end
-        if t < 1/6 then return p + (q - p) * 6 * t end
-        if t < 1/2 then return q end
-        if t < 2/3 then return p + (q - p) * (2/3 - t) * 6 end
-        return p
-    end
-
-    local q = l < 0.5 and l * (1 + s) or l + s - l * s
-    local p = 2 * l - q
-
-    local r = hueToRgb(p, q, h + 1/3)
-    local g = hueToRgb(p, q, h)
-    local b = hueToRgb(p, q, h - 1/3)
-
-    return r, g, b
+-- Map a number (1-50) to RGB color via 5-color cycling
+function coin_utils.numberToColor(number, max_number)
+  return SHARD_RGB[((number - 1) % 5) + 1]
 end
 
--- Map a number (1-50) to a unique color
--- Uses golden angle (137.5 degrees) for maximum distinction between adjacent numbers
-function coin_utils.numberToColor(number, max_number)
-    max_number = max_number or 50
+-- Map a number to its shard color name
+function coin_utils.numberToShardColor(number)
+  return SHARD_NAMES[((number - 1) % 5) + 1]
+end
 
-    -- Golden angle in turns (137.5 degrees / 360 = 0.381966...)
-    local golden_angle = 0.381966
+-- Get RGB for a shard color name
+function coin_utils.getShardRGB(color_name)
+  for i, name in ipairs(SHARD_NAMES) do
+    if name == color_name then
+      return SHARD_RGB[i]
+    end
+  end
+  return {1, 1, 1}
+end
 
-    -- Each number gets a hue offset by golden angle from the previous
-    -- This ensures adjacent numbers have very different colors
-    local hue = ((number - 1) * golden_angle) % 1.0
-
-    -- Vary saturation and lightness slightly based on number for even more distinction
-    local saturation = 0.7 + (number % 3) * 0.1  -- 0.7, 0.8, or 0.9
-    local lightness = 0.5 + (number % 2) * 0.1   -- 0.5 or 0.6
-
-    local r, g, b = coin_utils.hslToRgb(hue, saturation, lightness)
-    return {r, g, b}
+-- Get the ordered list of shard color names
+function coin_utils.getShardNames()
+  return SHARD_NAMES
 end
 
 -- Check if a value is a coin object (table with number property)

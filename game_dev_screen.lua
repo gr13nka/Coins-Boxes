@@ -15,10 +15,8 @@ local game_dev_screen = {}
 
 -- Layout constants
 local VW, VH = layout.VW, layout.VH
-local TOP_Y = 200  -- Start higher since we have more rows
 local COIN_R = layout.COIN_R
 local ROW_STEP = layout.ROW_STEP
-local BOX_CENTER_X = VW / 2  -- Center the single box
 
 -- Screen-local state
 local selection = nil
@@ -89,7 +87,12 @@ local function draw_dev_info()
   love.graphics.setFont(font)
   love.graphics.printf("DEV TEST MODE", 0, 50, VW, "center")
   love.graphics.setColor(1, 1, 1)
-  love.graphics.printf("Coins: " .. #state.boxes[1] .. "/" .. state.BOX_ROWS,
+  local total_coins = 0
+  local max_coins = state.BOX_ROWS * state.NUM_BOXES
+  for _, box in ipairs(state.boxes) do
+    total_coins = total_coins + #box
+  end
+  love.graphics.printf("Coins: " .. total_coins .. "/" .. max_coins,
     0, 100, VW, "center")
 end
 
@@ -133,32 +136,36 @@ local function updateButtonAnimations(dt)
   end
 end
 
--- Draw the single centered box
+-- Draw all boxes spanning the screen
 local function drawDevBox()
   local state = game_dev.getState()
 
-  -- Apply shake offset
-  local shake_offset = 0
-  if shakeState.active then
-    shake_offset = math.sin(shakeState.time * 50) * 8 * (1 - shakeState.time / shakeState.duration)
-  end
-
-  -- Draw box slots
-  for row = 1, state.BOX_ROWS do
-    local x = BOX_CENTER_X + shake_offset
-    local y = TOP_Y + ROW_STEP * row
-
-    if shakeState.active then
-      love.graphics.setColor(1, 0.3, 0.3)
-    else
-      love.graphics.setColor(1, 1, 1)
+  for box_idx = 1, state.NUM_BOXES do
+    -- Apply shake offset for this box if shaking
+    local shake_offset = 0
+    if shakeState.active and shakeState.box_index == box_idx then
+      shake_offset = math.sin(shakeState.time * 50) * 8 * (1 - shakeState.time / shakeState.duration)
     end
 
-    love.graphics.rectangle("line", x-COIN_R-2, y-COIN_R-2, COIN_R*2+4, COIN_R*2+4, 2, 2, 8)
+    local box_center_x = state.getBoxCenterX(box_idx)
+
+    -- Draw box slots
+    for row = 1, state.BOX_ROWS do
+      local x = box_center_x + shake_offset
+      local y = state.TOP_Y + ROW_STEP * row
+
+      if shakeState.active and shakeState.box_index == box_idx then
+        love.graphics.setColor(1, 0.3, 0.3)
+      else
+        love.graphics.setColor(1, 1, 1)
+      end
+
+      love.graphics.rectangle("line", x-COIN_R-2, y-COIN_R-2, COIN_R*2+4, COIN_R*2+4, 2, 2, 8)
+    end
   end
 end
 
--- Draw coins in the single box
+-- Draw coins in all boxes
 local function drawDevCoins(skipBoxes)
   local state = game_dev.getState()
   local ballImage = graphics.getBallImage()
@@ -166,38 +173,56 @@ local function drawDevCoins(skipBoxes)
   local spriteScale = (COIN_R * 2) / imgW
   skipBoxes = skipBoxes or {}
 
-  if skipBoxes[1] then return end
+  for box_idx, box in ipairs(state.boxes) do
+    if not skipBoxes[box_idx] then
+      local box_center_x = state.getBoxCenterX(box_idx)
 
-  for row, coin in ipairs(state.boxes[1]) do
-    local num = coin_utils.getCoinNumber(coin)
-    local col = coin_utils.numberToColor(num, state.MAX_NUMBER)
+      for row, coin in ipairs(box) do
+        local num = coin_utils.getCoinNumber(coin)
+        local col = coin_utils.numberToColor(num, state.MAX_NUMBER)
 
-    local x = BOX_CENTER_X
-    local y = TOP_Y + ROW_STEP * row
+        local x = box_center_x
+        local y = state.TOP_Y + ROW_STEP * row
 
-    -- Draw coin sprite
-    love.graphics.setColor(col)
-    love.graphics.draw(ballImage, x, y, 0, spriteScale, spriteScale, imgW/2, imgH/2)
+        -- Draw coin sprite
+        love.graphics.setColor(col)
+        love.graphics.draw(ballImage, x, y, 0, spriteScale, spriteScale, imgW/2, imgH/2)
 
-    -- Draw number on coin
-    love.graphics.setColor(1, 1, 1)
-    love.graphics.setFont(coinNumberFont)
-    local num_str = tostring(num)
-    local text_width = coinNumberFont:getWidth(num_str)
-    local text_height = coinNumberFont:getHeight()
-    love.graphics.print(num_str, x - text_width / 2, y - text_height / 2)
+        -- Draw number on coin
+        love.graphics.setColor(1, 1, 1)
+        love.graphics.setFont(coinNumberFont)
+        local num_str = tostring(num)
+        local text_width = coinNumberFont:getWidth(num_str)
+        local text_height = coinNumberFont:getHeight()
+        love.graphics.print(num_str, x - text_width / 2, y - text_height / 2)
+      end
+    end
   end
 end
 
--- Check if click is on the box
-local function isOnDevBox(x, y)
+-- Check which box was clicked (returns box index or nil)
+local function getClickedBox(x, y)
   local state = game_dev.getState()
-  local box_left = BOX_CENTER_X - COIN_R - 10
-  local box_right = BOX_CENTER_X + COIN_R + 10
-  local box_top = TOP_Y + ROW_STEP - COIN_R - 10
-  local box_bottom = TOP_Y + ROW_STEP * state.BOX_ROWS + COIN_R + 10
+  local box_top = state.TOP_Y + ROW_STEP - COIN_R - 10
+  local box_bottom = state.TOP_Y + ROW_STEP * state.BOX_ROWS + COIN_R + 10
 
-  return x >= box_left and x <= box_right and y >= box_top and y <= box_bottom
+  -- Check Y bounds first
+  if y < box_top or y > box_bottom then
+    return nil
+  end
+
+  -- Check which column was clicked
+  for box_idx = 1, state.NUM_BOXES do
+    local box_center_x = state.getBoxCenterX(box_idx)
+    local box_left = box_center_x - COIN_R - 10
+    local box_right = box_center_x + COIN_R + 10
+
+    if x >= box_left and x <= box_right then
+      return box_idx
+    end
+  end
+
+  return nil
 end
 
 --------------------------------------------------------------------------------
@@ -307,34 +332,71 @@ function game_dev_screen.mousepressed(x, y, button)
     return
   end
 
-  if not isOnDevBox(x, y) then return end
+  local clicked_box = getClickedBox(x, y)
+  if not clicked_box then return end
 
   if not animation.isHovering() then
-    -- Pick up coins
-    local pack = game_dev.pick_coin_from_box(1, {remove = true})
+    -- Pick up coins from clicked box
+    local pack = game_dev.pick_coin_from_box(clicked_box, {remove = true})
     if pack == nil or #pack == 0 then
       return
     end
-    selection = { box = 1, pack = pack }
-    animation.startHover(pack, 1)
+    selection = { box = clicked_box, pack = pack }
+    animation.startHover(pack, clicked_box)
     sound.playPickup()
   else
-    -- Place coins back (same box)
+    -- Try to place coins in clicked box
     local pack = animation.getHoveringCoins()
     local source_box_idx = animation.getSourceBox()
 
-    -- Return coins to source
-    for _, coin in ipairs(pack) do
-      game_dev.place_coin(1, coin)
+    -- If clicking source box, return coins
+    if clicked_box == source_box_idx then
+      for _, coin in ipairs(pack) do
+        game_dev.place_coin(clicked_box, coin)
+      end
+      animation.cancel()
+      selection = nil
+      sound.playPickup()
+      return
     end
-    animation.cancel()
-    selection = nil
-    sound.playPickup()
+
+    -- Try to place in destination box
+    local can_place, err_msg = game_dev.can_place(clicked_box, pack)
+    if can_place then
+      -- Calculate destination for flight animation
+      local dest_slot = #state.boxes[clicked_box] + 1
+
+      animation.startFlight(clicked_box, dest_slot,
+        function()
+          -- All coins landed
+          selection = nil
+        end,
+        function(coin, box_idx, slot)
+          -- Each coin landing
+          game_dev.place_coin(box_idx, coin)
+          sound.playPickup()
+          local px = state.getBoxCenterX(box_idx)
+          local py = state.TOP_Y + ROW_STEP * slot
+          local num = coin_utils.getCoinNumber(coin)
+          local col = coin_utils.numberToColor(num, state.MAX_NUMBER)
+          particles.spawn(px, py, col)
+        end,
+        {dest_x = state.getBoxCenterX(clicked_box), top_y = state.TOP_Y}
+      )
+    else
+      -- Invalid placement - shake the box
+      shakeState.active = true
+      shakeState.box_index = clicked_box
+      shakeState.time = 0
+      game_dev.setError(err_msg)
+    end
   end
 end
 
 function game_dev_screen.mousereleased(x, y, button)
   if button ~= 1 then return end
+
+  local state = game_dev.getState()
 
   -- Release merge button
   if buttonState.merge.pressed then
@@ -368,10 +430,10 @@ function game_dev_screen.mousereleased(x, y, button)
           function(coin_data, box_idx, slot)
             game_dev.place_coin(box_idx, coin_data)
             sound.playPickup()
-            local px = BOX_CENTER_X
-            local py = TOP_Y + ROW_STEP * slot
+            local px = state.getBoxCenterX(box_idx)
+            local py = state.TOP_Y + ROW_STEP * slot
             local num = coin_utils.getCoinNumber(coin_data)
-            local col = coin_utils.numberToColor(num, game_dev.getState().MAX_NUMBER)
+            local col = coin_utils.numberToColor(num, state.MAX_NUMBER)
             particles.spawn(px, py, col)
           end,
           particles

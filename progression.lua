@@ -41,6 +41,26 @@ local function getDefaultData()
       total_coins_placed = 0,
     },
 
+    -- Currency: shards and crystals per color
+    currency = {
+      shards = {red = 0, green = 0, purple = 0, blue = 0, pink = 0},
+      crystals = {red = 0, green = 0, purple = 0, blue = 0, pink = 0},
+    },
+
+    -- Upgrades: rows, columns, houses
+    upgrades_data = {
+      extra_rows = 0,
+      extra_columns = 0,
+      houses = {
+        {built = false, color = "red", progress = 0},
+        {built = false, color = "red", progress = 0},
+        {built = false, color = "red", progress = 0},
+        {built = false, color = "red", progress = 0},
+        {built = false, color = "red", progress = 0},
+        {built = false, color = "red", progress = 0},
+      },
+    },
+
     -- Achievements (name -> unlocked boolean)
     achievements = {
       first_merge = false,
@@ -462,6 +482,26 @@ function progression.unlockAll()
     data.achievements[name] = true
   end
   progression.save()
+end
+
+--------------------------------------------------------------------------------
+-- Currency & Upgrades Data Accessors
+--------------------------------------------------------------------------------
+
+function progression.getCurrencyData()
+  return data.currency
+end
+
+function progression.setCurrencyData(d)
+  data.currency = d
+end
+
+function progression.getUpgradesData()
+  return data.upgrades_data
+end
+
+function progression.setUpgradesData(d)
+  data.upgrades_data = d
 end
 
 return progression

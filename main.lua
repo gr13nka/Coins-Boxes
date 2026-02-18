@@ -10,6 +10,8 @@ local progression = require("progression")
 local particles = require("particles")
 local input = require("input")
 local mobile = require("mobile")
+local currency = require("currency")
+local upgrades = require("upgrades")
 
 utils.debug_stuff1()
 
@@ -58,6 +60,8 @@ function love.load()
 
   -- Initialize core systems
   progression.init(true)  -- true = enable persistence
+  currency.init()
+  upgrades.init()
   sound.init()
   windowSetup()
 
@@ -96,17 +100,23 @@ function love.load()
   local game_screen = require("game_screen")
   local game_2048_screen = require("game_2048_screen")
   local game_dev_screen = require("game_dev_screen")
+  local game_over_screen = require("game_over_screen")
+  local upgrades_screen = require("upgrades_screen")
 
   game_screen.init(assets)
   game_2048_screen.init(assets)
   game_dev_screen.init(assets)
+  game_over_screen.init(assets)
+  upgrades_screen.init(assets)
 
   screens.register("game", game_screen)
   screens.register("game_2048", game_2048_screen)
   screens.register("game_dev", game_dev_screen)
+  screens.register("game_over", game_over_screen)
+  screens.register("upgrades", upgrades_screen)
 
-  -- Start with mode selection
-  screens.switch("mode_select")
+  -- Start directly in 2048 mode
+  screens.switch("game_2048")
 end
 
 function love.resize(w, h)

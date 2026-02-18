@@ -18,11 +18,15 @@ Try to keep your visuals and logic separate.
 - `game_screen.lua` - Classic mode gameplay screen (UI, input handling, drawing)
 - `game_2048_screen.lua` - 2048 mode gameplay screen (UI, input handling, drawing)
 - `game_dev_screen.lua` - Dev test mode screen (centered single box layout)
+- `currency.lua` - Shard/crystal currency system: 5 colors, earned from merging, 25 shards auto-convert to 1 crystal
+- `upgrades.lua` - Permanent upgrades: houses (passive crystal production), row/column purchases with escalating costs
+- `game_over_screen.lua` - Game over stats screen: score, shard breakdown, crystal summary, Continue button
+- `upgrades_screen.lua` - Meta/shop screen: crystal display, house grid (3x2), row/column upgrades, Play button
 - `graphics.lua` - Game rendering: coins, boxes, background (NOT UI buttons)
 - `input.lua` - Input handling: hit testing, coordinate conversion
 - `sound.lua` - Sound management: loading, playback, toggle state
 - `progression.lua` - Full unlock/achievement system with persistence
-- `coin_utils.lua` - Utility functions for 2048 mode: HSL color conversion, number-to-color mapping
+- `coin_utils.lua` - Utility functions for 2048 mode: 5-color cycling, shard color mapping
 - `animation.lua` - Coin animation system for hover (bobbing) and flight (arc trajectory) effects
 - `particles.lua` - Particle effects system for coin landing visual feedback
 - `screens.lua` - Screen management system with mode selection (includes unlock checks)
@@ -52,8 +56,9 @@ Try to keep your visuals and logic separate.
 
 - **Module exports**: `game.lua` returns table of public functions
 - **Iterator pattern**: `utils.each_coin(boxes)` for coin traversal
-- **Goto-based retry**: Uses `goto` with labels (`::box::`, `::color::`) for random placement retries
+- **Repeat/until retry**: Uses `repeat/until` loops for random placement retries (NO goto - breaks web build)
 - **Immediate-mode UI**: Buttons drawn as rectangles, hit-tested on mouse click
+- **Logic/visual separation**: Data modules (`currency.lua`, `upgrades.lua`, `game_2048.lua`) have no drawing code; screen modules handle all rendering
 
 ## Screen System (screens.lua)
 
@@ -66,10 +71,12 @@ Try to keep your visuals and logic separate.
 Each screen is a table with optional methods: `enter()`, `exit()`, `update(dt)`, `draw()`, `mousepressed(x, y, button)`, `keypressed(key, scancode, isrepeat)`
 
 **Available Screens:**
-- `mode_select` - Initial menu with game mode buttons (includes unlock status display)
+- `mode_select` - Menu with game mode buttons (includes unlock status display)
 - `game` - Classic mode gameplay screen (defined in `game_screen.lua`)
-- `game_2048` - 2048 mode gameplay screen (defined in `game_2048_screen.lua`)
+- `game_2048` - 2048 mode gameplay screen (defined in `game_2048_screen.lua`) — **default start screen**
 - `game_dev` - Dev test mode screen (defined in `game_dev_screen.lua`)
+- `game_over` - Post-run stats: score, per-color shard breakdown with progress bars, crystal totals (defined in `game_over_screen.lua`)
+- `upgrades` - Meta/shop screen: crystal+shard display, house grid, row/column purchases, Play button (defined in `upgrades_screen.lua`)
 
 **Adding New Screens:**
 1. Create a new file `my_screen.lua` with screen table and methods
@@ -232,7 +239,8 @@ Key settings in `layout.lua`:
 - `VW`, `VH` - Virtual canvas dimensions (1080x2400)
 - `WINDOW_SCALE` - Initial window size multiplier (0.5 = 540x1200 window)
 - `COIN_R` - Coin radius
-- `ROW_STEP`, `COLUMN_STEP` - Grid spacing
+- `ROW_STEP`, `COLUMN_STEP` - Grid spacing (COLUMN_STEP default 216 for 4 columns)
+- `layout.getColumnStep(num_columns)` - Calculate column step for dynamic grid size: `floor(VW / (num_columns + 1))`
 - `GRID_TOP_Y`, `GRID_LEFT_OFFSET` - Grid position
 - `BUTTON_AREA_Y`, `BUTTON_WIDTH`, `BUTTON_HEIGHT` - Button layout at bottom
 - `FONT_SIZE` - UI font size
@@ -275,9 +283,8 @@ A separate game mode where coins have numbers instead of just colors.
 - Numbers displayed on coins with white text
 
 **Coin Colors:**
-- Colors generated algorithmically via `coin_utils.numberToColor()`
-- Uses golden angle (137.5°) for hue distribution - ensures adjacent numbers have distinct colors
-- Saturation/lightness also vary slightly for additional distinction
+- 5 cycling colors: red (1,6,11...), green (2,7,12...), purple (3,8,13...), blue (4,9,14...), pink (5,10,15...)
+- Mapped via `coin_utils.numberToColor()` using `((number-1) % 5) + 1`
 
 **Progression System:**
 - `total_merges` tracks how many merges the player has done
@@ -291,14 +298,16 @@ A separate game mode where coins have numbers instead of just colors.
 
 **State Variables (in game_2048.lua):**
 - `boxes` - Array of box arrays containing `{number=N}` coin objects
-- `BOX_ROWS = 3` - Slots per box
+- `BOX_ROWS` - Slots per box (dynamic: 4 + extra_rows from upgrades)
 - `merge_requirement = 2` - Coins needed to trigger merge (configurable)
 - `total_merges` - Progression counter
 - `max_spawn_number` - Current spawn range upper limit
 - `MAX_NUMBER = 50` - Absolute maximum coin number
+- Grid size: `upgrades.getBaseColumns()` columns (base 4) x `upgrades.getBaseRows()` rows (base 4)
+- Initial fill: `~35%` of total slots (`max(#boxes, floor(#boxes * BOX_ROWS * 0.35))`)
 
 **Public API:**
-- `game_2048.init()` - Initialize with coins numbered 1-3
+- `game_2048.init()` - Initialize with dynamic grid from upgrades, ~35% fill with coins numbered 1-3
 - `game_2048.pick_coin_from_box(idx, opts)` - Pick same-number coins from top
 - `game_2048.can_place(dest_idx, coins)` - Validate placement, returns (bool, error_msg)
 - `game_2048.place_coin(dest_idx, coin)` - Add single coin to box
@@ -309,6 +318,7 @@ A separate game mode where coins have numbers instead of just colors.
 - `game_2048.calculateCoinsToAdd()` - Pre-calculate coins for dealing animation (returns array of {coin, dest_box_idx, dest_slot})
 - `game_2048.getState()` - Return all state
 - `game_2048.setError(msg)` - Trigger error display
+- `game_2048.isGameOver()` - True when all boxes full and no merges possible
 
 **Animated Merge Flow:**
 1. Call `getMergeableBoxes()` - returns array of `{box_idx, coins, old_number, new_number, color, new_color}`
@@ -352,9 +362,11 @@ A testing/development mode with a single tall centered box filled with "1" coins
 
 Helper functions for 2048 mode coin handling.
 
-**Color Generation:**
-- `coin_utils.hslToRgb(h, s, l)` - Convert HSL (0-1 range) to RGB
-- `coin_utils.numberToColor(number, max)` - Map number to unique color using golden angle
+**Color Generation (5-color cycling):**
+- `coin_utils.numberToColor(number, max)` - Map number to RGB via 5-color cycle (red/green/purple/blue/pink)
+- `coin_utils.numberToShardColor(number)` - Map number to shard color name
+- `coin_utils.getShardRGB(color_name)` - Get RGB for shard color name
+- `coin_utils.getShardNames()` - Get ordered list: {"red", "green", "purple", "blue", "pink"}
 
 **Coin Type Helpers:**
 - `coin_utils.isCoin(value)` - Check if value is a coin object (table with .number)
@@ -435,3 +447,115 @@ Game rendering for coins, boxes, and background (NOT UI buttons).
 - `graphics.drawCoins2048(boxes, MAX_NUMBER, font, skipBoxes)` - Draw coins with numbers (2048 mode)
 - `graphics.drawBoxes(boxes, BOX_ROWS)` - Draw box grid (classic mode)
 - `graphics.drawBoxes2048(boxes, BOX_ROWS, shakeState)` - Draw box grid with shake (2048 mode)
+
+## Currency System (currency.lua)
+
+Shard/crystal currency earned from merging. Pure data module (no drawing).
+
+**Mechanics:**
+- 5 shard colors: red, green, purple, blue, pink (mapped from coin number via `((number-1) % 5) + 1`)
+- Each merge awards `coin_count * 5` shards of the mapped color
+- 25 shards auto-convert to 1 crystal (checked after every award)
+- Per-run tracking reset with `currency.startRun()`
+- Persistence via `progression.getCurrencyData()` / `setCurrencyData()`
+
+**Public API:**
+- `currency.init()` - Load state from progression
+- `currency.save()` - Persist to progression
+- `currency.startRun()` - Reset per-run shard tracking
+- `currency.onMerge(coin_count, coin_number)` - Award shards + auto-convert
+- `currency.getShards()` / `getCrystals()` / `getRunShards()` - Read state
+- `currency.spendCrystals(color, amount)` - Deduct if affordable, returns bool
+- `currency.addCrystal(color, amount)` - Add crystals (house production)
+- `currency.getShardsPerCrystal()` - Returns 25
+
+## Upgrades System (upgrades.lua)
+
+Permanent upgrades: houses and grid size. Pure data module (no drawing).
+
+**Houses:**
+- Up to 6 slots (3x2 grid), escalating crystal cost: 5, 10, 15, 20, 25, 30
+- Each house produces 0.25 crystals/minute of its selected color (while in-game)
+- Color changeable after build
+
+**Grid Upgrades:**
+- Row costs: 10, 20, 35, 50 crystals (max 4 extra rows)
+- Column costs: 15, 30, 50, 75 crystals (max 4 extra columns)
+- Base grid: 4 columns x 4 rows (before upgrades)
+
+**Public API:**
+- `upgrades.init()` / `save()` - Load/save via progression
+- `upgrades.getBaseRows()` / `getBaseColumns()` - Current grid size (4+extra, 4+extra)
+- `upgrades.buyRow(color)` / `buyColumn(color)` - Purchase with crystals of specified color
+- `upgrades.getRowCost()` / `getColumnCost()` - Next upgrade cost or nil if maxed
+- `upgrades.canBuyRow()` / `canBuyColumn()` - Check if upgrade available
+- `upgrades.buildHouse(slot, color)` - Build at slot, spend crystals
+- `upgrades.setHouseColor(slot, color)` - Change production color
+- `upgrades.updateProduction(dt)` - Tick house production (call in game update)
+- `upgrades.getHouses()` / `getMaxHouses()` - House state
+
+## Game Over Screen (game_over_screen.lua)
+
+Shows run results after game over, transitions to upgrades.
+
+**Display (per color row):**
+- Run shards earned (`+20`)
+- Shard progress bar toward next crystal (`15/25`)
+- Crystal total count (diamond icon)
+- `"25 shards = 1 crystal"` legend at bottom
+
+**Flow:** Game over detected -> shows score + shard breakdown + crystal totals -> "Continue" -> upgrades screen
+
+## Upgrades Screen (upgrades_screen.lua)
+
+Meta/shop screen between runs.
+
+**Layout (1080x2400 canvas):**
+- Currency display (y~100): 5 color diamonds with crystal counts + shard progress bars (X/25)
+- House grid (y~460): 3x2 grid, empty slots show pulsating "+" (green if affordable, dim red if not), built slots show color + progress bar
+- Upgrade panel (y~1200): Buy Row / Buy Column buttons with costs (green if affordable, red if not, gray if maxed)
+- Play button (y~1800): Large green button -> starts new 2048 run
+- Notification area (y~1720): Red error text with 2s fade for failed purchases
+
+**Affordability Indicators:**
+- House slots: green border/pulse if any crystal can afford, red if none can
+- Row/Column buttons: green background if affordable, dark red if not, gray if maxed
+- Text dims to 40% alpha when unaffordable or maxed
+
+**Color Picker Popup:**
+- Shown when building/changing house or buying row/column upgrade
+- Shows cost line and per-color `"Have: X"` labels (green text if affordable, red if not)
+- Clicking unaffordable color shows notification: `"Not enough [color] crystals! Need X, have Y"` and keeps picker open
+- Clicking outside or Cancel closes picker
+
+**Error Notifications:**
+- `"Not enough crystals! Need X"` when clicking unaffordable house/upgrade button
+- `"Not enough [color] crystals! Need X, have Y"` when picking unaffordable color in picker
+- `"Rows/Columns already at maximum!"` when clicking maxed upgrade
+- Fade out over last 0.3s of 2s duration
+
+## Screen Flow (Roguelike Loop)
+
+App launches directly into 2048 mode (no mode select menu). Escape key goes to upgrades screen.
+
+```
+[App Start] -> [game_2048] <------ [upgrades "Play"]
+                   |                      ^
+             [all boxes full,             |
+              no merges possible]         |
+                   |                      |
+                   v                      |
+             [game_over]                  |
+                   |                      |
+             ["Continue"] ----------------+
+```
+
+**Per-run cycle:**
+1. `game_2048_screen.enter()` → recalculates grid from upgrades, inits game, resets run shard tracking
+2. Player plays until all boxes full + no merges → `game_2048.isGameOver()` returns true
+3. Game over check runs after: flight landing, dealing completion, merge completion
+4. `game_over_screen` shows run stats with shard progress + crystal totals
+5. "Continue" → `upgrades_screen` for buying houses/rows/columns
+6. "Play" → back to step 1 with upgraded grid
+
+**House production:** `upgrades.updateProduction(dt)` ticks during gameplay (step 2), accumulating crystals passively.

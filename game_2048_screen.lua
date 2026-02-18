@@ -12,6 +12,8 @@ local screens = require("screens")
 local coin_utils = require("coin_utils")
 local progression = require("progression")
 local mobile = require("mobile")
+local currency = require("currency")
+local upgrades = require("upgrades")
 
 local game_2048_screen = {}
 
@@ -208,12 +210,41 @@ local function handleSoundToggleClick(x, y)
   return false
 end
 
+-- Draw small shard/crystal HUD at top
+local function drawCurrencyHUD()
+  local names = coin_utils.getShardNames()
+  local shards = currency.getShards()
+  local crystals = currency.getCrystals()
+  local spacing = 180
+  local total_w = (#names - 1) * spacing
+  local start_x = (VW - total_w) / 2
+  local y = 50
+
+  love.graphics.setFont(font)
+  for i, name in ipairs(names) do
+    local x = start_x + (i - 1) * spacing
+    local rgb = coin_utils.getShardRGB(name)
+    -- Small diamond
+    love.graphics.setColor(rgb[1], rgb[2], rgb[3])
+    love.graphics.polygon("fill", x, y - 10, x + 10, y, x, y + 10, x - 10, y)
+    -- Crystal count
+    love.graphics.setColor(1, 1, 1, 0.8)
+    love.graphics.printf(tostring(crystals[name] or 0), x + 15, y - 14, 60, "left")
+  end
+end
+
 --------------------------------------------------------------------------------
 -- Screen lifecycle
 --------------------------------------------------------------------------------
 
 function game_2048_screen.enter()
+  -- Recalculate column step based on upgraded grid size
+  local num_columns = upgrades.getBaseColumns()
+  COLUMN_STEP = layout.getColumnStep(num_columns)
+  layout.COLUMN_STEP = COLUMN_STEP
+
   game_2048.init()
+  currency.startRun()
   selection = nil
   shakeState.active = false
 end
@@ -229,6 +260,7 @@ function game_2048_screen.update(dt)
   animation.update(dt)
   particles.update(dt)
   updateButtonAnimations(dt)
+  upgrades.updateProduction(dt)
 
   -- Update shake animation
   if shakeState.active then
@@ -252,6 +284,7 @@ function game_2048_screen.draw()
   end
 
   graphics.drawBackground()
+  drawCurrencyHUD()
   draw_2048_info()
   draw_points_2048()
 
@@ -301,7 +334,7 @@ function game_2048_screen.keypressed(key, scancode, isrepeat)
     love.event.quit()
   end
   if key == "escape" then
-    screens.switch("mode_select")
+    screens.switch("upgrades")
   end
   if key == "space" then
     graphics.nextBackground()
@@ -395,6 +428,9 @@ function game_2048_screen.mousepressed(x, y, button)
       -- Final callback: when all coins have landed
       function()
         selection = nil
+        if game_2048.isGameOver() then
+          screens.switch("game_over")
+        end
       end,
       -- Per-coin callback: when each coin lands
       function(coin_data, slot)
@@ -427,7 +463,9 @@ function game_2048_screen.mousereleased(x, y, button)
         animation.startMerge(mergeable,
           -- Final callback: when all boxes done
           function()
-            -- Animation complete
+            if game_2048.isGameOver() then
+              screens.switch("game_over")
+            end
           end,
           -- Per-box callback: when each box finishes merging
           function(box_data)
@@ -457,7 +495,9 @@ function game_2048_screen.mousereleased(x, y, button)
         animation.startDealing(coins_to_deal, "2048",
           -- Final callback: when all coins have landed
           function()
-            -- Animation complete
+            if game_2048.isGameOver() then
+              screens.switch("game_over")
+            end
           end,
           -- Per-coin callback: when each coin lands
           function(coin_data, box_idx, slot)
