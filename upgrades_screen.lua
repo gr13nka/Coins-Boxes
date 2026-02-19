@@ -75,6 +75,18 @@ local PLAY_BTN_W = 500
 local PLAY_BTN_H = 140
 local PLAY_BTN_Y = 1540
 
+-- Y offset when houses are locked (mystery section is shorter than house grid)
+local LOCKED_Y_OFFSET = 410
+-- Mystery/unlock section layout
+local MYSTERY_Y = 350
+local MYSTERY_BAR_W = 500
+local MYSTERY_BAR_H = 24
+local UNLOCK_BTN_W = 600
+local UNLOCK_BTN_H = 120
+
+-- Module-level Y offset (recomputed every frame)
+local yoff = 0
+
 -- Precomputed positions
 local house_positions = {}
 local function calcHousePositions()
@@ -95,7 +107,7 @@ end
 -- Flying crystal animation helpers (after layout constants so locals are visible)
 local function getCurrencyDiamondPos(color_name)
   local names = coin_utils.getShardNames()
-  local spacing = 190
+  local spacing = 180
   local total_w = (#names - 1) * spacing
   local start_x = (VW - total_w) / 2
   for i, name in ipairs(names) do
@@ -243,7 +255,7 @@ local function drawCurrencyDisplay()
   love.graphics.setColor(0.9, 0.85, 0.3)
   love.graphics.printf("Crystals & Shards", 0, CRYSTAL_Y, VW, "center")
 
-  local spacing = 190
+  local spacing = 180
   local total_w = (#names - 1) * spacing
   local start_x = (VW - total_w) / 2
 
@@ -253,17 +265,17 @@ local function drawCurrencyDisplay()
     local rgb = coin_utils.getShardRGB(name)
 
     -- Emoji icon
-    emoji.draw(name, x, y, 18)
+    emoji.draw(name, x, y, 14)
 
     -- Crystal count
     love.graphics.setColor(1, 1, 1)
-    love.graphics.printf(tostring(cr[name] or 0), x - 40, y + 25, 80, "center")
+    love.graphics.printf(tostring(cr[name] or 0), x - 40, y + 20, 80, "center")
 
     -- Shard progress bar
-    local bar_w = 80
-    local bar_h = 14
+    local bar_w = 60
+    local bar_h = 10
     local bar_x = x - bar_w / 2
-    local bar_y = y + 65
+    local bar_y = y + 55
     love.graphics.setColor(0.2, 0.2, 0.2)
     love.graphics.rectangle("fill", bar_x, bar_y, bar_w, bar_h, 3, 3)
     local shard_count = sh[name] or 0
@@ -350,8 +362,118 @@ local function drawHouseGrid()
   end
 end
 
+-- HSV to RGB helper for rainbow cycling
+local function hsvToRGB(h, s, v)
+  local i = math.floor(h * 6)
+  local f = h * 6 - i
+  local p = v * (1 - s)
+  local q = v * (1 - f * s)
+  local t = v * (1 - (1 - f) * s)
+  i = i % 6
+  if i == 0 then return v, t, p
+  elseif i == 1 then return q, v, p
+  elseif i == 2 then return p, v, t
+  elseif i == 3 then return p, q, v
+  elseif i == 4 then return t, p, v
+  else return v, p, q end
+end
+
+local function drawMysteryProgress()
+  love.graphics.setFont(font)
+  local unique = upgrades.getUniqueColorCount()
+  local cx = VW / 2
+  local y = MYSTERY_Y
+
+  -- Lock icon (simple padlock)
+  local lock_w, lock_h = 40, 36
+  local lock_x = cx - lock_w / 2
+  local lock_y = y
+  love.graphics.setColor(0.5, 0.5, 0.5, 0.7)
+  -- Arc (shackle)
+  love.graphics.setLineWidth(6)
+  love.graphics.arc("line", "open", cx, lock_y, 16, math.pi, 0)
+  -- Body
+  love.graphics.setColor(0.4, 0.4, 0.4, 0.8)
+  love.graphics.rectangle("fill", lock_x, lock_y, lock_w, lock_h, 4, 4)
+  -- Keyhole
+  love.graphics.setColor(0.2, 0.2, 0.2)
+  love.graphics.circle("fill", cx, lock_y + lock_h / 2 - 4, 6)
+  love.graphics.rectangle("fill", cx - 3, lock_y + lock_h / 2, 6, 10)
+  love.graphics.setLineWidth(1)
+
+  -- "???" label
+  love.graphics.setColor(0.6, 0.6, 0.6, 0.8)
+  love.graphics.printf("???", 0, y + lock_h + 10, VW, "center")
+
+  -- Progress bar with rainbow fill
+  local bar_x = cx - MYSTERY_BAR_W / 2
+  local bar_y = y + lock_h + 55
+  -- Background
+  love.graphics.setColor(0.15, 0.15, 0.15)
+  love.graphics.rectangle("fill", bar_x, bar_y, MYSTERY_BAR_W, MYSTERY_BAR_H, 6, 6)
+  -- Rainbow fill
+  local fill_w = (unique / 5) * MYSTERY_BAR_W
+  if fill_w > 0 then
+    local segments = math.max(1, math.floor(fill_w / 3))
+    for seg = 0, segments - 1 do
+      local sx = bar_x + seg * 3
+      local sw = math.min(3, fill_w - seg * 3)
+      if sw <= 0 then break end
+      local hue = ((seg / segments) + anim_time * 0.3) % 1.0
+      local r, g, b = hsvToRGB(hue, 0.7, 0.85)
+      love.graphics.setColor(r, g, b)
+      love.graphics.rectangle("fill", sx, bar_y, sw, MYSTERY_BAR_H)
+    end
+    -- Round corners by redrawing border
+    love.graphics.setColor(0.3, 0.3, 0.3, 0.5)
+    love.graphics.rectangle("line", bar_x, bar_y, MYSTERY_BAR_W, MYSTERY_BAR_H, 6, 6)
+  end
+
+  -- Counter
+  love.graphics.setColor(0.5, 0.5, 0.5)
+  love.graphics.printf(unique .. " / 5", 0, bar_y + MYSTERY_BAR_H + 8, VW, "center")
+end
+
+local function drawUnlockButton()
+  love.graphics.setFont(font)
+  local cx = VW / 2
+  local btn_x = cx - UNLOCK_BTN_W / 2
+  local btn_y = MYSTERY_Y
+
+  -- Rainbow pulsating border
+  local pulse = 0.7 + 0.3 * math.sin(anim_time * 3)
+  love.graphics.setColor(0.1, 0.1, 0.14)
+  love.graphics.rectangle("fill", btn_x, btn_y, UNLOCK_BTN_W, UNLOCK_BTN_H, 12, 12)
+
+  -- Rainbow cycling border
+  love.graphics.setLineWidth(4)
+  local hue = (anim_time * 0.5) % 1.0
+  local r, g, b = hsvToRGB(hue, 0.6, 0.9 * pulse)
+  love.graphics.setColor(r, g, b)
+  love.graphics.rectangle("line", btn_x, btn_y, UNLOCK_BTN_W, UNLOCK_BTN_H, 12, 12)
+  love.graphics.setLineWidth(1)
+
+  -- "UNLOCK" text
+  love.graphics.setColor(1, 1, 1)
+  love.graphics.printf("UNLOCK", btn_x, btn_y + 15, UNLOCK_BTN_W, "center")
+
+  -- Row of 5 color emoji with "1" cost each
+  local names = coin_utils.getShardNames()
+  local icon_spacing = 100
+  local icons_w = (#names - 1) * icon_spacing
+  local icons_x = cx - icons_w / 2
+  local icons_y = btn_y + 75
+  for i, name in ipairs(names) do
+    local ix = icons_x + (i - 1) * icon_spacing
+    emoji.draw(name, ix, icons_y, 12)
+    love.graphics.setColor(1, 1, 1, 0.8)
+    love.graphics.printf("1", ix + 14, icons_y - 10, 30, "left")
+  end
+end
+
 local function drawUpgradeButtons()
   love.graphics.setFont(font)
+  local uy = UPGRADE_Y + yoff
   local cost = upgrades.getUpgradeCost()
   local affordable = currency.canAfford(cost)
   local total_w = UPGRADE_BTN_W * 2 + UPGRADE_PAD
@@ -368,19 +490,19 @@ local function drawUpgradeButtons()
   else
     love.graphics.setColor(0.4, 0.2, 0.2)
   end
-  love.graphics.rectangle("fill", row_x, UPGRADE_Y, UPGRADE_BTN_W, UPGRADE_BTN_H, 10, 10)
+  love.graphics.rectangle("fill", row_x, uy, UPGRADE_BTN_W, UPGRADE_BTN_H, 10, 10)
 
   love.graphics.setColor(1, 1, 1, (row_maxed or not affordable) and 0.4 or 1)
   love.graphics.printf(row_maxed and "Rows MAX" or "Buy Row",
-    row_x, UPGRADE_Y + 15, UPGRADE_BTN_W, "center")
+    row_x, uy + 15, UPGRADE_BTN_W, "center")
 
   if not row_maxed then
-    drawCostIndicator(row_x + UPGRADE_BTN_W / 2 - 50, UPGRADE_Y + UPGRADE_BTN_H - 25, affordable)
+    drawCostIndicator(row_x + UPGRADE_BTN_W / 2 - 50, uy + UPGRADE_BTN_H - 25, affordable)
   end
 
   love.graphics.setColor(0.6, 0.6, 0.6)
   love.graphics.printf("Rows: " .. upgrades.getBaseRows(),
-    row_x, UPGRADE_Y + UPGRADE_BTN_H + 10, UPGRADE_BTN_W, "center")
+    row_x, uy + UPGRADE_BTN_H + 10, UPGRADE_BTN_W, "center")
 
   -- Column upgrade
   local col_x = start_x + UPGRADE_BTN_W + UPGRADE_PAD
@@ -393,19 +515,19 @@ local function drawUpgradeButtons()
   else
     love.graphics.setColor(0.4, 0.2, 0.2)
   end
-  love.graphics.rectangle("fill", col_x, UPGRADE_Y, UPGRADE_BTN_W, UPGRADE_BTN_H, 10, 10)
+  love.graphics.rectangle("fill", col_x, uy, UPGRADE_BTN_W, UPGRADE_BTN_H, 10, 10)
 
   love.graphics.setColor(1, 1, 1, (col_maxed or not affordable) and 0.4 or 1)
   love.graphics.printf(col_maxed and "Cols MAX" or "Buy Column",
-    col_x, UPGRADE_Y + 15, UPGRADE_BTN_W, "center")
+    col_x, uy + 15, UPGRADE_BTN_W, "center")
 
   if not col_maxed then
-    drawCostIndicator(col_x + UPGRADE_BTN_W / 2 - 50, UPGRADE_Y + UPGRADE_BTN_H - 25, affordable)
+    drawCostIndicator(col_x + UPGRADE_BTN_W / 2 - 50, uy + UPGRADE_BTN_H - 25, affordable)
   end
 
   love.graphics.setColor(0.6, 0.6, 0.6)
   love.graphics.printf("Cols: " .. upgrades.getBaseColumns(),
-    col_x, UPGRADE_Y + UPGRADE_BTN_H + 10, UPGRADE_BTN_W, "center")
+    col_x, uy + UPGRADE_BTN_H + 10, UPGRADE_BTN_W, "center")
 end
 
 local function getDifficultyLabel(extra)
@@ -423,6 +545,7 @@ end
 
 local function drawDifficultyToggle()
   love.graphics.setFont(font)
+  local dy = DIFFICULTY_Y + yoff
   local current = upgrades.getDifficultyExtraTypes()
   local max_extra = upgrades.getMaxDifficultyExtraTypes()
   local multiplier = upgrades.getShardBonusMultiplier()
@@ -439,20 +562,20 @@ local function drawDifficultyToggle()
   local left_x = start_x
   local can_decrease = current > 0
   love.graphics.setColor(can_decrease and {0.3, 0.3, 0.4} or {0.15, 0.15, 0.15})
-  love.graphics.rectangle("fill", left_x, DIFFICULTY_Y, DIFFICULTY_ARROW_W, DIFFICULTY_ARROW_H, 8, 8)
+  love.graphics.rectangle("fill", left_x, dy, DIFFICULTY_ARROW_W, DIFFICULTY_ARROW_H, 8, 8)
   love.graphics.setColor(1, 1, 1, can_decrease and 1 or 0.3)
-  love.graphics.printf("<", left_x, DIFFICULTY_Y + (DIFFICULTY_ARROW_H - layout.FONT_SIZE) / 2, DIFFICULTY_ARROW_W, "center")
+  love.graphics.printf("<", left_x, dy + (DIFFICULTY_ARROW_H - layout.FONT_SIZE) / 2, DIFFICULTY_ARROW_W, "center")
 
   -- Center label area
   local label_x = left_x + DIFFICULTY_ARROW_W
   love.graphics.setColor(0.12, 0.12, 0.16)
-  love.graphics.rectangle("fill", label_x, DIFFICULTY_Y, DIFFICULTY_LABEL_W, DIFFICULTY_ARROW_H, 8, 8)
+  love.graphics.rectangle("fill", label_x, dy, DIFFICULTY_LABEL_W, DIFFICULTY_ARROW_H, 8, 8)
 
   -- Difficulty name + bonus
   love.graphics.setColor(tint[1], tint[2], tint[3])
   local bonus_text = bonus_pct > 0 and (" (+" .. bonus_pct .. "% shards)") or ""
   love.graphics.printf("DIFFICULTY: " .. label .. bonus_text,
-    label_x, DIFFICULTY_Y + 10, DIFFICULTY_LABEL_W, "center")
+    label_x, dy + 10, DIFFICULTY_LABEL_W, "center")
 
   -- Buffer / types stats line
   local cols = upgrades.getBaseColumns()
@@ -462,15 +585,15 @@ local function drawDifficultyToggle()
   local buffer_pct = math.floor(((cols - actual_types) / cols) * 100 + 0.5)
   love.graphics.setColor(0.5, 0.5, 0.5)
   love.graphics.printf("Buffer: " .. buffer_pct .. "%  |  Types: " .. actual_types .. "/" .. cols .. " cols",
-    label_x, DIFFICULTY_Y + 46, DIFFICULTY_LABEL_W, "center")
+    label_x, dy + 46, DIFFICULTY_LABEL_W, "center")
 
   -- Right arrow
   local right_x = label_x + DIFFICULTY_LABEL_W
   local can_increase = current < max_extra
   love.graphics.setColor(can_increase and {0.3, 0.3, 0.4} or {0.15, 0.15, 0.15})
-  love.graphics.rectangle("fill", right_x, DIFFICULTY_Y, DIFFICULTY_ARROW_W, DIFFICULTY_ARROW_H, 8, 8)
+  love.graphics.rectangle("fill", right_x, dy, DIFFICULTY_ARROW_W, DIFFICULTY_ARROW_H, 8, 8)
   love.graphics.setColor(1, 1, 1, can_increase and 1 or 0.3)
-  love.graphics.printf(">", right_x, DIFFICULTY_Y + (DIFFICULTY_ARROW_H - layout.FONT_SIZE) / 2, DIFFICULTY_ARROW_W, "center")
+  love.graphics.printf(">", right_x, dy + (DIFFICULTY_ARROW_H - layout.FONT_SIZE) / 2, DIFFICULTY_ARROW_W, "center")
 end
 
 -- Draw a generic cost indicator from a cost table, e.g. {red=2, green=2} or {red=1}
@@ -502,8 +625,9 @@ end
 
 local function drawPowerupShop()
   love.graphics.setFont(font)
+  local py = POWERUP_SHOP_Y + yoff
   love.graphics.setColor(0.7, 0.7, 0.7)
-  love.graphics.printf("Power-ups", 0, POWERUP_SHOP_Y - 40, VW, "center")
+  love.graphics.printf("Power-ups", 0, py - 40, VW, "center")
 
   local total_w = POWERUP_SHOP_BTN_W * 2 + POWERUP_SHOP_PAD
   local start_x = (VW - total_w) / 2
@@ -519,13 +643,13 @@ local function drawPowerupShop()
   else
     love.graphics.setColor(0.35, 0.2, 0.2)
   end
-  love.graphics.rectangle("fill", sort_x, POWERUP_SHOP_Y, POWERUP_SHOP_BTN_W, POWERUP_SHOP_BTN_H, 10, 10)
+  love.graphics.rectangle("fill", sort_x, py, POWERUP_SHOP_BTN_W, POWERUP_SHOP_BTN_H, 10, 10)
 
   love.graphics.setColor(1, 1, 1, sort_affordable and 1 or 0.4)
   love.graphics.printf("Buy Sort (x" .. sort_count .. ")",
-    sort_x, POWERUP_SHOP_Y + 12, POWERUP_SHOP_BTN_W, "center")
+    sort_x, py + 12, POWERUP_SHOP_BTN_W, "center")
 
-  drawCostTable(sort_x + POWERUP_SHOP_BTN_W / 2 - 70, POWERUP_SHOP_Y + POWERUP_SHOP_BTN_H - 25, sort_cost, sort_affordable)
+  drawCostTable(sort_x + POWERUP_SHOP_BTN_W / 2 - 70, py + POWERUP_SHOP_BTN_H - 25, sort_cost, sort_affordable)
 
   -- Buy Hammer button
   local hammer_x = start_x + POWERUP_SHOP_BTN_W + POWERUP_SHOP_PAD
@@ -538,30 +662,32 @@ local function drawPowerupShop()
   else
     love.graphics.setColor(0.35, 0.2, 0.2)
   end
-  love.graphics.rectangle("fill", hammer_x, POWERUP_SHOP_Y, POWERUP_SHOP_BTN_W, POWERUP_SHOP_BTN_H, 10, 10)
+  love.graphics.rectangle("fill", hammer_x, py, POWERUP_SHOP_BTN_W, POWERUP_SHOP_BTN_H, 10, 10)
 
   love.graphics.setColor(1, 1, 1, hammer_affordable and 1 or 0.4)
   love.graphics.printf("Buy Hammer (x" .. hammer_count .. ")",
-    hammer_x, POWERUP_SHOP_Y + 12, POWERUP_SHOP_BTN_W, "center")
+    hammer_x, py + 12, POWERUP_SHOP_BTN_W, "center")
 
-  drawCostTable(hammer_x + POWERUP_SHOP_BTN_W / 2 - 30, POWERUP_SHOP_Y + POWERUP_SHOP_BTN_H - 25, hammer_cost, hammer_affordable)
+  drawCostTable(hammer_x + POWERUP_SHOP_BTN_W / 2 - 30, py + POWERUP_SHOP_BTN_H - 25, hammer_cost, hammer_affordable)
 end
 
 local function drawPlayButton()
+  local by = PLAY_BTN_Y + yoff
   local x = (VW - PLAY_BTN_W) / 2
   love.graphics.setColor(0.2, 0.75, 0.3)
-  love.graphics.rectangle("fill", x, PLAY_BTN_Y, PLAY_BTN_W, PLAY_BTN_H, 14, 14)
+  love.graphics.rectangle("fill", x, by, PLAY_BTN_W, PLAY_BTN_H, 14, 14)
   love.graphics.setColor(1, 1, 1)
   love.graphics.setFont(font)
-  love.graphics.printf("PLAY", x, PLAY_BTN_Y + (PLAY_BTN_H - layout.FONT_SIZE) / 2, PLAY_BTN_W, "center")
+  love.graphics.printf("PLAY", x, by + (PLAY_BTN_H - layout.FONT_SIZE) / 2, PLAY_BTN_W, "center")
 end
 
 local function drawNotification()
   if notification.timer <= 0 then return end
+  local ny = PLAY_BTN_Y + yoff - 80
   local alpha = math.min(notification.timer / 0.3, 1)
   love.graphics.setColor(1, 0.25, 0.25, alpha)
   love.graphics.setFont(font)
-  love.graphics.printf(notification.message, 0, PLAY_BTN_Y - 80, VW, "center")
+  love.graphics.printf(notification.message, 0, ny, VW, "center")
 end
 
 -- Color picker (house production color only)
@@ -660,19 +786,33 @@ end
 function upgrades_screen.draw()
   love.graphics.clear(0.08, 0.08, 0.12)
 
+  -- Compute Y offset based on house unlock state
+  yoff = upgrades.isHousesUnlocked() and 0 or -LOCKED_Y_OFFSET
+
   love.graphics.setColor(1, 1, 1)
   love.graphics.setFont(font)
   love.graphics.printf("Upgrades", 0, 30, VW, "center")
 
   drawBestCoinStat()
   drawCurrencyDisplay()
-  drawHouseGrid()
+
+  if upgrades.isHousesUnlocked() then
+    drawHouseGrid()
+    drawFlyingCrystals()
+  else
+    local can_afford_rainbow = currency.canAfford(upgrades.getRainbowCost())
+    if can_afford_rainbow then
+      drawUnlockButton()
+    else
+      drawMysteryProgress()
+    end
+  end
+
   drawUpgradeButtons()
   drawDifficultyToggle()
   drawPowerupShop()
   drawPlayButton()
   drawNotification()
-  drawFlyingCrystals()
   drawColorPicker()
 end
 
@@ -750,12 +890,13 @@ local function handleHouseClick(x, y)
 end
 
 local function handleUpgradeClick(x, y)
+  local uy = UPGRADE_Y + yoff
   local total_w = UPGRADE_BTN_W * 2 + UPGRADE_PAD
   local start_x = (VW - total_w) / 2
 
   -- Row upgrade button (direct buy, no picker)
   local row_x = start_x
-  if x >= row_x and x <= row_x + UPGRADE_BTN_W and y >= UPGRADE_Y and y <= UPGRADE_Y + UPGRADE_BTN_H then
+  if x >= row_x and x <= row_x + UPGRADE_BTN_W and y >= uy and y <= uy + UPGRADE_BTN_H then
     if not upgrades.canBuyRow() then
       showNotification("Rows already at maximum!")
     elseif not currency.canAfford(upgrades.getUpgradeCost()) then
@@ -768,7 +909,7 @@ local function handleUpgradeClick(x, y)
 
   -- Column upgrade button (direct buy, no picker)
   local col_x = start_x + UPGRADE_BTN_W + UPGRADE_PAD
-  if x >= col_x and x <= col_x + UPGRADE_BTN_W and y >= UPGRADE_Y and y <= UPGRADE_Y + UPGRADE_BTN_H then
+  if x >= col_x and x <= col_x + UPGRADE_BTN_W and y >= uy and y <= uy + UPGRADE_BTN_H then
     if not upgrades.canBuyColumn() then
       showNotification("Columns already at maximum!")
     elseif not currency.canAfford(upgrades.getUpgradeCost()) then
@@ -783,11 +924,12 @@ local function handleUpgradeClick(x, y)
 end
 
 local function handleDifficultyClick(x, y)
+  local dy = DIFFICULTY_Y + yoff
   local total_w = DIFFICULTY_ARROW_W + DIFFICULTY_LABEL_W + DIFFICULTY_ARROW_W
   local start_x = (VW - total_w) / 2
 
   -- Only respond to clicks in the difficulty row area
-  if y < DIFFICULTY_Y or y > DIFFICULTY_Y + DIFFICULTY_ARROW_H then
+  if y < dy or y > dy + DIFFICULTY_ARROW_H then
     return false
   end
 
@@ -816,13 +958,14 @@ local function handleDifficultyClick(x, y)
 end
 
 local function handlePowerupShopClick(x, y)
+  local py = POWERUP_SHOP_Y + yoff
   local total_w = POWERUP_SHOP_BTN_W * 2 + POWERUP_SHOP_PAD
   local start_x = (VW - total_w) / 2
 
   -- Buy Sort
   local sort_x = start_x
   if x >= sort_x and x <= sort_x + POWERUP_SHOP_BTN_W
-     and y >= POWERUP_SHOP_Y and y <= POWERUP_SHOP_Y + POWERUP_SHOP_BTN_H then
+     and y >= py and y <= py + POWERUP_SHOP_BTN_H then
     if not currency.canAfford(powerups.getSortCost()) then
       showNotification("Not enough crystals! Need 2 red + 2 green")
     else
@@ -834,7 +977,7 @@ local function handlePowerupShopClick(x, y)
   -- Buy Hammer
   local hammer_x = start_x + POWERUP_SHOP_BTN_W + POWERUP_SHOP_PAD
   if x >= hammer_x and x <= hammer_x + POWERUP_SHOP_BTN_W
-     and y >= POWERUP_SHOP_Y and y <= POWERUP_SHOP_Y + POWERUP_SHOP_BTN_H then
+     and y >= py and y <= py + POWERUP_SHOP_BTN_H then
     if not currency.canAfford(powerups.getHammerCost()) then
       showNotification("Not enough crystals! Need 1 red")
     else
@@ -846,9 +989,24 @@ local function handlePowerupShopClick(x, y)
   return false
 end
 
+local function handleUnlockClick(x, y)
+  if upgrades.isHousesUnlocked() then return false end
+  if not currency.canAfford(upgrades.getRainbowCost()) then return false end
+  local btn_x = (VW - UNLOCK_BTN_W) / 2
+  local btn_y = MYSTERY_Y
+  if x >= btn_x and x <= btn_x + UNLOCK_BTN_W and y >= btn_y and y <= btn_y + UNLOCK_BTN_H then
+    if upgrades.unlockHouses() then
+      showNotification("Houses unlocked!")
+    end
+    return true
+  end
+  return false
+end
+
 local function handlePlayClick(x, y)
+  local by = PLAY_BTN_Y + yoff
   local px = (VW - PLAY_BTN_W) / 2
-  if x >= px and x <= px + PLAY_BTN_W and y >= PLAY_BTN_Y and y <= PLAY_BTN_Y + PLAY_BTN_H then
+  if x >= px and x <= px + PLAY_BTN_W and y >= by and y <= by + PLAY_BTN_H then
     screens.switch("game_2048")
     return true
   end
@@ -858,12 +1016,19 @@ end
 function upgrades_screen.mousepressed(x, y, button)
   if button ~= 1 then return end
 
+  -- Compute Y offset for click handlers
+  yoff = upgrades.isHousesUnlocked() and 0 or -LOCKED_Y_OFFSET
+
   if picker.active then
     handlePickerClick(x, y)
     return
   end
 
-  if handleHouseClick(x, y) then return end
+  if upgrades.isHousesUnlocked() then
+    if handleHouseClick(x, y) then return end
+  else
+    if handleUnlockClick(x, y) then return end
+  end
   if handleUpgradeClick(x, y) then return end
   if handleDifficultyClick(x, y) then return end
   if handlePowerupShopClick(x, y) then return end

@@ -39,6 +39,10 @@ local WEIGHT_TABLES = {
 local DEAL_MIN_FRACTION = 0.5
 local DEAL_MAX_FRACTION = 0.9
 
+-- Sparse board bonus: when fill% < threshold, lerp deal size toward 2*BOX_ROWS
+local SPARSE_THRESHOLD = 0.30  -- below 30% fill, bonus kicks in
+local SPARSE_MAX_DEAL_MULT = 2  -- at 0% fill, deal up to 2*BOX_ROWS (same as initial)
+
 -- Probability of skipping a type entirely in a given deal
 local SKIP_TYPE_CHANCE = 0.36
 
@@ -86,7 +90,8 @@ end
 -- Shared deal computation used by init, add_coins, and calculateCoinsToAdd.
 -- Returns array of {coin, dest_box_idx, dest_slot}.
 -- When is_initial=true: deals 2*BOX_ROWS coins, uniform across 1..max_spawn_number.
--- When is_initial=false: deals BOX_ROWS * uniform(0.5, 0.9) coins with weighted types.
+-- When is_initial=false: base deal = BOX_ROWS * uniform(0.5, 0.9) with weighted types,
+--   boosted toward 2*BOX_ROWS when board fill < SPARSE_THRESHOLD (30%).
 -- temp_box_counts is mutated in-place to track slot usage.
 local function computeDeal(is_initial, temp_box_counts)
     local num_boxes = #boxes
@@ -129,6 +134,21 @@ local function computeDeal(is_initial, temp_box_counts)
         -- Regular deal: variable size with weighted type distribution
         local frac = DEAL_MIN_FRACTION + math.random() * (DEAL_MAX_FRACTION - DEAL_MIN_FRACTION)
         local will_add = math.max(1, math.floor(BOX_ROWS * frac + 0.5))
+
+        -- Sparse board bonus: deal more coins when the board is nearly empty
+        local total_coins = 0
+        for i = 1, num_boxes do
+            total_coins = total_coins + temp_box_counts[i]
+        end
+        local capacity = num_boxes * BOX_ROWS
+        local fill_pct = total_coins / capacity
+        if fill_pct < SPARSE_THRESHOLD then
+            local sparsity = 1 - (fill_pct / SPARSE_THRESHOLD)  -- 1.0 at empty, 0.0 at threshold
+            local max_deal = SPARSE_MAX_DEAL_MULT * BOX_ROWS
+            local boosted = math.floor(will_add + (max_deal - will_add) * sparsity + 0.5)
+            local available = capacity - total_coins
+            will_add = math.min(boosted, available)
+        end
 
         -- Build active weights (skip some types with SKIP_TYPE_CHANCE)
         local active_types = {}

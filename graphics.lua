@@ -174,8 +174,8 @@ local function drawTray(x, col_top_y, BOX_ROWS, is_shaking)
   local tray_w = COIN_R * 2 + 4
 
   -- Tray edges align with coin image edges (center ± COIN_R)
-  local tray_top = col_top_y + ROW_STEP - COIN_R
-  local tray_h   = ROW_STEP * (BOX_ROWS - 1) + COIN_R * 2
+  local tray_top = col_top_y + ROW_STEP * 0.5
+  local tray_h   = ROW_STEP * BOX_ROWS
 
   -- Body fill
   if is_shaking then

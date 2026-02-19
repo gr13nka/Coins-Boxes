@@ -256,7 +256,7 @@ Key settings in `layout.lua`:
 - `GRID_TOP_Y`, `GRID_LEFT_OFFSET` - Grid position
 - `BUTTON_AREA_Y`, `BUTTON_WIDTH`, `BUTTON_HEIGHT` - Button layout at bottom
 - `FONT_SIZE` - UI font size
-- `SOUND_TOGGLE_SIZE`, `SOUND_TOGGLE_MARGIN`, `SOUND_TOGGLE_Y` - Sound toggle button layout
+- `SOUND_TOGGLE_SIZE`, `SOUND_TOGGLE_MARGIN`, `SOUND_TOGGLE_Y` - Sound toggle + reset button layout
 - `USE_FRUIT_IMAGES` - Coin style toggle: `false` = tinted ball.png (default), `true` = per-color fruit images
 
 **Progressive Grid Scaling:**
@@ -342,7 +342,8 @@ A separate game mode where coins have numbers instead of just colors.
 
 **Dealing Algorithm (`computeDeal()`):**
 - **Initial deal** (`is_initial=true`): `2 * BOX_ROWS` coins, uniform across `1..max_spawn_number` (boosted by historical best)
-- **Regular deal**: `BOX_ROWS * uniform(0.5, 0.9)` coins, weighted type distribution
+- **Regular deal**: base = `BOX_ROWS * uniform(0.5, 0.9)` coins, weighted type distribution
+- **Sparse board bonus**: when board fill < `SPARSE_THRESHOLD` (30%), deal is lerped toward `2 * BOX_ROWS`. At 0% fill → full initial-deal size; at 30% → normal size. Capped by available slots.
 - Lower numbers appear more often via hand-tuned weight tables (2-5 types) or geometric decay (0.82)
 - 36% chance (`SKIP_TYPE_CHANCE`) to skip each type per deal, creating variety
 - CDF-based weighted random selection for type choice
@@ -351,6 +352,8 @@ A separate game mode where coins have numbers instead of just colors.
 **Balance Constants:**
 - `MERGE_OUTPUT = 2` — coins produced per merge (tunable)
 - `DEAL_MIN_FRACTION = 0.5`, `DEAL_MAX_FRACTION = 0.9` — deal size range as fraction of BOX_ROWS
+- `SPARSE_THRESHOLD = 0.30` — below this fill%, bonus coins are dealt
+- `SPARSE_MAX_DEAL_MULT = 2` — at 0% fill, deal up to 2x BOX_ROWS
 - `SKIP_TYPE_CHANCE = 0.36` — per-type skip probability
 - `DEFAULT_BUFFER_MIN = 0.30` — minimum fraction of columns kept as buffer
 
@@ -472,6 +475,7 @@ Hit testing and coordinate conversion utilities.
 - `input.boxAt2048(x, y, boxes, top_y)` - Determine clicked box column (2048 mode)
 - `input.isInsideButton(x, y, btnX, btnY, btnW, btnH)` - Check if point is inside button
 - `input.isOnSfxToggle(x, y)` / `input.isOnMusicToggle(x, y)` - Check sound toggle clicks
+- `input.isOnResetButton(x, y)` - Check reset button click (left of SFX toggle)
 - `input.toGameCoords(x, y, ox, oy, scale)` - Convert screen to game coordinates
 - `input.updateMetrics()` - Refresh cached layout values after `layout.applyMetrics()`
 
@@ -520,6 +524,15 @@ Permanent upgrades: houses, grid size, and difficulty. Pure data module (no draw
 
 **Flat Cost:** All upgrades (houses, rows, columns) cost 1 red + 1 green crystal.
 
+**House Unlock (Hidden Feature):**
+- Houses are hidden until unlocked by spending 1 crystal of each color (rainbow cost: 1 red + 1 green + 1 purple + 1 blue + 1 pink)
+- Before unlock: upgrades screen shows a mystery progress bar (0-5 unique crystal colors owned) with lock icon and "???"
+- When all 5 colors have >= 1 crystal: mystery bar replaced by rainbow-bordered "UNLOCK" button
+- On unlock: 1st house slot is built for free (default color "red"), remaining 5 slots purchasable normally
+- Migration: existing saves with any built house auto-unlock on init
+- `houses_unlocked` persisted in `upgrades_data` via progression
+- When locked, all elements below the house area shift up by 410px via `yoff` offset
+
 **Houses:**
 - Up to 6 slots (3x2 grid), each costs 1 red + 1 green crystal
 - Each house produces 0.25 crystals/minute of its selected color (ticks on all screens)
@@ -555,6 +568,10 @@ Permanent upgrades: houses, grid size, and difficulty. Pure data module (no draw
 - `upgrades.getShardBonusMultiplier()` - Returns 1.0 + bonus (e.g., 1.2 for +20%)
 - `upgrades.getMaxCoinReached()` - Highest coin number ever created across all runs
 - `upgrades.setMaxCoinReached(n)` - Sets if n > current max, auto-saves
+- `upgrades.isHousesUnlocked()` - Check if houses feature is unlocked
+- `upgrades.getRainbowCost()` - Returns `{red=1, green=1, purple=1, blue=1, pink=1}` cost table
+- `upgrades.getUniqueColorCount()` - Count crystal colors with >= 1 crystal (0-5)
+- `upgrades.unlockHouses()` - Spend rainbow cost, unlock houses, build 1st slot free (red)
 
 ## Power-ups System (powerups.lua)
 
@@ -645,6 +662,7 @@ Meta/shop screen between runs.
 - Best coin progress bar (y=85): 600px wide, 16px tall, filled to `max_coin_reached / MAX_NUMBER`, colored by coin color via `coin_utils.numberToColor()`, label "Best: N / 50"
 - Merge/spawn info (y=HINT_Y): "Merges: N | Max Spawn: N"
 - Points (y=POINTS_Y): "Points: N"
+- Reset button (top-right, left of sound toggles): Hold 3 seconds to reset all progress. Shows circular arrow icon, red progress ring while holding, countdown text. Calls `progression.reset()` then re-inits currency/upgrades/powerups.
 
 **Responsive Input (fast gameplay):**
 - Input is only blocked during coin flight (~0.23s with 1.5x speed) — NOT during merge or dealing

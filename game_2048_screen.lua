@@ -66,6 +66,14 @@ local SORT_BTN_X, HAMMER_BTN_X
 -- Power-up state
 local hammer_mode = false
 
+-- Reset button hold state
+local RESET_HOLD_DURATION = 3.0
+local resetState = {
+  held = false,
+  time = 0,
+  flash_time = 0,
+}
+
 -- Power-up button animation state
 local powerupButtonState = {
   sort = { pressed = false, scale = 1.0, targetScale = 1.0 },
@@ -101,7 +109,7 @@ local base_row_step = 0
 -- Get HUD diamond position for a shard color
 local function getShardHudPosition(color_name)
   local names = coin_utils.getShardNames()
-  local spacing = 180
+  local spacing = 160
   local total_w = (#names - 1) * spacing
   local start_x = (VW - total_w) / 2
   local y = 50
@@ -323,12 +331,70 @@ local function drawMusicIcon(x, y, size, enabled)
   love.graphics.setColor(1, 1, 1)
 end
 
+local function drawResetButton()
+  local size = layout.SOUND_TOGGLE_SIZE
+  local margin = layout.SOUND_TOGGLE_MARGIN
+  local y = layout.SOUND_TOGGLE_Y
+  local resetX = VW - margin - size * 3 - margin * 2
+  local cx, cy = resetX + size / 2, y + size / 2
+  local progress = resetState.held and (resetState.time / RESET_HOLD_DURATION) or 0
+
+  -- Background fill (red, grows with hold progress)
+  if progress > 0 then
+    love.graphics.setColor(0.8, 0.15, 0.15, 0.2 + progress * 0.5)
+    love.graphics.rectangle("fill", resetX, y, size, size, 8, 8)
+  end
+
+  -- Flash on completion
+  if resetState.flash_time > 0 then
+    love.graphics.setColor(1, 1, 1, resetState.flash_time)
+    love.graphics.rectangle("fill", resetX, y, size, size, 8, 8)
+  end
+
+  -- Circular arrow icon
+  local r = size * 0.28
+  local alpha = resetState.held and 1 or 0.5
+  love.graphics.setColor(1, 1, 1, alpha)
+  love.graphics.setLineWidth(3)
+  love.graphics.arc("line", "open", cx, cy, r, -math.pi * 0.7, math.pi * 0.8)
+  -- Arrowhead at end of arc
+  local end_angle = -math.pi * 0.7
+  local ex, ey = cx + r * math.cos(end_angle), cy + r * math.sin(end_angle)
+  local a = size * 0.13
+  love.graphics.polygon("fill",
+    ex, ey,
+    ex + a * math.cos(end_angle - 0.3), ey + a * math.sin(end_angle - 0.3),
+    ex + a * math.cos(end_angle + 1.8), ey + a * math.sin(end_angle + 1.8)
+  )
+
+  -- Progress ring around button
+  if progress > 0 then
+    love.graphics.setColor(1, 0.3, 0.3)
+    love.graphics.setLineWidth(4)
+    love.graphics.arc("line", "open", cx, cy, size * 0.45,
+      -math.pi / 2, -math.pi / 2 + progress * math.pi * 2)
+  end
+
+  -- Hold countdown text
+  if resetState.held then
+    love.graphics.setColor(1, 0.3, 0.3, 0.9)
+    love.graphics.setFont(font)
+    local secs = math.ceil(RESET_HOLD_DURATION - resetState.time)
+    love.graphics.printf(secs .. "s", resetX, y + size + 4, size, "center")
+  end
+
+  love.graphics.setLineWidth(1)
+end
+
 local function drawSoundToggles()
   local size = layout.SOUND_TOGGLE_SIZE
   local margin = layout.SOUND_TOGGLE_MARGIN
   local y = layout.SOUND_TOGGLE_Y
 
-  -- SFX toggle (left)
+  -- Reset button (leftmost)
+  drawResetButton()
+
+  -- SFX toggle (middle)
   local sfxX = VW - margin - size * 2 - margin
   drawSpeakerIcon(sfxX, y, size, sound.isSfxEnabled())
 
@@ -452,6 +518,16 @@ local function drawSlider()
   love.graphics.printf("Size: " .. pct .. "%", 0, SLIDER_Y - 36, VW, "center")
 end
 
+local function executeReset()
+  progression.reset()
+  currency.init()
+  upgrades.init()
+  powerups.init()
+  resetState.flash_time = 1.0
+  -- Restart the game screen with fresh state
+  game_2048_screen.enter()
+end
+
 local function handleSoundToggleClick(x, y)
   if input.isOnSfxToggle(x, y) then
     sound.toggleSfx()
@@ -501,7 +577,7 @@ local function drawCurrencyHUD()
   local names = coin_utils.getShardNames()
   local shards = currency.getShards()
   local crystals = currency.getCrystals()
-  local spacing = 180
+  local spacing = 160
   local total_w = (#names - 1) * spacing
   local start_x = (VW - total_w) / 2
   local y = 50
@@ -520,7 +596,7 @@ local function drawCurrencyHUD()
     end
 
     -- Emoji icon (scaled by pop)
-    local ds = 10 * ps
+    local ds = 8 * ps
     emoji.draw(name, x, y, ds)
     -- Crystal count
     love.graphics.setColor(1, 1, 1, 0.8)
@@ -579,6 +655,8 @@ function game_2048_screen.enter()
   hammer_mode = false
   flying_shards = {}
   hud_pops = {}
+  resetState.held = false
+  resetState.time = 0
 end
 
 function game_2048_screen.exit()
@@ -604,6 +682,22 @@ function game_2048_screen.update(dt)
   end
 
   updateFlyingShards(dt)
+
+  -- Reset button hold tracking
+  if resetState.held then
+    if not love.mouse.isDown(1) then
+      resetState.held = false
+      resetState.time = 0
+    else
+      resetState.time = resetState.time + dt
+      if resetState.time >= RESET_HOLD_DURATION then
+        executeReset()
+      end
+    end
+  end
+  if resetState.flash_time > 0 then
+    resetState.flash_time = resetState.flash_time - dt
+  end
 end
 
 function game_2048_screen.draw()
@@ -692,6 +786,13 @@ function game_2048_screen.mousepressed(x, y, button)
 
   -- Check sound toggle buttons first
   if handleSoundToggleClick(x, y) then
+    return
+  end
+
+  -- Check reset button (start hold)
+  if input.isOnResetButton(x, y) then
+    resetState.held = true
+    resetState.time = 0
     return
   end
 

@@ -115,21 +115,22 @@ function layout.getGridMetrics(cols, rows)
     local layer_offset_y = two_layer and math.floor(coin_r * 0.2) or 0
 
     -- Center trays within the 70% grid area
-    local tray_visual_h = row_step * (rows - 1) + coin_r * 2
+    -- Tray height matches drawTray: ROW_STEP * rows
+    local tray_visual_h = row_step * rows
     local row1_base_y, row2_base_y, band_boundary_y
 
     if multi_row then
         local total_visual_h = tray_visual_h * 2 + layout.COLUMN_ROW_GAP
         local center_offset = math.max(0, math.floor((grid_height - total_visual_h) / 2))
         local row1_tray_top = layout.GRID_TOP_Y + center_offset
-        row1_base_y = row1_tray_top - row_step + coin_r
+        row1_base_y = row1_tray_top - row_step * 0.5
         local row2_tray_top = row1_tray_top + tray_visual_h + layout.COLUMN_ROW_GAP
-        row2_base_y = row2_tray_top - row_step + coin_r
+        row2_base_y = row2_tray_top - row_step * 0.5
         band_boundary_y = row1_tray_top + tray_visual_h + layout.COLUMN_ROW_GAP / 2
     else
         local center_offset = math.max(0, math.floor((grid_height - tray_visual_h) / 2))
         local tray_top = layout.GRID_TOP_Y + center_offset
-        row1_base_y = tray_top - row_step + coin_r
+        row1_base_y = tray_top - row_step * 0.5
         row2_base_y = 0
         band_boundary_y = 0
     end

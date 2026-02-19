@@ -22,10 +22,14 @@ local MAX_EXTRA_COLUMNS = 11  -- max 15 columns (4 base + 11)
 -- Buffer ratio used as reference for shard bonus calculation
 local DEFAULT_BUFFER_MIN = 0.30
 
+-- Rainbow cost to unlock houses (1 of each crystal color)
+local RAINBOW_COST = {red = 1, green = 1, purple = 1, blue = 1, pink = 1}
+
 -- Runtime state (loaded from progression)
 local extra_rows = 0
 local extra_columns = 0
 local houses = {}
+local houses_unlocked = false
 local difficulty_extra_types = 0  -- 0 = normal, +1 = hard, +2 = extreme, etc.
 local max_coin_reached = 0  -- highest coin number ever created across all runs
 
@@ -47,12 +51,23 @@ function upgrades.init()
   for i = #houses + 1, MAX_HOUSES do
     houses[i] = {built = false, color = "red", progress = 0}
   end
+  -- Load houses_unlocked with migration: auto-unlock if any house already built
+  houses_unlocked = d.houses_unlocked or false
+  if not houses_unlocked then
+    for _, h in ipairs(houses) do
+      if h.built then
+        houses_unlocked = true
+        break
+      end
+    end
+  end
 end
 
 function upgrades.save()
   progression.setUpgradesData({
     extra_rows = extra_rows,
     extra_columns = extra_columns,
+    houses_unlocked = houses_unlocked,
     difficulty_extra_types = difficulty_extra_types,
     max_coin_reached = max_coin_reached,
     houses = houses,
@@ -215,6 +230,45 @@ function upgrades.setMaxCoinReached(n)
     max_coin_reached = n
     upgrades.save()
   end
+end
+
+-- House unlock system
+function upgrades.isHousesUnlocked()
+  return houses_unlocked
+end
+
+function upgrades.getRainbowCost()
+  return RAINBOW_COST
+end
+
+-- Count how many crystal colors have >= 1 crystal (0-5)
+function upgrades.getUniqueColorCount()
+  local cr = currency.getCrystals()
+  local count = 0
+  for color, _ in pairs(RAINBOW_COST) do
+    if (cr[color] or 0) >= 1 then
+      count = count + 1
+    end
+  end
+  return count
+end
+
+-- Spend rainbow cost, set unlocked, build first house slot free (color "red")
+function upgrades.unlockHouses()
+  if houses_unlocked then return false end
+  if not currency.spendMulti(RAINBOW_COST) then return false end
+  houses_unlocked = true
+  -- Build first empty house slot for free
+  for i = 1, MAX_HOUSES do
+    if not houses[i].built then
+      houses[i].built = true
+      houses[i].color = "red"
+      houses[i].progress = 0
+      break
+    end
+  end
+  upgrades.save()
+  return true
 end
 
 return upgrades

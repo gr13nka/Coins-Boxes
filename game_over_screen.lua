@@ -77,7 +77,7 @@ function game_over_screen.draw()
 
   -- Per-color shard rows with conversion progress
   local row_y = 550
-  local row_h = 90
+  local row_h = 70
   for i, name in ipairs(names) do
     local y = row_y + (i - 1) * row_h
     local rgb = coin_utils.getShardRGB(name)
@@ -87,17 +87,17 @@ function game_over_screen.draw()
 
     -- Color dot
     love.graphics.setColor(rgb[1], rgb[2], rgb[3])
-    love.graphics.circle("fill", 200, y + 22, 22)
+    love.graphics.circle("fill", 200, y + 18, 18)
 
     -- Run shards earned
     love.graphics.setColor(1, 1, 1)
-    love.graphics.printf("+" .. run_count, 240, y + 8, 120, "left")
+    love.graphics.printf("+" .. run_count, 235, y + 4, 120, "left")
 
     -- Shard progress bar (toward next crystal)
     local bar_x = 400
-    local bar_w = 260
-    local bar_h = 20
-    local bar_y_pos = y + 12
+    local bar_w = 200
+    local bar_h = 16
+    local bar_y_pos = y + 8
     love.graphics.setColor(0.2, 0.2, 0.2)
     love.graphics.rectangle("fill", bar_x, bar_y_pos, bar_w, bar_h, 4, 4)
     local fill = (total_shards / spc) * bar_w
@@ -107,9 +107,9 @@ function game_over_screen.draw()
     love.graphics.printf(total_shards .. "/" .. spc, bar_x, bar_y_pos + bar_h + 2, bar_w, "center")
 
     -- Crystal count emoji
-    emoji.draw(name, 740, y + 22, 15)
+    emoji.draw(name, 680, y + 18, 12)
     love.graphics.setColor(1, 1, 1)
-    love.graphics.printf(tostring(total_crys), 770, y + 8, 80, "left")
+    love.graphics.printf(tostring(total_crys), 705, y + 4, 80, "left")
   end
 
   -- Legend

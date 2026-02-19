@@ -114,6 +114,18 @@ function input.isOnMusicToggle(x, y)
   return x >= musicX and x <= musicX + size and y >= toggleY and y <= toggleY + size
 end
 
+--- Check if click is on Reset button (left of SFX toggle)
+-- @param x Click x coordinate (game space)
+-- @param y Click y coordinate (game space)
+-- @return true if on Reset button
+function input.isOnResetButton(x, y)
+  local size = layout.SOUND_TOGGLE_SIZE
+  local margin = layout.SOUND_TOGGLE_MARGIN
+  local toggleY = layout.SOUND_TOGGLE_Y
+  local resetX = VW - margin - size * 3 - margin * 2
+  return x >= resetX and x <= resetX + size and y >= toggleY and y <= toggleY + size
+end
+
 --- Convert window/screen coordinates to virtual game coordinates
 -- @param x Screen x coordinate
 -- @param y Screen y coordinate

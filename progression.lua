@@ -57,6 +57,7 @@ local function getDefaultData()
     upgrades_data = {
       extra_rows = 0,
       extra_columns = 0,
+      houses_unlocked = false,
       houses = {
         {built = false, color = "red", progress = 0},
         {built = false, color = "red", progress = 0},
