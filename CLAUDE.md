@@ -528,7 +528,7 @@ Permanent upgrades: houses, grid size, and difficulty. Pure data module (no draw
 - Houses are hidden until unlocked by spending 1 crystal of each color (rainbow cost: 1 red + 1 green + 1 purple + 1 blue + 1 pink)
 - Before unlock: upgrades screen shows a mystery progress bar (0-5 unique crystal colors owned) with lock icon and "???"
 - When all 5 colors have >= 1 crystal: mystery bar replaced by rainbow-bordered "UNLOCK" button
-- On unlock: 1st house slot is built for free (default color "red"), remaining 5 slots purchasable normally
+- On unlock: player receives a free house token (golden "FREE!" badge on first empty slot), remaining 5 slots purchasable normally
 - Migration: existing saves with any built house auto-unlock on init
 - `houses_unlocked` persisted in `upgrades_data` via progression
 - When locked, all elements below the house area shift up by 410px via `yoff` offset
@@ -571,7 +571,8 @@ Permanent upgrades: houses, grid size, and difficulty. Pure data module (no draw
 - `upgrades.isHousesUnlocked()` - Check if houses feature is unlocked
 - `upgrades.getRainbowCost()` - Returns `{red=1, green=1, purple=1, blue=1, pink=1}` cost table
 - `upgrades.getUniqueColorCount()` - Count crystal colors with >= 1 crystal (0-5)
-- `upgrades.unlockHouses()` - Spend rainbow cost, unlock houses, build 1st slot free (red)
+- `upgrades.unlockHouses()` - Spend rainbow cost, unlock houses, grant free house token
+- `upgrades.hasFreeHouse()` - Check if free house token is available
 
 ## Power-ups System (powerups.lua)
 

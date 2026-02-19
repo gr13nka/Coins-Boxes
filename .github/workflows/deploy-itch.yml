@@ -1,0 +1,46 @@
+name: Deploy to itch.io
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create game archive
+        run: |
+          zip -r archive.zip \
+            *.lua \
+            "comic shanns.otf" \
+            assets/ \
+            sfx/ \
+            bgnd_music/ \
+            -x ".*"
+
+      - name: Build HTML5 with love-web-builder
+        run: |
+          cd love-web-builder-main
+          python3 build.py ../archive.zip game
+
+      - name: Zip web build
+        run: |
+          cd love-web-builder-main/game
+          zip -r ../../web-build.zip .
+
+      - name: Install butler
+        run: |
+          curl -L -o butler.zip https://broth.itch.zone/butler/linux-amd64/LATEST/archive/default
+          unzip butler.zip
+          chmod +x butler
+          ./butler -V
+
+      - name: Push to itch.io
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+        run: |
+          ./butler push love-web-builder-main/game \
+            ${{ secrets.ITCH_USER }}/${{ secrets.ITCH_GAME }}:html5

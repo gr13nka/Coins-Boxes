@@ -24,6 +24,8 @@ local notification = {
   message = "",
   timer = 0,
   duration = 2.0,
+  type = "error",  -- "error" or "success"
+  y = 0,           -- stored Y position (frozen at creation time)
 }
 
 -- Flying crystal animation state
@@ -35,9 +37,11 @@ local FLY_ARC_HEIGHT = 200
 local FLY_POP_DURATION = 0.25
 local FLY_POP_OVERSHOOT = 1.4
 
-local function showNotification(msg)
+local function showNotification(msg, ntype)
   notification.message = msg
   notification.timer = notification.duration
+  notification.type = ntype or "error"
+  notification.y = (PLAY_BTN_Y or 1540) + (yoff or 0) - 80
 end
 
 -- Color picker state (only used for house production color)
@@ -86,6 +90,76 @@ local UNLOCK_BTN_H = 120
 
 -- Module-level Y offset (recomputed every frame)
 local yoff = 0
+
+-- Celebration firework particles (self-contained, upgrades screen only)
+local fireworks = {}
+local FIREWORK_GRAVITY = 800
+local FIREWORK_MAX = 200
+
+local function spawnFireworks(cx, cy, count)
+  for i = 1, (count or 60) do
+    local angle = math.random() * math.pi * 2
+    local speed = 200 + math.random() * 600
+    local hue = math.random()
+    -- HSV inline (reuse hsvToRGB later, but it's not defined yet, so inline)
+    local hi = math.floor(hue * 6) % 6
+    local f = hue * 6 - math.floor(hue * 6)
+    local r, g, b
+    if hi == 0 then r, g, b = 1, f, 0
+    elseif hi == 1 then r, g, b = 1 - f, 1, 0
+    elseif hi == 2 then r, g, b = 0, 1, f
+    elseif hi == 3 then r, g, b = 0, 1 - f, 1
+    elseif hi == 4 then r, g, b = f, 0, 1
+    else r, g, b = 1, 0, 1 - f end
+    fireworks[#fireworks + 1] = {
+      x = cx, y = cy,
+      vx = math.cos(angle) * speed,
+      vy = math.sin(angle) * speed - 200,
+      r = r, g = g, b = b,
+      life = 1.0 + math.random() * 0.8,
+      maxLife = 1.8,
+      size = 4 + math.random() * 10,
+      rotation = math.random() * math.pi * 2,
+      rotSpeed = (math.random() - 0.5) * 10,
+    }
+  end
+end
+
+local function updateFireworks(dt)
+  local i = 1
+  while i <= #fireworks do
+    local p = fireworks[i]
+    p.vy = p.vy + FIREWORK_GRAVITY * dt
+    p.x = p.x + p.vx * dt
+    p.y = p.y + p.vy * dt
+    p.rotation = p.rotation + p.rotSpeed * dt
+    p.life = p.life - dt
+    if p.life <= 0 then
+      table.remove(fireworks, i)
+    else
+      i = i + 1
+    end
+  end
+end
+
+local function drawFireworks()
+  for _, p in ipairs(fireworks) do
+    local alpha = math.min(p.life / 0.4, 1)
+    local scale = 0.5 + (p.life / p.maxLife) * 0.5
+    local sz = p.size * scale
+    love.graphics.push()
+    love.graphics.translate(p.x, p.y)
+    love.graphics.rotate(p.rotation)
+    love.graphics.setColor(p.r, p.g, p.b, alpha)
+    love.graphics.rectangle("fill", -sz / 2, -sz / 2, sz, sz)
+    -- Highlight
+    if sz > 6 then
+      love.graphics.setColor(1, 1, 1, alpha * 0.4)
+      love.graphics.rectangle("fill", -sz / 2, -sz / 2, sz * 0.4, sz * 0.4)
+    end
+    love.graphics.pop()
+  end
+end
 
 -- Precomputed positions
 local house_positions = {}
@@ -198,6 +272,7 @@ function upgrades_screen.enter()
   anim_time = 0
   notification.timer = 0
   flying_crystals = {}
+  fireworks = {}
 end
 
 function upgrades_screen.exit()
@@ -216,6 +291,7 @@ function upgrades_screen.update(dt)
   end
 
   updateFlyingCrystals(dt)
+  updateFireworks(dt)
 end
 
 --------------------------------------------------------------------------------
@@ -292,6 +368,7 @@ local function drawHouseGrid()
   local houses = upgrades.getHouses()
   local cost = upgrades.getUpgradeCost()
   local affordable = currency.canAfford(cost)
+  local has_free = upgrades.hasFreeHouse()
   love.graphics.setFont(font)
 
   love.graphics.setColor(0.7, 0.7, 0.7)
@@ -335,19 +412,30 @@ local function drawHouseGrid()
       love.graphics.setColor(0.6, 0.6, 0.6)
       love.graphics.printf("tap: color", pos.x, pos.y + HOUSE_H - 40, HOUSE_W, "center")
     else
-      -- Empty slot
+      -- Empty slot - check if first empty gets the free badge
+      local slot_free = has_free
+      local slot_affordable = slot_free or affordable
+
       love.graphics.setColor(0.15, 0.15, 0.15)
       love.graphics.rectangle("fill", pos.x, pos.y, HOUSE_W, HOUSE_H, 10, 10)
-      love.graphics.setColor(affordable and {0.3, 0.5, 0.3} or {0.3, 0.2, 0.2})
+      if slot_free then
+        -- Golden pulsating border for free slot
+        local pulse = 0.5 + 0.5 * math.sin(anim_time * 3 + idx)
+        love.graphics.setColor(0.9, 0.8, 0.2, 0.5 + 0.5 * pulse)
+      else
+        love.graphics.setColor(slot_affordable and {0.3, 0.5, 0.3} or {0.25, 0.25, 0.25})
+      end
       love.graphics.rectangle("line", pos.x, pos.y, HOUSE_W, HOUSE_H, 10, 10)
 
       -- Pulsating "+"
       local pulse = 0.5 + 0.5 * math.sin(anim_time * 2 + idx)
       local scale = 0.9 + 0.1 * pulse
-      if affordable then
+      if slot_free then
+        love.graphics.setColor(0.9, 0.85, 0.2, 0.6 + 0.4 * pulse)
+      elseif slot_affordable then
         love.graphics.setColor(0.2, 0.8, 0.3, 0.5 + 0.5 * pulse)
       else
-        love.graphics.setColor(0.5, 0.2, 0.2, 0.3 + 0.2 * pulse)
+        love.graphics.setColor(0.35, 0.35, 0.35, 0.3 + 0.2 * pulse)
       end
       local cx, cy = pos.x + HOUSE_W / 2, pos.y + HOUSE_H / 2 - 30
       local arm = 30 * scale
@@ -356,8 +444,16 @@ local function drawHouseGrid()
       love.graphics.line(cx, cy - arm, cx, cy + arm)
       love.graphics.setLineWidth(1)
 
-      -- Cost indicator (red dot + green dot)
-      drawCostIndicator(pos.x + HOUSE_W / 2 - 50, pos.y + HOUSE_H - 35, affordable)
+      -- Cost indicator or FREE badge
+      if slot_free then
+        love.graphics.setColor(0.9, 0.85, 0.2)
+        love.graphics.printf("FREE!", pos.x, pos.y + HOUSE_H - 42, HOUSE_W, "center")
+      else
+        drawCostIndicator(pos.x + HOUSE_W / 2 - 50, pos.y + HOUSE_H - 35, affordable)
+      end
+
+      -- Only the first empty slot gets the free token
+      if has_free then has_free = false end
     end
   end
 end
@@ -488,7 +584,7 @@ local function drawUpgradeButtons()
   elseif affordable then
     love.graphics.setColor(0.2, 0.5, 0.2)
   else
-    love.graphics.setColor(0.4, 0.2, 0.2)
+    love.graphics.setColor(0.22, 0.22, 0.22)
   end
   love.graphics.rectangle("fill", row_x, uy, UPGRADE_BTN_W, UPGRADE_BTN_H, 10, 10)
 
@@ -513,7 +609,7 @@ local function drawUpgradeButtons()
   elseif affordable then
     love.graphics.setColor(0.2, 0.5, 0.2)
   else
-    love.graphics.setColor(0.4, 0.2, 0.2)
+    love.graphics.setColor(0.22, 0.22, 0.22)
   end
   love.graphics.rectangle("fill", col_x, uy, UPGRADE_BTN_W, UPGRADE_BTN_H, 10, 10)
 
@@ -641,7 +737,7 @@ local function drawPowerupShop()
   if sort_affordable then
     love.graphics.setColor(0.2, 0.4, 0.55)
   else
-    love.graphics.setColor(0.35, 0.2, 0.2)
+    love.graphics.setColor(0.22, 0.22, 0.22)
   end
   love.graphics.rectangle("fill", sort_x, py, POWERUP_SHOP_BTN_W, POWERUP_SHOP_BTN_H, 10, 10)
 
@@ -660,7 +756,7 @@ local function drawPowerupShop()
   if hammer_affordable then
     love.graphics.setColor(0.55, 0.3, 0.2)
   else
-    love.graphics.setColor(0.35, 0.2, 0.2)
+    love.graphics.setColor(0.22, 0.22, 0.22)
   end
   love.graphics.rectangle("fill", hammer_x, py, POWERUP_SHOP_BTN_W, POWERUP_SHOP_BTN_H, 10, 10)
 
@@ -683,9 +779,13 @@ end
 
 local function drawNotification()
   if notification.timer <= 0 then return end
-  local ny = PLAY_BTN_Y + yoff - 80
+  local ny = notification.y
   local alpha = math.min(notification.timer / 0.3, 1)
-  love.graphics.setColor(1, 0.25, 0.25, alpha)
+  if notification.type == "success" then
+    love.graphics.setColor(0.9, 0.85, 0.2, alpha)
+  else
+    love.graphics.setColor(1, 0.25, 0.25, alpha)
+  end
   love.graphics.setFont(font)
   love.graphics.printf(notification.message, 0, ny, VW, "center")
 end
@@ -737,9 +837,14 @@ local function drawColorPicker()
   love.graphics.printf(title, PICKER_X, py + 25, PICKER_W, "center")
 
   if picker.mode == "build" then
-    love.graphics.setColor(0.9, 0.85, 0.3)
-    love.graphics.printf("Cost:", PICKER_X + PICKER_W / 2 - 120, py + 70, 80, "right")
-    drawCostIndicator(PICKER_X + PICKER_W / 2 - 30, py + 82, true)
+    if upgrades.hasFreeHouse() then
+      love.graphics.setColor(0.9, 0.85, 0.2)
+      love.graphics.printf("FREE!", PICKER_X, py + 70, PICKER_W, "center")
+    else
+      love.graphics.setColor(0.9, 0.85, 0.3)
+      love.graphics.printf("Cost:", PICKER_X + PICKER_W / 2 - 120, py + 70, 80, "right")
+      drawCostIndicator(PICKER_X + PICKER_W / 2 - 30, py + 82, true)
+    end
   end
 
   -- Color buttons
@@ -813,6 +918,7 @@ function upgrades_screen.draw()
   drawPowerupShop()
   drawPlayButton()
   drawNotification()
+  drawFireworks()
   drawColorPicker()
 end
 
@@ -866,6 +972,7 @@ end
 
 local function handleHouseClick(x, y)
   local houses = upgrades.getHouses()
+  local has_free = upgrades.hasFreeHouse()
   for idx = 1, upgrades.getMaxHouses() do
     local pos = house_positions[idx]
     if x >= pos.x and x <= pos.x + HOUSE_W and y >= pos.y and y <= pos.y + HOUSE_H then
@@ -874,8 +981,12 @@ local function handleHouseClick(x, y)
         picker.slot = idx
         picker.mode = "change"
       else
-        -- Check affordability before opening picker
-        if not currency.canAfford(upgrades.getUpgradeCost()) then
+        -- Free house token or crystal cost
+        if has_free then
+          picker.active = true
+          picker.slot = idx
+          picker.mode = "build"
+        elseif not currency.canAfford(upgrades.getUpgradeCost()) then
           showNotification("Not enough crystals! Need 1 red + 1 green")
         else
           picker.active = true
@@ -996,7 +1107,13 @@ local function handleUnlockClick(x, y)
   local btn_y = MYSTERY_Y
   if x >= btn_x and x <= btn_x + UNLOCK_BTN_W and y >= btn_y and y <= btn_y + UNLOCK_BTN_H then
     if upgrades.unlockHouses() then
-      showNotification("Houses unlocked!")
+      showNotification("Houses unlocked! First one is FREE!", "success")
+      -- Spawn firework bursts from multiple points
+      local cx = VW / 2
+      local cy = MYSTERY_Y + UNLOCK_BTN_H / 2
+      spawnFireworks(cx, cy, 80)
+      spawnFireworks(cx - 200, cy - 60, 40)
+      spawnFireworks(cx + 200, cy - 60, 40)
     end
     return true
   end

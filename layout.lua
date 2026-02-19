@@ -16,15 +16,15 @@ local layout = {
     COLUMN_STEP = 216,  -- fits 4 columns in 1080px
 
     -- UI band layout (percentage of VH=1920):
-    -- 10% resources (0-192), 7% counter (192-326), 70% grid (326-1670),
-    -- 7% buttons (1670-1804), 6% powerups (1804-1920)
+    -- 10% resources (0-192), 7% counter (192-326), 63% grid (326-1536),
+    -- 7% buttons (1536-1670), 13% powerups (1670-1920)
 
     -- Grid positioning
     GRID_TOP_Y = 326,       -- 17% mark: after resources + counter bands
     GRID_LEFT_OFFSET = 0,
 
     -- Button area
-    BUTTON_AREA_Y = 1670,   -- 87% mark: start of button band
+    BUTTON_AREA_Y = 1536,   -- 80% mark: start of button band (moved 7% up)
     BUTTON_WIDTH = 350,
     BUTTON_HEIGHT = 100,
     BUTTON_SPACING = 60,
@@ -185,17 +185,18 @@ end
 -- Returns x, y, layer (0=back, 1=front; always 0 in normal mode)
 function layout.slotPosition(column, slot)
     local col_x, col_top_y = layout.columnPosition(column)
+    local coin_offset = layout.COIN_R * 0.35  -- shift coins up to align with tray
     if layout.TWO_LAYER then
         local visual_row = math.ceil(slot / 2)
         local layer = (slot - 1) % 2  -- 0=back, 1=front
-        local base_y = col_top_y + layout.ROW_STEP * visual_row
+        local base_y = col_top_y + layout.ROW_STEP * visual_row - coin_offset
         if layer == 0 then
             return col_x - layout.LAYER_OFFSET_X, base_y - layout.LAYER_OFFSET_Y, 0
         else
             return col_x + layout.LAYER_OFFSET_X, base_y + layout.LAYER_OFFSET_Y, 1
         end
     else
-        return col_x, col_top_y + layout.ROW_STEP * slot, 0
+        return col_x, col_top_y + layout.ROW_STEP * slot - coin_offset, 0
     end
 end
 

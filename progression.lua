@@ -58,6 +58,7 @@ local function getDefaultData()
       extra_rows = 0,
       extra_columns = 0,
       houses_unlocked = false,
+      free_house_available = false,
       houses = {
         {built = false, color = "red", progress = 0},
         {built = false, color = "red", progress = 0},

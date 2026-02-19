@@ -143,6 +143,7 @@ function love.draw()
   -- Blit canvas to window with letterboxing
   love.graphics.push("all")
   love.graphics.origin()
+  love.graphics.setColor(1, 1, 1)
   love.graphics.translate(ox, oy)
   love.graphics.scale(scale, scale)
   love.graphics.draw(canvas, 0, 0)

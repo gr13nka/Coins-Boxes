@@ -57,7 +57,7 @@ local BUTTON_PRESS_SCALE = 0.85
 local BUTTON_ANIM_SPEED = 12
 
 -- Power-up button layout
-local POWERUP_Y = layout.BUTTON_AREA_Y + 150
+local POWERUP_Y = layout.BUTTON_AREA_Y + 180
 local POWERUP_BTN_W = 350
 local POWERUP_BTN_H = 80
 local POWERUP_SPACING = 40
@@ -213,9 +213,9 @@ function game_2048_screen.init(assets)
   local totalWidth = BUTTON_WIDTH * 2 + BUTTON_SPACING
   local startX = (VW - totalWidth) / 2
   ADD_BUTTON_X = startX
-  ADD_BUTTON_Y = layout.BUTTON_AREA_Y
+  ADD_BUTTON_Y = layout.BUTTON_AREA_Y - 40
   MERGE_BUTTON_X = startX + BUTTON_WIDTH + BUTTON_SPACING
-  MERGE_BUTTON_Y = layout.BUTTON_AREA_Y
+  MERGE_BUTTON_Y = layout.BUTTON_AREA_Y - 40
 
   -- Power-up button positions (centered row below main buttons)
   local puTotalW = POWERUP_BTN_W * 2 + POWERUP_SPACING
