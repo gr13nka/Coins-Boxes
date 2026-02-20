@@ -192,13 +192,15 @@ Both start at 100 charges (dev/testing). `game_2048.autoSort()` returns dealing 
 
 ## Mobile Touch Input
 
-Touch events route through `mousepressed`/`mousereleased` via `main.lua`. A `touch_active` flag prevents double-fire (LÖVE fires both touch AND synthetic mouse events on mobile). Touch handlers set the flag; mouse handlers skip when it's set.
+`love.touchpressed` / `love.touchreleased` are intentionally **NOT defined** in `main.lua`. When absent, LÖVE automatically generates synthetic mouse events from touch — giving single-tap = single `mousepressed`. Defining touch callbacks disables this and caused double-fire (pick up + immediate return) on mobile.
 
-`game_2048_screen.lua` provides `isPointerDown()` and `getPointerPosition()` helpers that check both `love.mouse` and `love.touch`, so features like the reset-button hold and debug slider work on both desktop and mobile.
+`game_2048_screen.lua` provides `isPointerDown()` and `getPointerPosition()` helpers that check both `love.mouse` and `love.touch` for extra robustness.
 
 ## Mobile Performance
 
-`particles.lua` detects mobile via `mobile.isMobile()` and halves particle counts (150 max, 10 per burst, 18 per merge), reduces lifetime/bounces, and skips the per-particle highlight sub-rectangle. `conf.lua` canvas uses `{dpiscale = 1}` to prevent oversized textures on HiDPI mobile GPUs.
+- **FPS cap**: 30 FPS on mobile via `love.timer.sleep()` in `love.draw()`. Consistent 33ms frame timing feels smoother than variable 50-54fps.
+- **Particles**: `particles.lua` detects mobile via `mobile.isMobile()` and halves particle counts (150 max, 10 per burst, 18 per merge), reduces lifetime/bounces, and skips the per-particle highlight sub-rectangle.
+- **Canvas**: `{dpiscale = 1}` prevents oversized textures on HiDPI mobile GPUs.
 
 ## FPS Counter
 

@@ -23,8 +23,9 @@ local VW, VH = layout.VW, layout.VH
 -- Window/canvas state
 local canvas
 local scale, ox, oy = 1, 0, 0
-local touch_active = false
 local fps_font
+local frame_start = 0
+local MOBILE_TARGET_DT = 1 / 30
 
 -- Fonts (shared across screens)
 local font
@@ -135,6 +136,7 @@ function love.resize(w, h)
 end
 
 function love.update(dt)
+  frame_start = love.timer.getTime()
   screens.update(dt)
 end
 
@@ -161,6 +163,15 @@ function love.draw()
   love.graphics.scale(scale, scale)
   love.graphics.draw(canvas, 0, 0)
   love.graphics.pop()
+
+  -- 30 FPS cap on mobile for consistent frame timing
+  -- (variable 50-54fps causes janky animations; steady 30 feels smoother)
+  if mobile.isMobile() then
+    local elapsed = love.timer.getTime() - frame_start
+    if elapsed < MOBILE_TARGET_DT then
+      love.timer.sleep(MOBILE_TARGET_DT - elapsed)
+    end
+  end
 end
 
 function love.keypressed(key, scancode, isrepeat)
@@ -176,38 +187,18 @@ function love.keypressed(key, scancode, isrepeat)
 end
 
 function love.mousepressed(x, y, button)
-  if touch_active then return end  -- Prevent double-fire from touch
   local gx, gy = input.toGameCoords(x, y, ox, oy, scale)
   screens.mousepressed(gx, gy, button)
 end
 
 function love.mousereleased(x, y, button)
-  if touch_active then return end  -- Prevent double-fire from touch
   local gx, gy = input.toGameCoords(x, y, ox, oy, scale)
   screens.mousereleased(gx, gy, button)
 end
 
--- Touch input: route through mouse handlers to prevent double-fire.
--- On mobile, LÖVE fires both touch AND synthetic mouse events for each tap.
--- Setting touch_active suppresses the duplicate mousepressed/mousereleased.
-function love.touchpressed(id, x, y, dx, dy, pressure)
-  touch_active = true
-  local gx, gy = input.toGameCoords(x, y, ox, oy, scale)
-  screens.mousepressed(gx, gy, 1)
-end
-
-function love.touchreleased(id, x, y, dx, dy, pressure)
-  local gx, gy = input.toGameCoords(x, y, ox, oy, scale)
-  screens.mousereleased(gx, gy, 1)
-  -- Clear touch_active when all fingers lifted
-  if love.touch then
-    local touches = love.touch.getTouches()
-    if #touches == 0 then
-      touch_active = false
-    end
-  else
-    touch_active = false
-  end
-end
+-- NOTE: love.touchpressed / love.touchreleased are intentionally NOT defined.
+-- When absent, LÖVE automatically generates synthetic mouse events from touch,
+-- giving us single-tap = single mousepressed. Defining touch callbacks disables
+-- this, which caused double-fire issues on some mobile devices.
 
 utils.debug_stuff2()
