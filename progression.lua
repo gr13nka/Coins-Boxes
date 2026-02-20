@@ -163,7 +163,7 @@ local function serialize(tbl)
 end
 
 local function deserialize(str)
-  local fn, err = load(str)
+  local fn, err = (loadstring or load)(str)
   if fn then
     local ok, result = pcall(fn)
     if ok then return result end
