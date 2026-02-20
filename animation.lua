@@ -22,7 +22,7 @@ local pick_state = STATE.IDLE   -- "idle", "hovering", "flying"
 local bg_state = STATE.IDLE     -- "idle", "merging", "dealing"
 
 -- Global animation speed multiplier
-local SPEED_MULT = 1.5
+local SPEED_MULT = 2.0
 
 local hovering_coins = {}     -- {coin, offset_x, phase} per coin (coin can be string or table)
 local hover_time = 0          -- Accumulated time for sine wave
@@ -338,7 +338,8 @@ end
 
 -- Update animation each frame
 function animation.update(dt)
-    dt = dt * SPEED_MULT
+    local MAX_DT = 1 / 30
+    dt = math.min(dt, MAX_DT) * SPEED_MULT
 
     -- Always decay screen shake (shared by merge and dealing)
     if screen_shake_time > 0 then
