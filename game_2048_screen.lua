@@ -90,10 +90,17 @@ local SHARD_FLIGHT_DURATION = 0.55
 local SHARD_ARC_HEIGHT = 180
 local SHARD_SIZE = 24
 
+-- Shared HUD layout constants
+local HUD_CURRENCY_Y = 35
+local HUD_CURRENCY_SPACING = 140
+
 -- HUD pop effect when shards arrive
 local hud_pops = {}  -- keyed by color_name: {time, amount}
 local HUD_POP_DURATION = 0.55
 local HUD_POP_OVERSHOOT = 2.5
+
+-- Quest tracker state
+local quest_fade_time = 0
 
 -- Debug size slider
 local SLIDER_X = 200
@@ -109,16 +116,14 @@ local base_row_step = 0
 -- Get HUD diamond position for a shard color
 local function getShardHudPosition(color_name)
   local names = coin_utils.getShardNames()
-  local spacing = 160
-  local total_w = (#names - 1) * spacing
+  local total_w = (#names - 1) * HUD_CURRENCY_SPACING
   local start_x = (VW - total_w) / 2
-  local y = 50
   for i, name in ipairs(names) do
     if name == color_name then
-      return start_x + (i - 1) * spacing, y
+      return start_x + (i - 1) * HUD_CURRENCY_SPACING, HUD_CURRENCY_Y
     end
   end
-  return VW / 2, y
+  return VW / 2, HUD_CURRENCY_Y
 end
 
 -- Spawn flying shard from merge position to HUD
@@ -577,14 +582,14 @@ local function drawCurrencyHUD()
   local names = coin_utils.getShardNames()
   local shards = currency.getShards()
   local crystals = currency.getCrystals()
-  local spacing = 160
-  local total_w = (#names - 1) * spacing
+  local total_w = (#names - 1) * HUD_CURRENCY_SPACING
   local start_x = (VW - total_w) / 2
-  local y = 50
+  local y = HUD_CURRENCY_Y
+  local shards_per = currency.getShardsPerCrystal()
 
   love.graphics.setFont(font)
   for i, name in ipairs(names) do
-    local x = start_x + (i - 1) * spacing
+    local x = start_x + (i - 1) * HUD_CURRENCY_SPACING
     local rgb = coin_utils.getShardRGB(name)
 
     -- Pop scale when shards arrive
@@ -602,6 +607,21 @@ local function drawCurrencyHUD()
     love.graphics.setColor(1, 1, 1, 0.8)
     love.graphics.printf(tostring(crystals[name] or 0), x + 15, y - 14, 60, "left")
 
+    -- Shard progress bar (40x6px underneath icon)
+    local bar_w, bar_h = 40, 6
+    local bar_x = x - bar_w / 2
+    local bar_y = y + 18
+    local shard_count = shards[name] or 0
+    local fill_t = math.min(shard_count / shards_per, 1)
+    -- Background
+    love.graphics.setColor(0.15, 0.15, 0.15, 0.6)
+    love.graphics.rectangle("fill", bar_x, bar_y, bar_w, bar_h, 2, 2)
+    -- Fill
+    if fill_t > 0 then
+      love.graphics.setColor(rgb[1], rgb[2], rgb[3], 0.8)
+      love.graphics.rectangle("fill", bar_x, bar_y, bar_w * fill_t, bar_h, 2, 2)
+    end
+
     -- Show shard amount arriving (prominent pop text)
     if pop then
       local fade = 1 - pop.time / HUD_POP_DURATION
@@ -616,6 +636,116 @@ local function drawCurrencyHUD()
       love.graphics.printf(pop_text, tx, ty, 100, "center")
     end
   end
+end
+
+-- Draw quest tracker for houses unlock (only when houses are locked)
+local function drawQuestTracker()
+  if upgrades.isHousesUnlocked() then return end
+
+  local alpha = math.min(quest_fade_time / 0.5, 1)
+  if alpha <= 0 then return end
+
+  local names = coin_utils.getShardNames()
+  local crystals = currency.getCrystals()
+  local shards = currency.getShards()
+  local shards_per = currency.getShardsPerCrystal()
+
+  -- Count completed colors
+  local completed = 0
+  for _, name in ipairs(names) do
+    if (crystals[name] or 0) >= 1 then
+      completed = completed + 1
+    end
+  end
+
+  -- Panel dimensions
+  local panel_w = 500
+  local panel_h = 36
+  local panel_x = (VW - panel_w) / 2
+  local panel_y = 72
+  local panel_r = 12
+
+  -- Pulsing golden glow when 4/5 complete
+  if completed >= 4 and completed < 5 then
+    local pulse = 0.3 + 0.3 * math.sin(love.timer.getTime() * 3)
+    love.graphics.setColor(1, 0.85, 0.2, pulse * alpha)
+    love.graphics.setLineWidth(3)
+    love.graphics.rectangle("line", panel_x - 2, panel_y - 2, panel_w + 4, panel_h + 4, panel_r + 2, panel_r + 2)
+    love.graphics.setLineWidth(1)
+  end
+
+  -- Dark panel background
+  love.graphics.setColor(0.08, 0.08, 0.12, 0.85 * alpha)
+  love.graphics.rectangle("fill", panel_x, panel_y, panel_w, panel_h, panel_r, panel_r)
+
+  -- Lock icon (left side)
+  local lock_x = panel_x + 24
+  local lock_cy = panel_y + panel_h / 2
+  local lock_s = 10
+  love.graphics.setColor(0.6, 0.6, 0.6, 0.8 * alpha)
+  -- Lock body
+  love.graphics.rectangle("fill", lock_x - lock_s, lock_cy - 2, lock_s * 2, lock_s + 4, 3, 3)
+  -- Lock shackle
+  love.graphics.setLineWidth(3)
+  love.graphics.arc("line", "open", lock_x, lock_cy - 4, lock_s * 0.7, math.pi, 0)
+  love.graphics.setLineWidth(1)
+
+  -- 5 colored circles with connecting line
+  local circle_r = 10
+  local circle_spacing = 48
+  local circles_total_w = (#names - 1) * circle_spacing
+  local circles_start_x = (VW - circles_total_w) / 2
+  local circle_y = panel_y + panel_h / 2
+
+  -- Connecting line
+  love.graphics.setColor(0.3, 0.3, 0.3, 0.5 * alpha)
+  love.graphics.setLineWidth(2)
+  love.graphics.line(circles_start_x, circle_y, circles_start_x + circles_total_w, circle_y)
+  love.graphics.setLineWidth(1)
+
+  for i, name in ipairs(names) do
+    local cx = circles_start_x + (i - 1) * circle_spacing
+    local rgb = coin_utils.getShardRGB(name)
+    local has_crystal = (crystals[name] or 0) >= 1
+    local shard_count = shards[name] or 0
+
+    if has_crystal then
+      -- Complete: filled circle with checkmark
+      love.graphics.setColor(rgb[1], rgb[2], rgb[3], alpha)
+      love.graphics.circle("fill", cx, circle_y, circle_r)
+      -- White checkmark
+      love.graphics.setColor(1, 1, 1, alpha)
+      love.graphics.setLineWidth(2.5)
+      love.graphics.line(cx - 5, circle_y, cx - 1, circle_y + 4)
+      love.graphics.line(cx - 1, circle_y + 4, cx + 5, circle_y - 4)
+      love.graphics.setLineWidth(1)
+    elseif shard_count > 0 then
+      -- In progress: dark circle with colored arc ring
+      love.graphics.setColor(0.15, 0.15, 0.15, 0.8 * alpha)
+      love.graphics.circle("fill", cx, circle_y, circle_r)
+      -- Colored arc showing shard progress
+      local arc_t = math.min(shard_count / shards_per, 1)
+      love.graphics.setColor(rgb[1], rgb[2], rgb[3], 0.9 * alpha)
+      love.graphics.setLineWidth(3)
+      love.graphics.arc("line", "open", cx, circle_y, circle_r,
+        -math.pi / 2, -math.pi / 2 + arc_t * math.pi * 2)
+      love.graphics.setLineWidth(1)
+    else
+      -- Empty: dim gray circle with faint colored border
+      love.graphics.setColor(0.15, 0.15, 0.15, 0.5 * alpha)
+      love.graphics.circle("fill", cx, circle_y, circle_r)
+      love.graphics.setColor(rgb[1], rgb[2], rgb[3], 0.25 * alpha)
+      love.graphics.setLineWidth(1.5)
+      love.graphics.circle("line", cx, circle_y, circle_r)
+      love.graphics.setLineWidth(1)
+    end
+  end
+
+  -- "N/5" counter (right side)
+  love.graphics.setColor(1, 1, 1, 0.8 * alpha)
+  love.graphics.setFont(font)
+  local counter_x = circles_start_x + circles_total_w + 20
+  love.graphics.printf(completed .. "/5", counter_x, circle_y - 14, 60, "left")
 end
 
 --------------------------------------------------------------------------------
@@ -657,6 +787,7 @@ function game_2048_screen.enter()
   hud_pops = {}
   resetState.held = false
   resetState.time = 0
+  quest_fade_time = 0
 end
 
 function game_2048_screen.exit()
@@ -682,6 +813,11 @@ function game_2048_screen.update(dt)
   end
 
   updateFlyingShards(dt)
+
+  -- Quest tracker fade-in
+  if quest_fade_time < 0.5 then
+    quest_fade_time = quest_fade_time + dt
+  end
 
   -- Reset button hold tracking
   if resetState.held then
@@ -712,6 +848,7 @@ function game_2048_screen.draw()
 
   graphics.drawBackground()
   drawCurrencyHUD()
+  drawQuestTracker()
   drawProgressBar()
 
   -- Show merge message
