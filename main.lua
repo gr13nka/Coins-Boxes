@@ -29,11 +29,10 @@ local fps_font
 local last_touch_time = 0
 local TOUCH_DEBOUNCE = 0.2
 
--- Full frame throttling for web/mobile (both update AND draw at 30fps)
-local frame_accumulator = 0
-local FRAME_INTERVAL = 1 / 30
-local should_tick = false
-local accumulated_dt = 0
+-- Draw-only throttle for web/mobile (update runs at full rate, canvas re-renders at 30fps)
+local render_accumulator = 0
+local RENDER_INTERVAL = 1 / 30
+local needs_render = false
 
 -- Custom render FPS tracking (love.timer.getFPS() reports browser loop rate, not render rate)
 local render_frame_count = 0
@@ -149,17 +148,17 @@ function love.resize(w, h)
 end
 
 function love.update(dt)
+  -- Always update game logic at full rate (cheap math, ~0.1ms)
+  screens.update(dt)
+
   if mobile.isLowPerformance() then
-    -- Accumulate time; only tick game logic at 30fps
-    accumulated_dt = accumulated_dt + dt
-    frame_accumulator = frame_accumulator + dt
-    if frame_accumulator >= FRAME_INTERVAL then
-      should_tick = true
-      frame_accumulator = frame_accumulator - FRAME_INTERVAL
-      screens.update(accumulated_dt)
-      accumulated_dt = 0
+    -- Gate canvas re-renders to 30fps (the expensive GPU part)
+    render_accumulator = render_accumulator + dt
+    if render_accumulator >= RENDER_INTERVAL then
+      needs_render = true
+      render_accumulator = render_accumulator - RENDER_INTERVAL
     else
-      should_tick = false
+      needs_render = false
     end
 
     -- Track render FPS (once per second)
@@ -169,17 +168,14 @@ function love.update(dt)
       render_frame_count = 0
       render_fps_timer = render_fps_timer - 1
     end
-  else
-    -- Desktop: run every frame as normal
-    screens.update(dt)
   end
 end
 
 function love.draw()
   local is_low_perf = mobile.isLowPerformance()
 
-  -- Re-render canvas at target FPS on web/mobile, or every frame on desktop
-  if should_tick or not is_low_perf then
+  -- Re-render canvas at 30fps on web/mobile, or every frame on desktop
+  if needs_render or not is_low_perf then
     love.graphics.setCanvas(canvas)
     love.graphics.clear()
     screens.draw()
