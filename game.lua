@@ -53,19 +53,13 @@ function game.init()
 
 
   for i = 1, #boxes * (BOX_ROWS - 1) do
-    ::box::
-    box = math.random(#boxes)
-    if #boxes[box] >= BOX_ROWS then
-      -- box is full, try again
-      goto box
-    end
+    repeat
+      box = math.random(#boxes)
+    until #boxes[box] < BOX_ROWS
 
-    ::color::
-    color = colors_str[math.random(#colors_str)]
-    if colors_cnt[color] >= BOX_ROWS then
-      -- this color is maxed out, try again
-      goto color
-    end
+    repeat
+      color = colors_str[math.random(#colors_str)]
+    until colors_cnt[color] < BOX_ROWS
 
     colors_cnt[color] = colors_cnt[color] + 1
     table.insert(boxes[box], color)
@@ -128,19 +122,15 @@ function game.add_coins()
   local will_add = math.floor( ((max_possible - total_coins) / 2) + 0.5 )
 
   for i = 1, will_add do
-    ::box::
-    local box   = math.random(#boxes)
-    if #boxes[box] >= BOX_ROWS then
-      -- box is full, try again
-      goto box
-    end
-    
-    ::color::
-    local color = colors[math.random(#colors)]
-    if colors_cnt[color] >= BOX_ROWS then
-      -- this color is maxed out, try again
-      goto color
-    end
+    local box
+    repeat
+      box = math.random(#boxes)
+    until #boxes[box] < BOX_ROWS
+
+    local color
+    repeat
+      color = colors[math.random(#colors)]
+    until colors_cnt[color] < BOX_ROWS
 
     colors_cnt[color] = colors_cnt[color] + 1
     table.insert(boxes[box], color)
