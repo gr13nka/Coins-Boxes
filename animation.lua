@@ -5,7 +5,6 @@
 local layout = require("layout")
 local coin_utils = require("coin_utils")
 local graphics = require("graphics")
-local mobile = require("mobile")
 
 local animation = {}
 
@@ -23,10 +22,7 @@ local pick_state = STATE.IDLE   -- "idle", "hovering", "flying"
 local bg_state = STATE.IDLE     -- "idle", "merging", "dealing"
 
 -- Global animation speed multiplier
--- Desktop: 1.5x (snappy feel at 60fps)
--- Low-perf (web/mobile): 1.0x (more visible frames at 30fps draw rate)
 local SPEED_MULT = 1.5
-local effective_speed = nil  -- cached on first update
 
 local hovering_coins = {}     -- {coin, offset_x, phase} per coin (coin can be string or table)
 local hover_time = 0          -- Accumulated time for sine wave
@@ -342,10 +338,7 @@ end
 
 -- Update animation each frame
 function animation.update(dt)
-    if not effective_speed then
-        effective_speed = mobile.isLowPerformance() and 1.0 or SPEED_MULT
-    end
-    dt = dt * effective_speed
+    dt = dt * SPEED_MULT
 
     -- Always decay screen shake (shared by merge and dealing)
     if screen_shake_time > 0 then

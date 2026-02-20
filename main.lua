@@ -29,16 +29,6 @@ local fps_font
 local last_touch_time = 0
 local TOUCH_DEBOUNCE = 0.2
 
--- Draw-only throttle for web/mobile (update runs at full rate, canvas re-renders at 30fps)
-local render_accumulator = 0
-local RENDER_INTERVAL = 1 / 30
-local needs_render = false
-
--- Custom render FPS tracking (love.timer.getFPS() reports browser loop rate, not render rate)
-local render_frame_count = 0
-local render_fps_timer = 0
-local render_fps = 0
-
 -- Fonts (shared across screens)
 local font
 local coinNumberFont
@@ -148,51 +138,23 @@ function love.resize(w, h)
 end
 
 function love.update(dt)
-  -- Always update game logic at full rate (cheap math, ~0.1ms)
   screens.update(dt)
-
-  if mobile.isLowPerformance() then
-    -- Gate canvas re-renders to 30fps (the expensive GPU part)
-    render_accumulator = render_accumulator + dt
-    if render_accumulator >= RENDER_INTERVAL then
-      needs_render = true
-      render_accumulator = render_accumulator - RENDER_INTERVAL
-    else
-      needs_render = false
-    end
-
-    -- Track render FPS (once per second)
-    render_fps_timer = render_fps_timer + dt
-    if render_fps_timer >= 1 then
-      render_fps = render_frame_count
-      render_frame_count = 0
-      render_fps_timer = render_fps_timer - 1
-    end
-  end
 end
 
 function love.draw()
-  local is_low_perf = mobile.isLowPerformance()
+  love.graphics.setCanvas(canvas)
+  love.graphics.clear()
+  screens.draw()
 
-  -- Re-render canvas at 30fps on web/mobile, or every frame on desktop
-  if needs_render or not is_low_perf then
-    love.graphics.setCanvas(canvas)
-    love.graphics.clear()
-    screens.draw()
+  -- FPS counter (bottom-left of virtual canvas)
+  love.graphics.setFont(fps_font)
+  love.graphics.setColor(0, 0, 0, 0.5)
+  love.graphics.rectangle("fill", 10, VH - 50, 160, 40, 6, 6)
+  love.graphics.setColor(0, 1, 0, 0.8)
+  love.graphics.print("FPS: " .. love.timer.getFPS(), 20, VH - 44)
 
-    -- FPS counter (bottom-left of virtual canvas)
-    local displayed_fps = is_low_perf and render_fps or love.timer.getFPS()
-    love.graphics.setFont(fps_font)
-    love.graphics.setColor(0, 0, 0, 0.5)
-    love.graphics.rectangle("fill", 10, VH - 50, 160, 40, 6, 6)
-    love.graphics.setColor(0, 1, 0, 0.8)
-    love.graphics.print("FPS: " .. displayed_fps, 20, VH - 44)
+  love.graphics.setCanvas()
 
-    love.graphics.setCanvas()
-    render_frame_count = render_frame_count + 1
-  end
-
-  -- Always blit cached canvas (cheap single draw call)
   love.graphics.push("all")
   love.graphics.origin()
   love.graphics.setColor(1, 1, 1)
