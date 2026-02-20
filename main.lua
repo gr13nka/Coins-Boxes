@@ -23,6 +23,8 @@ local VW, VH = layout.VW, layout.VH
 -- Window/canvas state
 local canvas
 local scale, ox, oy = 1, 0, 0
+local touch_active = false
+local fps_font
 
 -- Fonts (shared across screens)
 local font
@@ -67,6 +69,9 @@ function love.load()
   powerups.init()
   sound.init()
   windowSetup()
+
+  -- FPS counter font (virtual canvas coordinates)
+  fps_font = love.graphics.newFont("comic shanns.otf", 24)
 
   -- Load assets
   love.graphics.setDefaultFilter("nearest", "nearest", 1)
@@ -138,6 +143,14 @@ function love.draw()
   love.graphics.setCanvas(canvas)
   love.graphics.clear()
   screens.draw()
+
+  -- FPS counter (bottom-left of virtual canvas)
+  love.graphics.setFont(fps_font)
+  love.graphics.setColor(0, 0, 0, 0.5)
+  love.graphics.rectangle("fill", 10, VH - 50, 160, 40, 6, 6)
+  love.graphics.setColor(0, 1, 0, 0.8)
+  love.graphics.print("FPS: " .. love.timer.getFPS(), 20, VH - 44)
+
   love.graphics.setCanvas()
 
   -- Blit canvas to window with letterboxing
@@ -163,29 +176,38 @@ function love.keypressed(key, scancode, isrepeat)
 end
 
 function love.mousepressed(x, y, button)
+  if touch_active then return end  -- Prevent double-fire from touch
   local gx, gy = input.toGameCoords(x, y, ox, oy, scale)
   screens.mousepressed(gx, gy, button)
 end
 
 function love.mousereleased(x, y, button)
+  if touch_active then return end  -- Prevent double-fire from touch
   local gx, gy = input.toGameCoords(x, y, ox, oy, scale)
   screens.mousereleased(gx, gy, button)
 end
 
--- Touch input callbacks for mobile
+-- Touch input: route through mouse handlers to prevent double-fire.
+-- On mobile, LÖVE fires both touch AND synthetic mouse events for each tap.
+-- Setting touch_active suppresses the duplicate mousepressed/mousereleased.
 function love.touchpressed(id, x, y, dx, dy, pressure)
+  touch_active = true
   local gx, gy = input.toGameCoords(x, y, ox, oy, scale)
-  screens.touchpressed(id, gx, gy, pressure)
+  screens.mousepressed(gx, gy, 1)
 end
 
 function love.touchreleased(id, x, y, dx, dy, pressure)
   local gx, gy = input.toGameCoords(x, y, ox, oy, scale)
-  screens.touchreleased(id, gx, gy)
-end
-
-function love.touchmoved(id, x, y, dx, dy, pressure)
-  local gx, gy = input.toGameCoords(x, y, ox, oy, scale)
-  screens.touchmoved(id, gx, gy)
+  screens.mousereleased(gx, gy, 1)
+  -- Clear touch_active when all fingers lifted
+  if love.touch then
+    local touches = love.touch.getTouches()
+    if #touches == 0 then
+      touch_active = false
+    end
+  else
+    touch_active = false
+  end
 end
 
 utils.debug_stuff2()

@@ -190,5 +190,19 @@ Both start at 100 charges (dev/testing). `game_2048.autoSort()` returns dealing 
 - `/assets/` — sprites: `ball.png` (tinted per color), `Red.png`, `Green.png`, `Purple.png`, `Blue.png`, `Pink.png` (1024x1024 fruit coins with ~200x200 center slot for number)
 - `comic shanns.otf` — custom UI font
 
+## Mobile Touch Input
+
+Touch events route through `mousepressed`/`mousereleased` via `main.lua`. A `touch_active` flag prevents double-fire (LÖVE fires both touch AND synthetic mouse events on mobile). Touch handlers set the flag; mouse handlers skip when it's set.
+
+`game_2048_screen.lua` provides `isPointerDown()` and `getPointerPosition()` helpers that check both `love.mouse` and `love.touch`, so features like the reset-button hold and debug slider work on both desktop and mobile.
+
+## Mobile Performance
+
+`particles.lua` detects mobile via `mobile.isMobile()` and halves particle counts (150 max, 10 per burst, 18 per merge), reduces lifetime/bounces, and skips the per-particle highlight sub-rectangle. `conf.lua` canvas uses `{dpiscale = 1}` to prevent oversized textures on HiDPI mobile GPUs.
+
+## FPS Counter
+
+Drawn inside the virtual canvas (bottom-left corner) in `main.lua`'s `love.draw()`, using a 24px font. Always visible on all screens.
+
 ## Keyboard Shortcuts
 - `\` — quit, `Escape` — upgrades screen (from game)

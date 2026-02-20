@@ -113,6 +113,26 @@ local slider_dragging = false
 local base_coin_r = 0
 local base_row_step = 0
 
+-- Touch-aware pointer helpers (love.mouse.isDown doesn't track touches on mobile)
+local function isPointerDown()
+  if love.mouse.isDown(1) then return true end
+  if love.touch then
+    local touches = love.touch.getTouches()
+    return #touches > 0
+  end
+  return false
+end
+
+local function getPointerPosition()
+  if love.touch then
+    local touches = love.touch.getTouches()
+    if #touches > 0 then
+      return love.touch.getPosition(touches[1])
+    end
+  end
+  return love.mouse.getPosition()
+end
+
 -- Get HUD diamond position for a shard color
 local function getShardHudPosition(color_name)
   local names = coin_utils.getShardNames()
@@ -483,11 +503,11 @@ end
 -- Update slider drag tracking
 local function updateSliderDrag()
   if not slider_dragging then return end
-  if not love.mouse.isDown(1) then
+  if not isPointerDown() then
     slider_dragging = false
     return
   end
-  local mx, my = love.mouse.getPosition()
+  local mx, my = getPointerPosition()
   local ww, wh = love.graphics.getDimensions()
   local sc = math.min(ww / VW, wh / VH)
   local ox = (ww - VW * sc) / 2
@@ -821,7 +841,7 @@ function game_2048_screen.update(dt)
 
   -- Reset button hold tracking
   if resetState.held then
-    if not love.mouse.isDown(1) then
+    if not isPointerDown() then
       resetState.held = false
       resetState.time = 0
     else

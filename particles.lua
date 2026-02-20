@@ -2,11 +2,13 @@
 -- Chunky bouncy coin fragment particles (pixel art style)
 
 local layout = require("layout")
+local mobile = require("mobile")
 
 local particles = {}
 
--- Configuration
-local MAX_PARTICLES = 300
+-- Mobile-aware configuration (fewer particles on mobile for performance)
+local IS_MOBILE = mobile.isMobile()
+local MAX_PARTICLES = IS_MOBILE and 150 or 300
 local GRAVITY = 1800
 local BOUNCE_DAMPING = 0.6      -- Velocity retained after bounce
 local GROUND_Y = layout.VH - 100 -- Where particles bounce
@@ -15,18 +17,18 @@ local GROUND_Y = layout.VH - 100 -- Where particles bounce
 local SIZES = {6, 10, 14, 18}   -- Varied chunk sizes
 
 -- Spawn settings
-local SPAWN_COUNT = 20          -- Fragments per burst
+local SPAWN_COUNT = IS_MOBILE and 10 or 20
 local SPAWN_SPEED_MIN = 400
 local SPAWN_SPEED_MAX = 900
 local SPAWN_ANGLE_SPREAD = 2.2  -- ~126 degrees upward
-local LIFETIME = 1.2            -- Seconds before fade
-local MAX_BOUNCES = 3           -- Bounces before settling
+local LIFETIME = IS_MOBILE and 0.8 or 1.2
+local MAX_BOUNCES = IS_MOBILE and 2 or 3
 
 -- Merge explosion settings
-local MERGE_SPAWN_COUNT = 35
+local MERGE_SPAWN_COUNT = IS_MOBILE and 18 or 35
 local MERGE_SPEED_MIN = 500
 local MERGE_SPEED_MAX = 1100
-local MERGE_LIFETIME = 1.5
+local MERGE_LIFETIME = IS_MOBILE and 1.0 or 1.5
 
 -- Particle pool
 local pool = {}
@@ -203,8 +205,8 @@ function particles.draw()
             love.graphics.setColor(p.r, p.g, p.b, alpha)
             love.graphics.rectangle("fill", -size/2, -size/2, size, size)
 
-            -- Subtle highlight on top-left for depth
-            if size > 8 then
+            -- Subtle highlight on top-left for depth (skip on mobile for performance)
+            if not IS_MOBILE and size > 8 then
                 love.graphics.setColor(1, 1, 1, alpha * 0.3)
                 love.graphics.rectangle("fill", -size/2, -size/2, size * 0.4, size * 0.4)
             end
