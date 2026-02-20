@@ -41,6 +41,4 @@ jobs:
       - name: Push to itch.io
         env:
           BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
-          ITCH_USER: ${{ secrets.ITCH_USER }}
-          ITCH_GAME: ${{ secrets.ITCH_GAME }}
-        run: ./butler push love-web-builder-main/game "${ITCH_USER}/${ITCH_GAME}:html5"
+        run: ./butler push love-web-builder-main/game mblw/sorting-master:html5
