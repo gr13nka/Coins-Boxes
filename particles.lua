@@ -1,5 +1,6 @@
 -- particles.lua
 -- Chunky bouncy coin fragment particles (pixel art style)
+-- Uses active-list pool + SpriteBatch for minimal draw calls
 
 local layout = require("layout")
 local mobile = require("mobile")
@@ -30,17 +31,39 @@ local MERGE_SPEED_MIN = 500
 local MERGE_SPEED_MAX = 1100
 local MERGE_LIFETIME = IS_MOBILE and 1.0 or 1.5
 
--- Particle pool
+-- Particle pool (flat array, indexed by active list)
 local pool = {}
 local activeCount = 0
 
--- Initialize empty pool
+-- Active-list pool: compact array of active pool indices + free stack
+local active = {}       -- active[1..activeCount] = pool indices
+local freeStack = {}    -- stack of free pool indices
+local freeCount = 0
+local poolToActive = {} -- pool index -> position in active[] (for swap-remove)
+
+-- SpriteBatch for single draw call
+local pixelImage  -- 1x1 white pixel image
+local batch       -- SpriteBatch
+
+-- Initialize empty pool + SpriteBatch
 function particles.init()
+    -- Create 1x1 white pixel image procedurally
+    local imgData = love.image.newImageData(1, 1)
+    imgData:setPixel(0, 0, 1, 1, 1, 1)
+    pixelImage = love.graphics.newImage(imgData)
+
+    -- Create sprite batch (main quad + optional highlight per particle)
+    batch = love.graphics.newSpriteBatch(pixelImage, MAX_PARTICLES * 2, "stream")
+
     pool = {}
+    active = {}
     activeCount = 0
+    freeStack = {}
+    freeCount = MAX_PARTICLES
+    poolToActive = {}
+
     for i = 1, MAX_PARTICLES do
         pool[i] = {
-            active = false,
             x = 0, y = 0,
             vx = 0, vy = 0,
             size = 10,
@@ -51,28 +74,36 @@ function particles.init()
             rotation = 0,
             rotationSpeed = 0
         }
+        freeStack[i] = i  -- all slots start free
     end
 end
 
--- Get an inactive particle from pool
-local function getParticle()
-    for i = 1, MAX_PARTICLES do
-        if not pool[i].active then
-            return pool[i]
-        end
+-- Get a free pool index (O(1) pop from free stack, or steal first active)
+local function getPoolIndex()
+    if freeCount > 0 then
+        local idx = freeStack[freeCount]
+        freeCount = freeCount - 1
+        return idx
     end
-    -- Pool exhausted, reuse oldest (first active)
-    for i = 1, MAX_PARTICLES do
-        if pool[i].active then
-            return pool[i]
+    -- Pool exhausted, steal first active particle
+    if activeCount > 0 then
+        local idx = active[1]
+        -- Swap-remove from active list
+        poolToActive[idx] = nil
+        if activeCount > 1 then
+            active[1] = active[activeCount]
+            poolToActive[active[1]] = 1
         end
+        activeCount = activeCount - 1
+        return idx
     end
-    return pool[1]
+    return 1  -- fallback
 end
 
 -- Spawn a single fragment
 local function spawnFragment(x, y, color, speed_min, speed_max, lifetime)
-    local p = getParticle()
+    local idx = getPoolIndex()
+    local p = pool[idx]
 
     -- Position
     p.x = x + math.random(-10, 10)
@@ -96,13 +127,15 @@ local function spawnFragment(x, y, color, speed_min, speed_max, lifetime)
     p.lifetime = lifetime
     p.maxLifetime = lifetime
     p.bounces = 0
-    p.active = true
 
     -- Chunky rotation
     p.rotation = math.random() * math.pi * 2
     p.rotationSpeed = (math.random() - 0.5) * 12
 
+    -- Add to active list
     activeCount = activeCount + 1
+    active[activeCount] = idx
+    poolToActive[idx] = activeCount
 end
 
 -- Spawn burst of coin fragments
@@ -127,95 +160,102 @@ function particles.spawnSqueezeParticles(x, y, color, count)
     end
 end
 
--- Update all particles with bouncy physics
+-- Update active particles only (swap-remove dead ones)
 function particles.update(dt)
-    activeCount = 0
+    local VW = layout.VW
+    local i = 1
+    while i <= activeCount do
+        local idx = active[i]
+        local p = pool[idx]
 
-    for i = 1, MAX_PARTICLES do
-        local p = pool[i]
-        if p.active then
-            -- Apply gravity
-            p.vy = p.vy + GRAVITY * dt
+        -- Apply gravity
+        p.vy = p.vy + GRAVITY * dt
 
-            -- Move
-            p.x = p.x + p.vx * dt
-            p.y = p.y + p.vy * dt
+        -- Move
+        p.x = p.x + p.vx * dt
+        p.y = p.y + p.vy * dt
 
-            -- Rotate (chunky spin)
-            p.rotation = p.rotation + p.rotationSpeed * dt
+        -- Rotate (chunky spin)
+        p.rotation = p.rotation + p.rotationSpeed * dt
 
-            -- Bounce off ground
-            if p.y > GROUND_Y and p.vy > 0 then
-                p.y = GROUND_Y
-                p.vy = -p.vy * BOUNCE_DAMPING
-                p.vx = p.vx * 0.8  -- Friction
-                p.bounces = p.bounces + 1
-                p.rotationSpeed = p.rotationSpeed * 0.5
+        -- Bounce off ground
+        if p.y > GROUND_Y and p.vy > 0 then
+            p.y = GROUND_Y
+            p.vy = -p.vy * BOUNCE_DAMPING
+            p.vx = p.vx * 0.8  -- Friction
+            p.bounces = p.bounces + 1
+            p.rotationSpeed = p.rotationSpeed * 0.5
 
-                -- Stop bouncing after max bounces
-                if p.bounces >= MAX_BOUNCES then
-                    p.vy = 0
-                    p.vx = p.vx * 0.3
-                end
+            -- Stop bouncing after max bounces
+            if p.bounces >= MAX_BOUNCES then
+                p.vy = 0
+                p.vx = p.vx * 0.3
             end
+        end
 
-            -- Bounce off sides (optional, keeps fragments on screen)
-            if p.x < 50 then
-                p.x = 50
-                p.vx = -p.vx * 0.5
-            elseif p.x > layout.VW - 50 then
-                p.x = layout.VW - 50
-                p.vx = -p.vx * 0.5
+        -- Bounce off sides
+        if p.x < 50 then
+            p.x = 50
+            p.vx = -p.vx * 0.5
+        elseif p.x > VW - 50 then
+            p.x = VW - 50
+            p.vx = -p.vx * 0.5
+        end
+
+        -- Decrease lifetime
+        p.lifetime = p.lifetime - dt
+
+        -- Deactivate when expired
+        if p.lifetime <= 0 then
+            -- Return to free stack
+            freeCount = freeCount + 1
+            freeStack[freeCount] = idx
+            poolToActive[idx] = nil
+
+            -- Swap-remove: move last active into this slot
+            if i < activeCount then
+                active[i] = active[activeCount]
+                poolToActive[active[i]] = i
             end
-
-            -- Decrease lifetime
-            p.lifetime = p.lifetime - dt
-
-            -- Deactivate when expired
-            if p.lifetime <= 0 then
-                p.active = false
-            else
-                activeCount = activeCount + 1
-            end
+            activeCount = activeCount - 1
+            -- Don't increment i; process the swapped element next
+        else
+            i = i + 1
         end
     end
 end
 
--- Draw all active particles
+-- Draw all active particles via SpriteBatch (single draw call)
 function particles.draw()
-    for i = 1, MAX_PARTICLES do
-        local p = pool[i]
-        if p.active then
-            -- Calculate alpha based on lifetime (fade out in last 30%)
-            local lifeRatio = p.lifetime / p.maxLifetime
-            local alpha = 1
-            if lifeRatio < 0.3 then
-                alpha = lifeRatio / 0.3
-            end
+    if activeCount == 0 then return end
 
-            -- Scale down slightly as lifetime decreases
-            local scale = 0.7 + lifeRatio * 0.3
-            local size = p.size * scale
+    batch:clear()
 
-            -- Draw chunky square with rotation
-            love.graphics.push()
-            love.graphics.translate(p.x, p.y)
-            love.graphics.rotate(p.rotation)
+    for i = 1, activeCount do
+        local p = pool[active[i]]
 
-            love.graphics.setColor(p.r, p.g, p.b, alpha)
-            love.graphics.rectangle("fill", -size/2, -size/2, size, size)
+        -- Alpha fade out in last 30% of lifetime
+        local lifeRatio = p.lifetime / p.maxLifetime
+        local alpha = lifeRatio < 0.3 and (lifeRatio / 0.3) or 1
 
-            -- Subtle highlight on top-left for depth (skip on mobile for performance)
-            if not IS_MOBILE and size > 8 then
-                love.graphics.setColor(1, 1, 1, alpha * 0.3)
-                love.graphics.rectangle("fill", -size/2, -size/2, size * 0.4, size * 0.4)
-            end
+        -- Scale down slightly as lifetime decreases
+        local size = p.size * (0.7 + lifeRatio * 0.3)
 
-            love.graphics.pop()
+        -- Main colored square
+        batch:setColor(p.r, p.g, p.b, alpha)
+        batch:add(p.x, p.y, p.rotation, size, size, 0.5, 0.5)
+
+        -- Highlight on top-left for depth (desktop only, large fragments)
+        if not IS_MOBILE and size > 8 then
+            local hs = size * 0.4
+            batch:setColor(1, 1, 1, alpha * 0.3)
+            -- Approximate top-left offset (skip trig, imperceptible on moving fragments)
+            batch:add(p.x - size * 0.2, p.y - size * 0.2, p.rotation, hs, hs, 0.5, 0.5)
         end
     end
 
     love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.draw(batch)
 end
 
 -- Get active particle count (for debugging)

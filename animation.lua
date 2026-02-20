@@ -30,8 +30,8 @@ local flight_time = 0         -- 0.0 to 1.0 progress
 local flight_start_coins = {} -- Frozen positions at flight start
 
 -- Configuration
-local HOVER_BOB_AMPLITUDE = 15   -- pixels up/down
-local HOVER_BOB_SPEED = 1.5      -- cycles per second (slower bobbing)
+local HOVER_LIFT_DURATION = 0.05 -- seconds to lift coins (quick snap)
+local HOVER_LIFT_HEIGHT = 15     -- pixels upward offset when lifted
 local HOVER_SPREAD = 90          -- pixels between coin centers (COIN_R * 1.5)
 local FLIGHT_DURATION = 0.35     -- seconds per coin
 local FLIGHT_ARC_HEIGHT = 150    -- pixels above trajectory
@@ -95,20 +95,18 @@ function animation.startHover(coins, source_box_index)
     hovering_coins = {}
     source_box = source_box_index
 
-    -- Calculate hover position: centered on screen, above grid
-    hover_center_x = layout.VW / 2
-    hover_center_y = layout.GRID_TOP_Y - layout.ROW_STEP
+    -- Calculate hover position: above the source tray column
+    local col_x, col_top_y = layout.columnPosition(source_box_index)
+    hover_center_x = col_x
+    hover_center_y = col_top_y
 
-    -- Spread coins horizontally with staggered bob phases
-    local hover_spread = layout.COIN_R * 1.5
-    local total_width = (#coins - 1) * hover_spread
-    local start_offset = -total_width / 2
-
+    -- Stack coins vertically above tray (bottom coin closest to tray)
+    local hover_spread = layout.ROW_STEP
     for i, coin_data in ipairs(coins) do
         hovering_coins[i] = {
-            coin = coin_data,  -- store full coin (string for classic, table for 2048)
-            offset_x = start_offset + (i - 1) * hover_spread,
-            phase = (i - 1) * 0.3  -- stagger bobbing
+            coin = coin_data,
+            offset_y = -(#coins - i + 1) * hover_spread,
+            offset_x = 0,
         }
     end
 end
@@ -131,7 +129,8 @@ function animation.startFlight(dest_box_idx, dest_slot, callback, coinLandCallba
     -- Coins drop one by one, so each has a staggered start time
     flight_start_coins = {}
     for i, hcoin in ipairs(hovering_coins) do
-        local bob_offset = math.sin((hover_time + hcoin.phase) * HOVER_BOB_SPEED * math.pi * 2) * HOVER_BOB_AMPLITUDE
+        local t = math.min(hover_time / HOVER_LIFT_DURATION, 1.0)
+        local bob_offset = -HOVER_LIFT_HEIGHT * t
         local coin_slot = dest_slot + (i - 1)
         -- Pre-compute per-coin destination (accounts for 2-layer offsets)
         local coin_dest_x, coin_dest_y
@@ -143,8 +142,8 @@ function animation.startFlight(dest_box_idx, dest_slot, callback, coinLandCallba
             coin_dest_x, coin_dest_y = layout.slotPosition(dest_box_idx, coin_slot)
         end
         flight_start_coins[i] = {
-            x = hover_center_x + hcoin.offset_x,
-            y = hover_center_y + bob_offset,
+            x = hover_center_x,
+            y = hover_center_y + (hcoin.offset_y or 0) + bob_offset,
             coin = hcoin.coin,  -- store full coin data
             offset_x = hcoin.offset_x,
             start_delay = (i - 1) * DROP_DELAY,  -- stagger start times
@@ -286,9 +285,10 @@ end
 local function getCoinPosition(index)
     if pick_state == STATE.HOVERING then
         local coin = hovering_coins[index]
-        -- Bobbing: sine wave motion
-        local bob_offset = math.sin((hover_time + coin.phase) * HOVER_BOB_SPEED * math.pi * 2) * HOVER_BOB_AMPLITUDE
-        return hover_center_x + coin.offset_x, hover_center_y + bob_offset
+        -- Quick lift then static (no bobbing)
+        local t = math.min(hover_time / HOVER_LIFT_DURATION, 1.0)
+        local lift = -HOVER_LIFT_HEIGHT * t  -- negative = upward
+        return hover_center_x, hover_center_y + coin.offset_y + lift
 
     elseif pick_state == STATE.FLYING then
         local coin = flight_start_coins[index]
@@ -339,7 +339,9 @@ end
 -- Update animation each frame
 function animation.update(dt)
     local MAX_DT = 1 / 30
-    dt = math.min(dt, MAX_DT) * SPEED_MULT
+    local clamped_dt = math.min(dt, MAX_DT)
+    local pick_dt = clamped_dt * 2.0       -- pick/hover speed (unchanged)
+    dt = clamped_dt * SPEED_MULT           -- everything else
 
     -- Always decay screen shake (shared by merge and dealing)
     if screen_shake_time > 0 then
@@ -349,10 +351,10 @@ function animation.update(dt)
 
     -- === Pick/place track ===
     if pick_state == STATE.HOVERING then
-        hover_time = hover_time + dt
+        hover_time = hover_time + pick_dt
 
     elseif pick_state == STATE.FLYING then
-        flight_time = flight_time + dt
+        flight_time = flight_time + pick_dt
 
         -- Check each coin for landing
         for i, coin in ipairs(flight_start_coins) do
@@ -893,12 +895,11 @@ function animation.splitHoveringCoins(keep_count)
         table.insert(removed_coins, removed.coin)
     end
 
-    -- Recalculate horizontal spread for remaining coins
-    local hover_spread = layout.COIN_R * 1.5
-    local total_width = (#hovering_coins - 1) * hover_spread
-    local start_offset = -total_width / 2
+    -- Recalculate vertical stack for remaining coins
+    local hover_spread = layout.ROW_STEP
     for i, hcoin in ipairs(hovering_coins) do
-        hcoin.offset_x = start_offset + (i - 1) * hover_spread
+        hcoin.offset_y = -(#hovering_coins - i + 1) * hover_spread
+        hcoin.offset_x = 0
     end
 
     return removed_coins

@@ -91,7 +91,7 @@ See `animation.lua` for all config constants and math formulas.
 Players can pick/place coins while merge/dealing animations play in the background. Boxes currently being merged (`getMergeLockedBoxes()`) are excluded from interaction.
 
 **Hover/Flight flow:**
-1. Click box with coins → `startHover()` → coins bob and spread
+1. Click box with coins → `startHover()` → coins lift up (~50ms) then stay static
 2. Click destination → `startFlight()` → coins arc to target, drop one by one
 3. Each landing triggers `coinLandCallback` (adds coin, plays sound)
 4. All landed → `callback` fires → IDLE
@@ -206,8 +206,9 @@ Both start at 100 charges (dev/testing). `game_2048.autoSort()` returns dealing 
 
 ## Mobile/Web Performance
 
-- **No FPS cap**: update and draw run at native rate on all platforms (browser typically provides 50-60fps). Animation speed multiplier is always 1.5x for snappy feel.
-- **Particles**: `particles.lua` uses `mobile.isLowPerformance()` and halves particle counts (150 max, 10 per burst, 18 per merge), reduces lifetime/bounces, and skips the per-particle highlight sub-rectangle.
+- **No FPS cap**: update and draw run at native rate on all platforms (browser typically provides 50-60fps). Animation speed multiplier is always 4x for snappy feel.
+- **Particles**: `particles.lua` uses active-list pool (O(1) alloc, update skips dead) + SpriteBatch (1 draw call for all particles). `mobile.isLowPerformance()` halves particle counts (150 max, 10 per burst, 18 per merge), reduces lifetime/bounces, and skips the per-particle highlight.
+- **Graphics caching**: `graphics.lua` caches `getDimensions()` for ball and fruit images, and `font:getWidth()`/`font:getHeight()` per font. Two-layer rendering uses step-2 iteration (no modulo per coin).
 - **Canvas**: `{dpiscale = 1}` prevents oversized textures on HiDPI mobile GPUs.
 
 ## FPS Counter
