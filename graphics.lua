@@ -91,6 +91,23 @@ function graphics.drawCoin2048(font, x, y, num, MAX_NUMBER, scaleOverride, hideN
     love.graphics.setColor(col)
   end
   love.graphics.draw(img, x, y, 0, scale, scale, imgW / 2, imgH / 2)
+  -- Cycle tier ring border
+  local cycle = coin_utils.numberToCycle(num)
+  if cycle > 0 then
+    local ring_colors = {
+      {0.85, 0.85, 0.9},   -- cycle 1: silver
+      {1.0, 0.85, 0.25},   -- cycle 2: gold
+      {0.3, 0.9, 1.0},     -- cycle 3: cyan/diamond
+      {0.9, 0.3, 0.9},     -- cycle 4: magenta
+    }
+    local rc = ring_colors[cycle] or {1.0, 1.0, 1.0}
+    local ring_lw = 2 + math.min(cycle - 1, 3) * 0.5
+    local ring_r = COIN_R * (scaleOverride or 1)
+    love.graphics.setColor(rc)
+    love.graphics.setLineWidth(ring_lw)
+    love.graphics.circle("line", x, y, ring_r)
+    love.graphics.setLineWidth(1)
+  end
   -- Number text (skip if hideNumber)
   if not hideNumber then
     if layout.USE_FRUIT_IMAGES then

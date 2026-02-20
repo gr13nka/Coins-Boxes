@@ -55,6 +55,11 @@ function coin_utils.getCoinNumber(coin)
     return nil
 end
 
+-- Map a coin number to its cycle tier (0 = coins 1-5, 1 = coins 6-10, etc.)
+function coin_utils.numberToCycle(number)
+  return math.floor((number - 1) / 5)
+end
+
 -- Create a new coin object
 function coin_utils.createCoin(number)
     return {number = number}

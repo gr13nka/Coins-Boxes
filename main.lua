@@ -40,7 +40,7 @@ end
 --- Setup window and canvas
 local function windowSetup()
   love.graphics.setDefaultFilter("nearest", "nearest")
-  canvas = love.graphics.newCanvas(VW, VH)
+  canvas = love.graphics.newCanvas(VW, VH, {dpiscale = 1})
   canvas:setFilter("nearest", "nearest")
 
   -- Apply mobile settings if on mobile device
