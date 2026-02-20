@@ -201,12 +201,12 @@ Both start at 100 charges (dev/testing). `game_2048.autoSort()` returns dealing 
 ## Platform Detection (mobile.lua)
 
 - `mobile.isMobile()` — native mobile only (Android/iOS). Use for fullscreen, vibration.
-- `mobile.isWeb()` — web builds (`love.system.getOS() == "Web"`).
+- `mobile.isWeb()` — web builds (`getOS() == "Unknown"` or `"Web"`; love-web-builder returns `"Unknown"`).
 - `mobile.isLowPerformance()` — true for both native mobile AND web. Use for all performance optimizations (FPS cap, particle reduction).
 
 ## Mobile/Web Performance
 
-- **FPS cap**: 30 FPS render throttle on `isLowPerformance()` platforms via canvas caching in `main.lua`. Game logic runs at full rate for responsive input; only the canvas re-render is throttled. The cached canvas is blitted every frame (single cheap draw call). `love.timer.sleep()` is NOT used (doesn't work on web/Emscripten).
+- **FPS cap**: 30 FPS full frame throttle on `isLowPerformance()` platforms. Both `screens.update()` and `screens.draw()` are skipped on non-render frames; accumulated dt is passed on render frames. The cached canvas is blitted every frame (single cheap draw call). Custom `render_fps` counter tracks actual render rate (since `love.timer.getFPS()` reports the browser's main loop rate). `love.timer.sleep()` is NOT used (doesn't work on web/Emscripten).
 - **Particles**: `particles.lua` uses `mobile.isLowPerformance()` and halves particle counts (150 max, 10 per burst, 18 per merge), reduces lifetime/bounces, and skips the per-particle highlight sub-rectangle.
 - **Canvas**: `{dpiscale = 1}` prevents oversized textures on HiDPI mobile GPUs.
 

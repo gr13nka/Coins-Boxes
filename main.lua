@@ -29,10 +29,16 @@ local fps_font
 local last_touch_time = 0
 local TOUCH_DEBOUNCE = 0.2
 
--- Canvas-cached frame throttling for web/mobile (sleep doesn't work on web)
-local render_accumulator = 0
-local RENDER_INTERVAL = 1 / 30
-local needs_render = true  -- Always render first frame
+-- Full frame throttling for web/mobile (both update AND draw at 30fps)
+local frame_accumulator = 0
+local FRAME_INTERVAL = 1 / 30
+local should_tick = false
+local accumulated_dt = 0
+
+-- Custom render FPS tracking (love.timer.getFPS() reports browser loop rate, not render rate)
+local render_frame_count = 0
+local render_fps_timer = 0
+local render_fps = 0
 
 -- Fonts (shared across screens)
 local font
@@ -143,34 +149,51 @@ function love.resize(w, h)
 end
 
 function love.update(dt)
-  screens.update(dt)
-
-  -- Track render timing (web/mobile only)
   if mobile.isLowPerformance() then
-    render_accumulator = render_accumulator + dt
-    if render_accumulator >= RENDER_INTERVAL then
-      needs_render = true
-      render_accumulator = render_accumulator - RENDER_INTERVAL
+    -- Accumulate time; only tick game logic at 30fps
+    accumulated_dt = accumulated_dt + dt
+    frame_accumulator = frame_accumulator + dt
+    if frame_accumulator >= FRAME_INTERVAL then
+      should_tick = true
+      frame_accumulator = frame_accumulator - FRAME_INTERVAL
+      screens.update(accumulated_dt)
+      accumulated_dt = 0
+    else
+      should_tick = false
     end
+
+    -- Track render FPS (once per second)
+    render_fps_timer = render_fps_timer + dt
+    if render_fps_timer >= 1 then
+      render_fps = render_frame_count
+      render_frame_count = 0
+      render_fps_timer = render_fps_timer - 1
+    end
+  else
+    -- Desktop: run every frame as normal
+    screens.update(dt)
   end
 end
 
 function love.draw()
-  -- Re-render to canvas only at target FPS on web/mobile (or always on desktop)
-  if needs_render or not mobile.isLowPerformance() then
+  local is_low_perf = mobile.isLowPerformance()
+
+  -- Re-render canvas at target FPS on web/mobile, or every frame on desktop
+  if should_tick or not is_low_perf then
     love.graphics.setCanvas(canvas)
     love.graphics.clear()
     screens.draw()
 
     -- FPS counter (bottom-left of virtual canvas)
+    local displayed_fps = is_low_perf and render_fps or love.timer.getFPS()
     love.graphics.setFont(fps_font)
     love.graphics.setColor(0, 0, 0, 0.5)
     love.graphics.rectangle("fill", 10, VH - 50, 160, 40, 6, 6)
     love.graphics.setColor(0, 1, 0, 0.8)
-    love.graphics.print("FPS: " .. love.timer.getFPS(), 20, VH - 44)
+    love.graphics.print("FPS: " .. displayed_fps, 20, VH - 44)
 
     love.graphics.setCanvas()
-    needs_render = false
+    render_frame_count = render_frame_count + 1
   end
 
   -- Always blit cached canvas (cheap single draw call)

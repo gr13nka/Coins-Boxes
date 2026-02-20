@@ -18,7 +18,10 @@ function mobile.isiOS()
 end
 
 function mobile.isWeb()
-  return love.system.getOS() == "Web"
+  local os_name = love.system.getOS()
+  -- love-web-builder's LÖVE 12.0 returns "Unknown" (no Emscripten case in System.cpp)
+  -- Some love.js builds might return "Web"
+  return os_name == "Unknown" or os_name == "Web"
 end
 
 -- True for native mobile AND web builds (activates perf optimizations)
