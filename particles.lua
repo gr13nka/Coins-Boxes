@@ -7,7 +7,7 @@ local mobile = require("mobile")
 local particles = {}
 
 -- Mobile-aware configuration (fewer particles on mobile for performance)
-local IS_MOBILE = mobile.isMobile()
+local IS_MOBILE = mobile.isLowPerformance()
 local MAX_PARTICLES = IS_MOBILE and 150 or 300
 local GRAVITY = 1800
 local BOUNCE_DAMPING = 0.6      -- Velocity retained after bounce

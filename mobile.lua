@@ -17,6 +17,15 @@ function mobile.isiOS()
   return love.system.getOS() == "iOS"
 end
 
+function mobile.isWeb()
+  return love.system.getOS() == "Web"
+end
+
+-- True for native mobile AND web builds (activates perf optimizations)
+function mobile.isLowPerformance()
+  return mobile.isMobile() or mobile.isWeb()
+end
+
 -- Haptic feedback (vibration)
 -- Duration is in seconds
 function mobile.vibrate(duration)

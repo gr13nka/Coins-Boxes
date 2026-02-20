@@ -12,5 +12,7 @@ function love.conf(t)
 
   -- Mobile-specific settings
   t.accelerometerjoystick = false -- Disable accelerometer as joystick
-  t.gammacorrect = false -- Better performance on mobile
+  if t.graphics then
+    t.graphics.gammacorrect = false -- Better performance on mobile
+  end
 end

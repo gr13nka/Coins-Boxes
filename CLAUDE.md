@@ -194,12 +194,20 @@ Both start at 100 charges (dev/testing). `game_2048.autoSort()` returns dealing 
 
 `love.touchpressed` / `love.touchreleased` are intentionally **NOT defined** in `main.lua`. When absent, LÖVE automatically generates synthetic mouse events from touch — giving single-tap = single `mousepressed`. Defining touch callbacks disables this and caused double-fire (pick up + immediate return) on mobile.
 
+**Web touch debounce:** SDL+Emscripten (love.js) fires BOTH a synthetic mouse event (`istouch=true`) AND a duplicate real mouse event (`istouch=false`) for a single touch. `main.lua` debounces this: when `istouch=true`, timestamp is recorded; any non-touch mouse event within 0.2s is ignored.
+
 `game_2048_screen.lua` provides `isPointerDown()` and `getPointerPosition()` helpers that check both `love.mouse` and `love.touch` for extra robustness.
 
-## Mobile Performance
+## Platform Detection (mobile.lua)
 
-- **FPS cap**: 30 FPS on mobile via `love.timer.sleep()` in `love.draw()`. Consistent 33ms frame timing feels smoother than variable 50-54fps.
-- **Particles**: `particles.lua` detects mobile via `mobile.isMobile()` and halves particle counts (150 max, 10 per burst, 18 per merge), reduces lifetime/bounces, and skips the per-particle highlight sub-rectangle.
+- `mobile.isMobile()` — native mobile only (Android/iOS). Use for fullscreen, vibration.
+- `mobile.isWeb()` — web builds (`love.system.getOS() == "Web"`).
+- `mobile.isLowPerformance()` — true for both native mobile AND web. Use for all performance optimizations (FPS cap, particle reduction).
+
+## Mobile/Web Performance
+
+- **FPS cap**: 30 FPS render throttle on `isLowPerformance()` platforms via canvas caching in `main.lua`. Game logic runs at full rate for responsive input; only the canvas re-render is throttled. The cached canvas is blitted every frame (single cheap draw call). `love.timer.sleep()` is NOT used (doesn't work on web/Emscripten).
+- **Particles**: `particles.lua` uses `mobile.isLowPerformance()` and halves particle counts (150 max, 10 per burst, 18 per merge), reduces lifetime/bounces, and skips the per-particle highlight sub-rectangle.
 - **Canvas**: `{dpiscale = 1}` prevents oversized textures on HiDPI mobile GPUs.
 
 ## FPS Counter

@@ -24,8 +24,15 @@ local VW, VH = layout.VW, layout.VH
 local canvas
 local scale, ox, oy = 1, 0, 0
 local fps_font
-local frame_start = 0
-local MOBILE_TARGET_DT = 1 / 30
+
+-- Touch debounce (SDL+Emscripten fires both synthetic and real mouse events)
+local last_touch_time = 0
+local TOUCH_DEBOUNCE = 0.2
+
+-- Canvas-cached frame throttling for web/mobile (sleep doesn't work on web)
+local render_accumulator = 0
+local RENDER_INTERVAL = 1 / 30
+local needs_render = true  -- Always render first frame
 
 -- Fonts (shared across screens)
 local font
@@ -136,26 +143,37 @@ function love.resize(w, h)
 end
 
 function love.update(dt)
-  frame_start = love.timer.getTime()
   screens.update(dt)
+
+  -- Track render timing (web/mobile only)
+  if mobile.isLowPerformance() then
+    render_accumulator = render_accumulator + dt
+    if render_accumulator >= RENDER_INTERVAL then
+      needs_render = true
+      render_accumulator = render_accumulator - RENDER_INTERVAL
+    end
+  end
 end
 
 function love.draw()
-  -- Render to canvas
-  love.graphics.setCanvas(canvas)
-  love.graphics.clear()
-  screens.draw()
+  -- Re-render to canvas only at target FPS on web/mobile (or always on desktop)
+  if needs_render or not mobile.isLowPerformance() then
+    love.graphics.setCanvas(canvas)
+    love.graphics.clear()
+    screens.draw()
 
-  -- FPS counter (bottom-left of virtual canvas)
-  love.graphics.setFont(fps_font)
-  love.graphics.setColor(0, 0, 0, 0.5)
-  love.graphics.rectangle("fill", 10, VH - 50, 160, 40, 6, 6)
-  love.graphics.setColor(0, 1, 0, 0.8)
-  love.graphics.print("FPS: " .. love.timer.getFPS(), 20, VH - 44)
+    -- FPS counter (bottom-left of virtual canvas)
+    love.graphics.setFont(fps_font)
+    love.graphics.setColor(0, 0, 0, 0.5)
+    love.graphics.rectangle("fill", 10, VH - 50, 160, 40, 6, 6)
+    love.graphics.setColor(0, 1, 0, 0.8)
+    love.graphics.print("FPS: " .. love.timer.getFPS(), 20, VH - 44)
 
-  love.graphics.setCanvas()
+    love.graphics.setCanvas()
+    needs_render = false
+  end
 
-  -- Blit canvas to window with letterboxing
+  -- Always blit cached canvas (cheap single draw call)
   love.graphics.push("all")
   love.graphics.origin()
   love.graphics.setColor(1, 1, 1)
@@ -163,15 +181,6 @@ function love.draw()
   love.graphics.scale(scale, scale)
   love.graphics.draw(canvas, 0, 0)
   love.graphics.pop()
-
-  -- 30 FPS cap on mobile for consistent frame timing
-  -- (variable 50-54fps causes janky animations; steady 30 feels smoother)
-  if mobile.isMobile() then
-    local elapsed = love.timer.getTime() - frame_start
-    if elapsed < MOBILE_TARGET_DT then
-      love.timer.sleep(MOBILE_TARGET_DT - elapsed)
-    end
-  end
 end
 
 function love.keypressed(key, scancode, isrepeat)
@@ -186,12 +195,26 @@ function love.keypressed(key, scancode, isrepeat)
   screens.keypressed(key, scancode, isrepeat)
 end
 
-function love.mousepressed(x, y, button)
+function love.mousepressed(x, y, button, istouch)
+  -- Debounce: SDL+Emscripten fires both synthetic (istouch=true) and real
+  -- (istouch=false) mouse events for a single touch. Ignore the duplicate.
+  local now = love.timer.getTime()
+  if istouch then
+    last_touch_time = now
+  elseif now - last_touch_time < TOUCH_DEBOUNCE then
+    return
+  end
   local gx, gy = input.toGameCoords(x, y, ox, oy, scale)
   screens.mousepressed(gx, gy, button)
 end
 
-function love.mousereleased(x, y, button)
+function love.mousereleased(x, y, button, istouch)
+  local now = love.timer.getTime()
+  if istouch then
+    last_touch_time = now
+  elseif now - last_touch_time < TOUCH_DEBOUNCE then
+    return
+  end
   local gx, gy = input.toGameCoords(x, y, ox, oy, scale)
   screens.mousereleased(gx, gy, button)
 end

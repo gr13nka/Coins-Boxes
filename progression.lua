@@ -59,6 +59,8 @@ local function getDefaultData()
       extra_columns = 0,
       houses_unlocked = false,
       free_house_available = false,
+      difficulty_extra_types = 0,
+      max_coin_reached = 0,
       houses = {
         {built = false, color = "red", progress = 0},
         {built = false, color = "red", progress = 0},
