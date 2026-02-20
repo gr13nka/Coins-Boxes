@@ -22,7 +22,7 @@ local pick_state = STATE.IDLE   -- "idle", "hovering", "flying"
 local bg_state = STATE.IDLE     -- "idle", "merging", "dealing"
 
 -- Global animation speed multiplier
-local SPEED_MULT = 2.0
+local SPEED_MULT = 4.0
 
 local hovering_coins = {}     -- {coin, offset_x, phase} per coin (coin can be string or table)
 local hover_time = 0          -- Accumulated time for sine wave
