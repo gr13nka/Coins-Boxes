@@ -11,25 +11,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Create game archive
+      - name: Prepare game files
         run: |
-          zip -r archive.zip \
-            *.lua \
-            "comic shanns.otf" \
-            assets/ \
-            sfx/ \
-            bgnd_music/ \
-            -x ".*"
+          mkdir game-src
+          cp *.lua game-src/
+          cp "comic shanns.otf" game-src/
+          cp -r assets game-src/
+          cp -r sfx game-src/
+          cp -r bgnd_music game-src/
 
       - name: Build HTML5 with love-web-builder
         run: |
           cd love-web-builder-main
-          python3 build.py ../archive.zip game
-
-      - name: Zip web build
-        run: |
-          cd love-web-builder-main/game
-          zip -r ../../web-build.zip .
+          python3 build.py ../game-src game
 
       - name: Install butler
         run: |
