@@ -10,10 +10,10 @@ local progression = require("progression")
 local particles = require("particles")
 local input = require("input")
 local mobile = require("mobile")
-local currency = require("currency")
-local upgrades = require("upgrades")
+local resources = require("resources")
+local bags = require("bags")
 local powerups = require("powerups")
-local emoji = require("emoji")
+local tab_bar = require("tab_bar")
 
 utils.debug_stuff1()
 
@@ -67,9 +67,11 @@ function love.load()
 
   -- Initialize core systems
   progression.init(true)  -- true = enable persistence
-  currency.init()
-  upgrades.init()
+  resources.init()
+  bags.init()
   powerups.init()
+  local arena = require("arena")
+  arena.init()
   sound.init()
   windowSetup()
 
@@ -100,8 +102,8 @@ function love.load()
   -- Initialize particle system
   particles.init()
 
-  -- Initialize emoji icons for currency display
-  emoji.init()
+  -- Initialize tab bar
+  tab_bar.init({font = font})
 
   -- Prepare assets bundle for screens
   local assets = {
@@ -114,22 +116,19 @@ function love.load()
   }
 
   -- Load and register game screens
-  local game_screen = require("game_screen")
   local game_2048_screen = require("game_2048_screen")
   local game_over_screen = require("game_over_screen")
-  local upgrades_screen = require("upgrades_screen")
+  local arena_screen = require("arena_screen")
 
-  game_screen.init(assets)
   game_2048_screen.init(assets)
   game_over_screen.init(assets)
-  upgrades_screen.init(assets)
+  arena_screen.init(assets)
 
-  screens.register("game", game_screen)
   screens.register("game_2048", game_2048_screen)
   screens.register("game_over", game_over_screen)
-  screens.register("upgrades", upgrades_screen)
+  screens.register("arena", arena_screen)
 
-  -- Start directly in 2048 mode
+  -- Start directly in Coin Sort mode
   screens.switch("game_2048")
 end
 
@@ -167,9 +166,11 @@ end
 function love.keypressed(key, scancode, isrepeat)
   if key == "f1" then
     progression.reset()
-    currency.init()
-    upgrades.init()
+    resources.init()
+    bags.init()
     powerups.init()
+    local arena = require("arena")
+    arena.init()
     screens.switch("game_2048")
     return
   end

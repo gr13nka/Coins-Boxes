@@ -174,29 +174,13 @@ function graphics.drawCoins2048(boxes, MAX_NUMBER, font, skipBoxes)
   local x, y
   skipBoxes = skipBoxes or {}
 
-  if layout.TWO_LAYER then
-    -- Two-pass rendering with step-2 iteration: back layer (odd slots), then front (even slots)
-    for layer_start = 1, 2 do
-      for column, box in ipairs(boxes) do
-        if not skipBoxes[column] then
-          local bottom_slot = #box
-          for slot = layer_start, bottom_slot, 2 do
-            local num = coin_utils.getCoinNumber(box[slot])
-            x, y = layout.slotPosition(column, slot)
-            graphics.drawCoin2048(font, x, y, num, MAX_NUMBER, nil, slot ~= bottom_slot)
-          end
-        end
-      end
-    end
-  else
-    for column, box in ipairs(boxes) do
-      if not skipBoxes[column] then
-        local bottom_slot = #box
-        for row, coin in ipairs(box) do
-          local num = coin_utils.getCoinNumber(coin)
-          x, y = layout.slotPosition(column, row)
-          graphics.drawCoin2048(font, x, y, num, MAX_NUMBER, nil, row ~= bottom_slot)
-        end
+  for column, box in ipairs(boxes) do
+    if not skipBoxes[column] then
+      local bottom_slot = #box
+      for row, coin in ipairs(box) do
+        local num = coin_utils.getCoinNumber(coin)
+        x, y = layout.slotPosition(column, row)
+        graphics.drawCoin2048(font, x, y, num, MAX_NUMBER, nil, row ~= bottom_slot)
       end
     end
   end
@@ -223,24 +207,17 @@ function graphics.drawBoxes(boxes, BOX_ROWS)
   return x, y
 end
 
---- Draw coin tray for a single column
--- Thin-line rectangle with uniform horizontal groove lines
-local function drawTray(x, col_top_y, BOX_ROWS, is_shaking)
-  local tray_w = COIN_R * 2 + 4
-
-  -- Tray edges align with coin image edges (center ± COIN_R)
-  local tray_top = col_top_y + ROW_STEP * 0.5
-  local tray_h   = ROW_STEP * BOX_ROWS
-
+--- Draw a single box tray at (bx, by) with given dimensions
+local function drawTray(bx, by, box_w, box_h, BOX_ROWS, is_shaking)
   -- Body fill
   if is_shaking then
     love.graphics.setColor(0.35, 0.12, 0.12, 0.45)
   else
     love.graphics.setColor(0.22, 0.24, 0.30, 0.35)
   end
-  love.graphics.rectangle("fill", x - tray_w / 2, tray_top, tray_w, tray_h)
+  love.graphics.rectangle("fill", bx, by, box_w, box_h, 4, 4)
 
-  -- Horizontal divider lines between cells (uniform thickness)
+  -- Horizontal divider lines between slots
   if is_shaking then
     love.graphics.setColor(0.6, 0.2, 0.2, 0.4)
   else
@@ -248,20 +225,20 @@ local function drawTray(x, col_top_y, BOX_ROWS, is_shaking)
   end
   love.graphics.setLineWidth(1)
   for row = 1, BOX_ROWS - 1 do
-    local gy = col_top_y + ROW_STEP * (row + 0.5)
-    love.graphics.line(x - tray_w / 2, gy, x + tray_w / 2, gy)
+    local gy = by + ROW_STEP * row + ROW_STEP * 0.5
+    love.graphics.line(bx, gy, bx + box_w, gy)
   end
 
-  -- Border outline (same thin line as dividers)
+  -- Border outline
   if is_shaking then
     love.graphics.setColor(0.8, 0.25, 0.25, 0.5)
   else
     love.graphics.setColor(0.38, 0.40, 0.48, 0.4)
   end
-  love.graphics.rectangle("line", x - tray_w / 2, tray_top, tray_w, tray_h)
+  love.graphics.rectangle("line", bx, by, box_w, box_h, 4, 4)
 end
 
---- Draw box grid for 2048 mode (coin-tube trays with shake effect)
+--- Draw box grid for 2048 mode (3×5 grid of box trays)
 -- @param boxes Array of boxes (for column count)
 -- @param BOX_ROWS Number of rows per box
 -- @param shakeState Table with {active, box_index, time, duration} for shake animation
@@ -275,12 +252,13 @@ function graphics.drawBoxes2048(boxes, BOX_ROWS, shakeState)
       shake_offset = math.sin(shakeState.time * 50) * 8 * (1 - shakeState.time / shakeState.duration)
     end
 
-    local col_x, col_top_y = layout.columnPosition(column)
-    x = col_x + shake_offset
-    y = col_top_y + ROW_STEP * BOX_ROWS
+    local bx, by = layout.boxPosition(column)
+    bx = bx + shake_offset
+    x = bx + layout.BOX_W
+    y = by + layout.BOX_H
 
     local is_shaking = shakeState.active and shakeState.box_index == column
-    drawTray(x, col_top_y, BOX_ROWS, is_shaking)
+    drawTray(bx, by, layout.BOX_W, layout.BOX_H, BOX_ROWS, is_shaking)
   end
 
   return x, y

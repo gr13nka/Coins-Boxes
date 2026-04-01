@@ -1,5 +1,6 @@
 -- layout.lua
 -- Central configuration for all UI element positions and sizes
+-- Fixed 3×5 grid: 15 boxes arranged in 3 rows of 5, each box holds 10 coins
 
 local layout = {
     -- Canvas dimensions (virtual resolution)
@@ -7,24 +8,30 @@ local layout = {
     VH = 1920,
 
     -- Window scale (0.5 = half size window, 1.0 = full size)
-    -- Adjust this if the window is too large for your screen
     WINDOW_SCALE = 0.5,
 
-    -- Coin/box sizing
-    COIN_R = 60,
-    ROW_STEP = 130,     -- vertical spacing (unchanged)
-    COLUMN_STEP = 216,  -- fits 4 columns in 1080px
+    -- Box grid: 3 rows of 5 boxes
+    BOXES_PER_ROW = 5,
+    BOX_ROWS_COUNT = 3,   -- rows of boxes in the grid
+    SLOTS_PER_BOX = 10,   -- coin slots per box
 
-    -- UI band layout (percentage of VH=1920):
-    -- 10% resources (0-192), 7% counter (192-326), 63% grid (326-1536),
-    -- 7% buttons (1536-1670), 13% powerups (1670-1920)
+    -- Derived grid values (set by computeBoxGrid)
+    BOX_W = 0,            -- width of a single box
+    BOX_H = 0,            -- height of a single box
+    COIN_R = 40,          -- coin radius
+    ROW_STEP = 0,         -- vertical spacing between coins in a box
+    COLUMN_STEP = 0,      -- horizontal spacing between box centers
+    GRID_X = 0,           -- left edge of the grid
+    GRID_Y = 0,           -- top edge of the grid
+    BOX_GAP_X = 20,       -- horizontal gap between boxes
+    BOX_GAP_Y = 20,       -- vertical gap between box rows
 
-    -- Grid positioning
-    GRID_TOP_Y = 326,       -- 17% mark: after resources + counter bands
-    GRID_LEFT_OFFSET = 0,
+    -- UI band layout
+    GRID_TOP_Y = 280,     -- top of grid area (after HUD)
+    GRID_LEFT_OFFSET = 0, -- kept for backward compat (unused)
 
     -- Button area
-    BUTTON_AREA_Y = 1536,   -- 80% mark: start of button band (moved 7% up)
+    BUTTON_AREA_Y = 1536,
     BUTTON_WIDTH = 350,
     BUTTON_HEIGHT = 100,
     BUTTON_SPACING = 60,
@@ -34,170 +41,86 @@ local layout = {
     HINT_Y = 150,
     POINTS_X = 400,
     POINTS_Y = 240,
-
-    -- Merged message position (in counter band)
-    MERGED_MSG_Y = 290,
+    MERGED_MSG_Y = 250,
 
     -- Font size
     FONT_SIZE = 36,
 
-    -- Sound toggle buttons (top-right corner)
-    -- Increased size for better touch targets on mobile
+    -- Sound toggle buttons
     SOUND_TOGGLE_SIZE = 80,
     SOUND_TOGGLE_MARGIN = 20,
     SOUND_TOGGLE_Y = 50,
 
-    -- Safe area margins for notched phones
-    SAFE_AREA_TOP = 80,     -- Status bar + notch area
-    SAFE_AREA_BOTTOM = 60,  -- Home indicator area
+    -- Safe area margins
+    SAFE_AREA_TOP = 80,
+    SAFE_AREA_BOTTOM = 60,
 
-    -- Coin style: true = per-color fruit images, false = single ball.png with color tinting
+    -- Coin style
     USE_FRUIT_IMAGES = false,
 
-    -- Two-layer depth mode (poker-chip stacking)
-    TWO_LAYER = false,              -- active flag, set by applyMetrics
-    TWO_LAYER_THRESHOLD = 8,        -- rows >= this triggers 2-layer
-    LAYER_OFFSET_X = 0,             -- horizontal offset between back/front
-    LAYER_OFFSET_Y = 0,             -- vertical offset between back/front
-
-    -- Multi-row column layout (wraps columns into 2 visual rows)
-    MULTI_ROW = false,              -- active flag, set by applyMetrics
-    MULTI_ROW_THRESHOLD = 6,        -- columns >= this triggers 2 rows
-    COLS_PER_ROW = 0,               -- columns in top visual row (floor half)
-    ROW1_BASE_Y = 326,              -- centered base Y for top row columns
-    ROW2_BASE_Y = 0,                -- centered base Y for bottom row columns
-    BAND_BOUNDARY_Y = 0,            -- Y boundary between top/bottom row bands
-    COLUMN_ROW_GAP = 80,            -- pixel gap between the two row bands
+    -- Legacy flags (kept as false for any code that checks them)
+    TWO_LAYER = false,
+    MULTI_ROW = false,
 }
 
--- Calculate column step for a given number of columns
-function layout.getColumnStep(num_columns)
-  return math.floor(layout.VW / (num_columns + 1))
+--- Compute all box grid dimensions from available space.
+-- Call once at startup or when entering the coin sort screen.
+function layout.computeBoxGrid()
+    local VW = layout.VW
+    local grid_area_w = VW - 60  -- 30px margin each side
+    local grid_area_h = layout.BUTTON_AREA_Y - layout.GRID_TOP_Y - 20
+
+    -- Box dimensions
+    local total_gap_x = (layout.BOXES_PER_ROW - 1) * layout.BOX_GAP_X
+    local total_gap_y = (layout.BOX_ROWS_COUNT - 1) * layout.BOX_GAP_Y
+    layout.BOX_W = math.floor((grid_area_w - total_gap_x) / layout.BOXES_PER_ROW)
+    layout.BOX_H = math.floor((grid_area_h - total_gap_y) / layout.BOX_ROWS_COUNT)
+
+    -- Row step: vertical spacing between coin centers within a box
+    layout.ROW_STEP = math.floor(layout.BOX_H / (layout.SLOTS_PER_BOX + 0.5))
+
+    -- Coin sizing: big relative to box width (coins nearly fill the box)
+    -- Use the smaller of width-based and row-based limits
+    local r_from_width = math.floor(layout.BOX_W * 0.46)
+    local r_from_rows = math.floor(layout.ROW_STEP * 0.50)
+    layout.COIN_R = math.min(r_from_width, r_from_rows)
+
+    -- Column step: horizontal spacing between box centers
+    layout.COLUMN_STEP = layout.BOX_W + layout.BOX_GAP_X
+
+    -- Grid origin (centered horizontally)
+    local total_grid_w = layout.BOXES_PER_ROW * layout.BOX_W + total_gap_x
+    layout.GRID_X = math.floor((VW - total_grid_w) / 2)
+    layout.GRID_Y = layout.GRID_TOP_Y
 end
 
--- Compute all grid sizing from column/row count (progressive scaling)
-function layout.getGridMetrics(cols, rows)
-    -- Multi-row: wrap columns into 2 rows when > 5 columns
-    -- Bottom row gets the extra column when uneven
-    local multi_row = cols >= layout.MULTI_ROW_THRESHOLD
-    local cols_per_row = multi_row and math.floor(cols / 2) or cols
-
-    -- Column step based on cols_per_row (not total) so coins stay large
-    local column_step = math.floor(layout.VW / (cols_per_row + 1))
-
-    -- Coin radius: fits within column. 1.5x bigger cap for 4 or fewer columns.
-    local base_cap = cols_per_row <= 4 and 99 or 66
-    local coin_r = math.min(base_cap, math.floor(column_step * 0.50))
-
-    -- Available grid height: from GRID_TOP_Y to BUTTON_AREA_Y
-    local grid_height = layout.BUTTON_AREA_Y - layout.GRID_TOP_Y
-
-    -- In multi-row mode, split height into 2 bands for row_step computation
-    local band_height = grid_height
-    if multi_row then
-        band_height = math.floor((grid_height - layout.COLUMN_ROW_GAP) / 2)
-    end
-
-    -- Two-layer mode: at 8+ rows, pair slots into visual rows (halves height)
-    -- Disabled in multi-row mode to keep coins straight within boxes
-    local two_layer = not multi_row and rows >= layout.TWO_LAYER_THRESHOLD
-    local display_rows = two_layer and math.ceil(rows / 2) or rows
-
-    -- Row step: distribute evenly based on display rows, uses band_height in multi-row
-    -- Capped at coin_r/2 for tight chip-stack overlap
-    local row_step = math.min(math.floor(coin_r * 0.5), math.floor(band_height / (display_rows + 0.5)))
-
-    -- Overlap: coins visually overlap when row_step < coin diameter
-    local overlapping = row_step < coin_r * 2
-
-    -- Layer offsets for depth effect (back coin up-left, front coin down-right)
-    local layer_offset_x = two_layer and math.floor(coin_r * 0.35) or 0
-    local layer_offset_y = two_layer and math.floor(coin_r * 0.2) or 0
-
-    -- Center trays within the 70% grid area
-    -- Tray height matches drawTray: ROW_STEP * rows
-    local tray_visual_h = row_step * rows
-    local row1_base_y, row2_base_y, band_boundary_y
-
-    if multi_row then
-        local total_visual_h = tray_visual_h * 2 + layout.COLUMN_ROW_GAP
-        local center_offset = math.max(0, math.floor((grid_height - total_visual_h) / 2))
-        local row1_tray_top = layout.GRID_TOP_Y + center_offset
-        row1_base_y = row1_tray_top - row_step * 0.5
-        local row2_tray_top = row1_tray_top + tray_visual_h + layout.COLUMN_ROW_GAP
-        row2_base_y = row2_tray_top - row_step * 0.5
-        band_boundary_y = row1_tray_top + tray_visual_h + layout.COLUMN_ROW_GAP / 2
-    else
-        local center_offset = math.max(0, math.floor((grid_height - tray_visual_h) / 2))
-        local tray_top = layout.GRID_TOP_Y + center_offset
-        row1_base_y = tray_top - row_step * 0.5
-        row2_base_y = 0
-        band_boundary_y = 0
-    end
-
-    return {
-        column_step = column_step,
-        coin_r = coin_r,
-        row_step = row_step,
-        overlapping = overlapping,
-        two_layer = two_layer,
-        layer_offset_x = layer_offset_x,
-        layer_offset_y = layer_offset_y,
-        multi_row = multi_row,
-        cols_per_row = cols_per_row,
-        row1_base_y = row1_base_y,
-        row2_base_y = row2_base_y,
-        band_boundary_y = band_boundary_y,
-    }
+--- Get the top-left corner of a box by its 1-based index (1-15).
+-- Boxes are arranged: row 1 = boxes 1-5, row 2 = boxes 6-10, row 3 = boxes 11-15.
+-- @return x, y (top-left corner of the box)
+function layout.boxPosition(box_index)
+    local grid_col = (box_index - 1) % layout.BOXES_PER_ROW  -- 0-4
+    local grid_row = math.floor((box_index - 1) / layout.BOXES_PER_ROW)  -- 0-2
+    local x = layout.GRID_X + grid_col * (layout.BOX_W + layout.BOX_GAP_X)
+    local y = layout.GRID_Y + grid_row * (layout.BOX_H + layout.BOX_GAP_Y)
+    return x, y
 end
 
--- Write computed metrics back to layout globals
-function layout.applyMetrics(metrics)
-    layout.COLUMN_STEP = metrics.column_step
-    layout.COIN_R = metrics.coin_r
-    layout.ROW_STEP = metrics.row_step
-    layout.TWO_LAYER = metrics.two_layer
-    layout.LAYER_OFFSET_X = metrics.layer_offset_x
-    layout.LAYER_OFFSET_Y = metrics.layer_offset_y
-    layout.MULTI_ROW = metrics.multi_row
-    layout.COLS_PER_ROW = metrics.cols_per_row
-    layout.ROW1_BASE_Y = metrics.row1_base_y
-    layout.ROW2_BASE_Y = metrics.row2_base_y
-    layout.BAND_BOUNDARY_Y = metrics.band_boundary_y
-end
-
--- Get (x, base_y) for a column, accounting for multi-row wrapping and centering
--- In multi-row mode, columns beyond COLS_PER_ROW wrap to the bottom row band
+--- Get the center X and base Y for a box column (backward-compat API for animation.lua).
+-- "column" here is box_index (1-15).
+-- Returns center_x, base_y where base_y is the top of the coin area.
 function layout.columnPosition(column)
-    local local_col, base_y
-    if layout.MULTI_ROW and column > layout.COLS_PER_ROW then
-        local_col = column - layout.COLS_PER_ROW
-        base_y = layout.ROW2_BASE_Y
-    else
-        local_col = column
-        base_y = layout.ROW1_BASE_Y
-    end
-    local x = layout.GRID_LEFT_OFFSET + layout.COLUMN_STEP * local_col
-    return x, base_y
+    local bx, by = layout.boxPosition(column)
+    local center_x = bx + layout.BOX_W / 2
+    return center_x, by
 end
 
--- Map (column, slot) to screen position, accounting for multi-row and two-layer mode
--- Returns x, y, layer (0=back, 1=front; always 0 in normal mode)
+--- Get screen position for a coin in (column, slot).
+-- column = box_index (1-15), slot = coin position within box (1-10).
+-- Returns x, y (center of coin), layer (always 0).
 function layout.slotPosition(column, slot)
-    local col_x, col_top_y = layout.columnPosition(column)
-    local coin_offset = layout.COIN_R * 0.35  -- shift coins up to align with tray
-    if layout.TWO_LAYER then
-        local visual_row = math.ceil(slot / 2)
-        local layer = (slot - 1) % 2  -- 0=back, 1=front
-        local base_y = col_top_y + layout.ROW_STEP * visual_row - coin_offset
-        if layer == 0 then
-            return col_x - layout.LAYER_OFFSET_X, base_y - layout.LAYER_OFFSET_Y, 0
-        else
-            return col_x + layout.LAYER_OFFSET_X, base_y + layout.LAYER_OFFSET_Y, 1
-        end
-    else
-        return col_x, col_top_y + layout.ROW_STEP * slot - coin_offset, 0
-    end
+    local center_x, box_top_y = layout.columnPosition(column)
+    local y = box_top_y + layout.ROW_STEP * slot
+    return center_x, y, 0
 end
 
 return layout

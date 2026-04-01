@@ -4,8 +4,8 @@
 local game_2048 = {}
 
 local coin_utils = require("coin_utils")
-local upgrades = require("upgrades")
-local currency = require("currency")
+local resources = require("resources")
+local bags = require("bags")
 
 -- Timers
 local merge_timer = 0
@@ -17,12 +17,15 @@ local boxes = {}
 local points = 0
 local points_per_merge = 10
 
--- 2048-specific state
-local BOX_ROWS = 4
+-- Fixed grid: 15 boxes with 10 slots each
+local NUM_BOXES = 15
+local BOX_ROWS = 10
 local total_merges = 0
 local merge_requirement = 2  -- how many coins needed to merge
 local max_spawn_number = 1   -- increases with progression
 local MAX_NUMBER = 50        -- maximum possible number
+local max_coin_reached = 0   -- track highest coin ever created
+local game_active = false     -- persists state between tab switches
 
 -- Balance constants
 local MERGE_OUTPUT = 2  -- coins produced per merge (BOX_ROWS coins -> 2 of next type)
@@ -213,6 +216,7 @@ function game_2048.getState()
     return {
         boxes = boxes,
         BOX_ROWS = BOX_ROWS,
+        NUM_BOXES = #boxes,
         points = points,
         merge_timer = merge_timer,
         error_timer = error_timer,
@@ -221,8 +225,32 @@ function game_2048.getState()
         merge_requirement = merge_requirement,
         max_spawn_number = max_spawn_number,
         MAX_NUMBER = MAX_NUMBER,
-        max_coin_reached = upgrades.getMaxCoinReached(),
+        max_coin_reached = max_coin_reached,
     }
+end
+
+function game_2048.getNumColumns()
+    return NUM_BOXES
+end
+
+function game_2048.isActive()
+    return game_active
+end
+
+function game_2048.deactivate()
+    game_active = false
+end
+
+-- Persist highest coin ever created
+local function setMaxCoinReached(n)
+    if n > max_coin_reached then
+        max_coin_reached = n
+        local prog = require("progression")
+        local d = prog.getUpgradesData()
+        d.max_coin_reached = n
+        prog.setUpgradesData(d)
+        prog.save()
+    end
 end
 
 -- Update progression based on total merges.
@@ -231,9 +259,7 @@ local function updateProgression()
     local cols = #boxes
     -- Default cap: keep at least DEFAULT_BUFFER_MIN fraction of columns as buffer
     local default_cap = math.floor(cols * (1 - DEFAULT_BUFFER_MIN))
-    -- Difficulty adds extra types (shrinks buffer)
-    local difficulty_extra = upgrades.getDifficultyExtraTypes()
-    local type_cap = default_cap + difficulty_extra
+    local type_cap = default_cap
     -- Hard cap: types must be < cols (at least 1 buffer column)
     if type_cap >= cols then
         type_cap = cols - 1
@@ -247,12 +273,14 @@ local function updateProgression()
 end
 
 function game_2048.init()
-    -- Dynamic grid size from upgrades
-    local num_columns = upgrades.getBaseColumns()
-    BOX_ROWS = upgrades.getBaseRows()
+    -- Load historical max coin
+    local prog = require("progression")
+    local d = prog.getUpgradesData()
+    max_coin_reached = d.max_coin_reached or 0
 
+    -- Fixed 15 boxes
     boxes = {}
-    for i = 1, num_columns do
+    for i = 1, NUM_BOXES do
         boxes[i] = {}
     end
 
@@ -263,21 +291,21 @@ function game_2048.init()
     total_merges = 0
     max_spawn_number = 2  -- Initial deal uses types 1-2
 
-    -- Boost initial spawn range from historical best
-    local history_max = upgrades.getMaxCoinReached()
-    if history_max > 2 then
-        max_spawn_number = math.max(max_spawn_number, history_max - 2)
+    if max_coin_reached > 2 then
+        max_spawn_number = math.max(max_spawn_number, max_coin_reached - 2)
     end
 
     -- Use computeDeal for initial fill
     local temp_counts = {}
-    for i = 1, num_columns do
+    for i = 1, NUM_BOXES do
         temp_counts[i] = 0
     end
     local deal = computeDeal(true, temp_counts)
     for _, entry in ipairs(deal) do
         table.insert(boxes[entry.dest_box_idx], entry.coin)
     end
+
+    game_active = true
 end
 
 -- Pick coins of the same number from the top of a box
@@ -402,6 +430,25 @@ function game_2048.calculateCoinsToAdd()
     return computeDeal(false, temp_counts)
 end
 
+-- Deal coins from a bag. Consumes one bag and returns deal data for animation.
+-- Returns nil if no bags available.
+function game_2048.dealFromBag()
+    local coin_count = bags.useBag()
+    if not coin_count then return nil end
+
+    local temp_counts = {}
+    for i, box in ipairs(boxes) do
+        temp_counts[i] = #box
+    end
+    -- Use computeDeal but we already consumed the bag
+    return computeDeal(false, temp_counts)
+end
+
+-- Check if player has bags available for dealing
+function game_2048.hasBags()
+    return bags.getTotalAvailable() > 0
+end
+
 function game_2048.update(dt)
     if merge_timer > 0 then
         merge_timer = merge_timer - dt
@@ -474,13 +521,13 @@ function game_2048.executeMergeOnBox(box_idx)
     end
 
     -- Track highest coin ever created
-    upgrades.setMaxCoinReached(new_number)
+    setMaxCoinReached(new_number)
 
     -- Award points
     points = points + points_per_merge * new_number * coin_count
 
-    -- Award shards
-    currency.onMerge(coin_count, first_number)
+    -- Award resources (Fuel/Metal/Components)
+    local gained = resources.onCoinMerge(new_number)
 
     -- Update progression
     total_merges = total_merges + 1
@@ -489,7 +536,7 @@ function game_2048.executeMergeOnBox(box_idx)
     -- Show "Merged!" message
     merge_timer = 2
 
-    return true
+    return true, gained
 end
 
 -- 2048-style merge: All coins in a full box become MERGE_OUTPUT coins of (number+1)
@@ -530,13 +577,13 @@ function game_2048.merge()
                 end
 
                 -- Track highest coin ever created
-                upgrades.setMaxCoinReached(new_number)
+                setMaxCoinReached(new_number)
 
                 -- Award points based on the new number and how many coins merged
                 points = points + points_per_merge * new_number * coin_count
 
-                -- Award shards
-                currency.onMerge(coin_count, first_number)
+                -- Award resources
+                resources.onCoinMerge(new_number)
 
                 -- Update progression
                 total_merges = total_merges + 1

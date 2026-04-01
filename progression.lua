@@ -80,6 +80,31 @@ local function getDefaultData()
       point_hunter = false,      -- Reach 1000 points in a game
       dedicated_player = false,  -- Play 50 games
     },
+
+    -- Resources: Fuel/Metal/Components (replaces crystals for arena loop)
+    resources_data = {
+      fuel = 100,
+      metal = 0,
+      components = 0,
+    },
+
+    -- Coin bags for Coin Sort dealing
+    bags_data = {
+      bags = 5,
+      free_bag_timer = 0,
+      free_bags_queued = 0,
+    },
+
+    -- Merge Arena state (7x8 grid with boxes/sealed/items, dispenser, stash)
+    arena_data = {
+      grid = {},
+      stash = {},
+      dispenser_queue = {},
+      order_level = 1,
+      completed_orders = {},
+      xp = 0,
+      tutorial_step = 1,
+    },
   }
 end
 
@@ -520,6 +545,30 @@ end
 
 function progression.setPowerupsData(d)
   data.powerups_data = d
+end
+
+function progression.getResourcesData()
+  return data.resources_data
+end
+
+function progression.setResourcesData(d)
+  data.resources_data = d
+end
+
+function progression.getBagsData()
+  return data.bags_data
+end
+
+function progression.setBagsData(d)
+  data.bags_data = d
+end
+
+function progression.getArenaData()
+  return data.arena_data
+end
+
+function progression.setArenaData(d)
+  data.arena_data = d
 end
 
 return progression

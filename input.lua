@@ -7,74 +7,31 @@ local input = {}
 
 -- Layout constants
 local VW, VH = layout.VW, layout.VH
-local TOP_Y = layout.GRID_TOP_Y
-local COLUMN_STEP = layout.COLUMN_STEP
-local GRID_X_OFFSET = layout.GRID_LEFT_OFFSET
 
---- Refresh cached layout values (call after layout.applyMetrics)
+--- Refresh cached layout values (call after layout changes)
 function input.updateMetrics()
-  TOP_Y = layout.GRID_TOP_Y
-  COLUMN_STEP = layout.COLUMN_STEP
-  GRID_X_OFFSET = layout.GRID_LEFT_OFFSET
+  -- No-op: we read layout globals directly now
 end
 
---- Determine which box column was clicked (for classic mode)
+--- Determine which box was clicked (for 2048 mode, 3×5 grid)
 -- @param x Click x coordinate (game space)
 -- @param y Click y coordinate (game space)
--- @param boxes The boxes array to check column count
--- @param top_y The bottom-most y coordinate of the grid
--- @return Column index (1-based) or nil if outside grid
-function input.boxAt(x, y, boxes, top_y)
-  -- Snap X to nearest column (accounting for grid offset)
-  local col = math.floor(((x - GRID_X_OFFSET) / COLUMN_STEP) + 0.5)
-  if col < 1 or col > #boxes then return nil end
-
-  -- Only accept clicks within the vertical bounds where boxes are drawn
-  local y_min = TOP_Y - 10
-  if y < y_min - 10 or y > top_y + 10 then return nil end
-
-  return col
-end
-
---- Determine which box column was clicked (for 2048 mode)
--- Handles multi-row layout: determines band from y, then snaps x to column
--- @param x Click x coordinate (game space)
--- @param y Click y coordinate (game space)
--- @param boxes The boxes array to check column count
--- @param top_y The bottom-most y coordinate of the grid
--- @return Column index (1-based) or nil if outside grid
+-- @param boxes The boxes array to check count
+-- @param top_y Unused (kept for API compat)
+-- @return Box index (1-based) or nil if outside grid
 function input.boxAt2048(x, y, boxes, top_y)
-  -- Reject clicks outside the grid area
-  if y < layout.GRID_TOP_Y or y > layout.BUTTON_AREA_Y then return nil end
-
-  if layout.MULTI_ROW then
-    local cols_per_row = layout.COLS_PER_ROW
-    local total_cols = #boxes
-
-    -- Determine which band based on y (centered band boundary)
-    local col_offset, max_col
-
-    if y < layout.BAND_BOUNDARY_Y then
-      -- Top row
-      col_offset = 0
-      max_col = cols_per_row
-    else
-      -- Bottom row
-      col_offset = cols_per_row
-      max_col = total_cols - cols_per_row
+  for i = 1, #boxes do
+    local bx, by = layout.boxPosition(i)
+    if x >= bx and x < bx + layout.BOX_W and y >= by and y < by + layout.BOX_H then
+      return i
     end
-
-    -- Snap x to nearest column (same spacing for both bands)
-    local local_col = math.floor(((x - GRID_X_OFFSET) / COLUMN_STEP) + 0.5)
-    if local_col < 1 or local_col > max_col then return nil end
-
-    return col_offset + local_col
-  else
-    local col = math.floor(((x - GRID_X_OFFSET) / COLUMN_STEP) + 0.5)
-    if col < 1 or col > #boxes then return nil end
-
-    return col
   end
+  return nil
+end
+
+--- Determine which box was clicked (classic mode, kept for compat)
+function input.boxAt(x, y, boxes, top_y)
+  return input.boxAt2048(x, y, boxes, top_y)
 end
 
 --- Check if point is inside a rectangular button

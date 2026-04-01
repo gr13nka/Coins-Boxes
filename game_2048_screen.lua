@@ -12,10 +12,10 @@ local screens = require("screens")
 local coin_utils = require("coin_utils")
 local progression = require("progression")
 local mobile = require("mobile")
-local currency = require("currency")
-local upgrades = require("upgrades")
+local resources = require("resources")
+local bags = require("bags")
 local powerups = require("powerups")
-local emoji = require("emoji")
+local tab_bar = require("tab_bar")
 
 local game_2048_screen = {}
 
@@ -84,34 +84,10 @@ local powerupButtonState = {
 local font
 local coinNumberFont
 
--- Flying shard animation (merge reward feedback)
-local flying_shards = {}
-local SHARD_FLIGHT_DURATION = 0.55
-local SHARD_ARC_HEIGHT = 180
-local SHARD_SIZE = 24
-
--- Shared HUD layout constants
-local HUD_CURRENCY_Y = 35
-local HUD_CURRENCY_SPACING = 140
-
--- HUD pop effect when shards arrive
-local hud_pops = {}  -- keyed by color_name: {time, amount}
-local HUD_POP_DURATION = 0.55
-local HUD_POP_OVERSHOOT = 2.5
-
--- Quest tracker state
-local quest_fade_time = 0
-
--- Debug size slider
-local SLIDER_X = 200
-local SLIDER_W = 680
-local SLIDER_Y = 1860
-local SLIDER_H = 36
-local SLIDER_HANDLE_R = 22
-local size_scale = 1.0
-local slider_dragging = false
-local base_coin_r = 0
-local base_row_step = 0
+-- Resource feedback animation (floating text on merge)
+local resource_popups = {}  -- array of {text, x, y, time, color}
+local POPUP_DURATION = 1.0
+local POPUP_RISE = 60
 
 -- Touch-aware pointer helpers (love.mouse.isDown doesn't track touches on mobile)
 local function isPointerDown()
@@ -133,88 +109,46 @@ local function getPointerPosition()
   return love.mouse.getPosition()
 end
 
--- Get HUD diamond position for a shard color
-local function getShardHudPosition(color_name)
-  local names = coin_utils.getShardNames()
-  local total_w = (#names - 1) * HUD_CURRENCY_SPACING
-  local start_x = (VW - total_w) / 2
-  for i, name in ipairs(names) do
-    if name == color_name then
-      return start_x + (i - 1) * HUD_CURRENCY_SPACING, HUD_CURRENCY_Y
-    end
-  end
-  return VW / 2, HUD_CURRENCY_Y
-end
+-- Spawn floating resource popup from merge position
+local function spawnResourcePopup(from_x, from_y, gained)
+  local parts = {}
+  if gained.fuel > 0 then parts[#parts + 1] = "+" .. gained.fuel .. " Fuel" end
+  if gained.components > 0 then parts[#parts + 1] = "+" .. gained.components .. " Comp" end
+  if gained.metal > 0 then parts[#parts + 1] = "+1 Metal" end
+  if #parts == 0 then return end
 
--- Spawn flying shard from merge position to HUD
-local function spawnFlyingShards(from_x, from_y, coin_number, coin_count)
-  local color_name = coin_utils.numberToShardColor(coin_number)
-  local rgb = coin_utils.getShardRGB(color_name)
-  local dest_x, dest_y = getShardHudPosition(color_name)
-  local base_amount = coin_count * 5
-  local multiplier = upgrades.getShardBonusMultiplier()
-  local amount = math.floor(base_amount * multiplier)
-
-  table.insert(flying_shards, {
+  table.insert(resource_popups, {
+    text = table.concat(parts, "  "),
     x = from_x, y = from_y,
-    start_x = from_x, start_y = from_y,
-    dest_x = dest_x, dest_y = dest_y,
     time = 0,
-    color = rgb,
-    color_name = color_name,
-    amount = amount,
+    color = gained.fuel > 0 and {1, 0.8, 0.2} or {0.5, 0.8, 1},
   })
 end
 
--- Update flying shard positions
-local function updateFlyingShards(dt)
+-- Update resource popups
+local function updateResourcePopups(dt)
   local i = 1
-  while i <= #flying_shards do
-    local s = flying_shards[i]
-    s.time = s.time + dt
-    local t = math.min(s.time / SHARD_FLIGHT_DURATION, 1)
-    local t_eased = 1 - (1 - t) * (1 - t)  -- ease-out quadratic
-    s.x = s.start_x + (s.dest_x - s.start_x) * t_eased
-    s.y = s.start_y + (s.dest_y - s.start_y) * t_eased - SHARD_ARC_HEIGHT * math.sin(t * math.pi)
-
-    if t >= 1 then
-      hud_pops[s.color_name] = { time = 0, amount = s.amount }
-      table.remove(flying_shards, i)
+  while i <= #resource_popups do
+    resource_popups[i].time = resource_popups[i].time + dt
+    if resource_popups[i].time >= POPUP_DURATION then
+      table.remove(resource_popups, i)
     else
       i = i + 1
     end
   end
-
-  for name, pop in pairs(hud_pops) do
-    pop.time = pop.time + dt
-    if pop.time >= HUD_POP_DURATION then
-      hud_pops[name] = nil
-    end
-  end
 end
 
--- Draw flying shard diamonds
-local function drawFlyingShards()
+-- Draw resource popups
+local function drawResourcePopups()
   love.graphics.setFont(font)
-  for _, s in ipairs(flying_shards) do
-    local rgb = s.color
-    local pulse = 1 + 0.15 * math.sin(love.timer.getTime() * 12)
-    local sz = SHARD_SIZE * pulse
-
-    -- Glow circle behind emoji
-    love.graphics.setColor(rgb[1], rgb[2], rgb[3], 0.3)
-    love.graphics.circle("fill", s.x, s.y, sz * 1.6)
-
-    -- Emoji icon
-    emoji.draw(s.color_name, s.x, s.y, sz)
-
-    -- "+N" text with dark outline for readability
-    local text = "+" .. s.amount
-    local tx, ty = s.x + sz + 6, s.y - 14
-    love.graphics.setColor(0, 0, 0, 0.8)
-    love.graphics.print(text, tx + 2, ty + 2)
-    love.graphics.setColor(1, 1, 1)
-    love.graphics.print(text, tx, ty)
+  for _, p in ipairs(resource_popups) do
+    local t = p.time / POPUP_DURATION
+    local alpha = 1 - t
+    local rise = POPUP_RISE * t
+    love.graphics.setColor(0, 0, 0, alpha * 0.7)
+    love.graphics.printf(p.text, p.x - 150 + 2, p.y - rise + 2, 300, "center")
+    love.graphics.setColor(p.color[1], p.color[2], p.color[3], alpha)
+    love.graphics.printf(p.text, p.x - 150, p.y - rise, 300, "center")
   end
 end
 
@@ -473,81 +407,25 @@ end
 local function drawHammerOverlay()
   if not hammer_mode then return end
   local state = game_2048.getState()
-  -- Red tint overlay on each column
-  for col_idx, box in ipairs(state.boxes) do
-    local col_x, col_top_y = layout.columnPosition(col_idx)
-    local col_w = layout.COIN_R * 2 + 20
-    local col_h = layout.ROW_STEP * state.BOX_ROWS + 40
-    local col_top = col_top_y + layout.ROW_STEP - 20
+  -- Red tint overlay on each box
+  for col_idx = 1, #state.boxes do
+    local bx, by = layout.boxPosition(col_idx)
     love.graphics.setColor(1, 0.1, 0.1, 0.15)
-    love.graphics.rectangle("fill", col_x - col_w/2, col_top, col_w, col_h, 8, 8)
+    love.graphics.rectangle("fill", bx, by, layout.BOX_W, layout.BOX_H, 8, 8)
   end
   -- Hint text
   love.graphics.setColor(1, 0.3, 0.3)
   love.graphics.setFont(font)
-  love.graphics.printf("TAP COLUMN TO CLEAR", 0, POWERUP_Y - 50, VW, "center")
+  love.graphics.printf("TAP BOX TO CLEAR", 0, POWERUP_Y - 50, VW, "center")
 end
 
--- Apply the slider scale to coin/tray sizing
-local function applySliderScale()
-  layout.COIN_R = math.max(10, math.floor(base_coin_r * size_scale))
-  layout.ROW_STEP = math.max(5, math.floor(base_row_step * size_scale))
-  graphics.updateMetrics()
-  input.updateMetrics()
-  COIN_R = layout.COIN_R
-  ROW_STEP = layout.ROW_STEP
-  local fs = layout.USE_FRUIT_IMAGES and 0.35 or 0.6
-  coinNumberFont = love.graphics.newFont("comic shanns.otf", math.max(8, math.floor(layout.COIN_R * fs)))
-end
-
--- Update slider drag tracking
-local function updateSliderDrag()
-  if not slider_dragging then return end
-  if not isPointerDown() then
-    slider_dragging = false
-    return
-  end
-  local mx, my = getPointerPosition()
-  local ww, wh = love.graphics.getDimensions()
-  local sc = math.min(ww / VW, wh / VH)
-  local ox = (ww - VW * sc) / 2
-  local gx = (mx - ox) / sc
-  local t = math.max(0, math.min(1, (gx - SLIDER_X) / SLIDER_W))
-  size_scale = 0.5 + t * 1.5  -- 50% to 200%
-  applySliderScale()
-end
-
--- Draw the debug size slider
-local function drawSlider()
-  -- Bar background
-  love.graphics.setColor(0.15, 0.15, 0.2, 0.8)
-  love.graphics.rectangle("fill", SLIDER_X, SLIDER_Y, SLIDER_W, SLIDER_H, 6, 6)
-
-  -- Fill
-  local t = (size_scale - 0.5) / 1.5
-  love.graphics.setColor(0.25, 0.45, 0.7, 0.6)
-  love.graphics.rectangle("fill", SLIDER_X, SLIDER_Y, SLIDER_W * t, SLIDER_H, 6, 6)
-
-  -- Handle
-  local hx = SLIDER_X + SLIDER_W * t
-  local hy = SLIDER_Y + SLIDER_H / 2
-  love.graphics.setColor(1, 1, 1, 0.9)
-  love.graphics.circle("fill", hx, hy, SLIDER_HANDLE_R)
-  love.graphics.setColor(0.3, 0.3, 0.4)
-  love.graphics.circle("line", hx, hy, SLIDER_HANDLE_R)
-
-  -- Label
-  local pct = math.floor(size_scale * 100)
-  love.graphics.setColor(1, 1, 1)
-  love.graphics.setFont(font)
-  love.graphics.printf("Size: " .. pct .. "%", 0, SLIDER_Y - 36, VW, "center")
-end
 
 local function executeReset()
   progression.reset()
-  currency.init()
-  upgrades.init()
+  resources.init()
+  bags.init()
   powerups.init()
+  game_2048.deactivate()
   resetState.flash_time = 1.0
   -- Restart the game screen with fresh state
   game_2048_screen.enter()
@@ -597,189 +475,92 @@ local function drawProgressBar()
   love.graphics.printf("Best: " .. best .. " / " .. max_num, bar_x, bar_y - 2, bar_w, "center")
 end
 
--- Draw small shard/crystal HUD at top
-local function drawCurrencyHUD()
-  local names = coin_utils.getShardNames()
-  local shards = currency.getShards()
-  local crystals = currency.getCrystals()
-  local total_w = (#names - 1) * HUD_CURRENCY_SPACING
-  local start_x = (VW - total_w) / 2
-  local y = HUD_CURRENCY_Y
-  local shards_per = currency.getShardsPerCrystal()
-
+-- Draw resource HUD at top (Fuel gauge, Metal, Components, Bags)
+local function drawResourceHUD()
   love.graphics.setFont(font)
-  for i, name in ipairs(names) do
-    local x = start_x + (i - 1) * HUD_CURRENCY_SPACING
-    local rgb = coin_utils.getShardRGB(name)
+  local y = 35
 
-    -- Pop scale when shards arrive
-    local pop = hud_pops[name]
-    local ps = 1
-    if pop then
-      local t = pop.time / HUD_POP_DURATION
-      ps = 1 + (HUD_POP_OVERSHOOT - 1) * math.sin(t * math.pi) * (1 - t * 0.5)
-    end
+  -- Fuel gauge (bar style)
+  local fuel = resources.getFuel()
+  local fuel_cap = resources.getFuelCap()
+  local fuel_bar_x = 60
+  local fuel_bar_w = 280
+  local fuel_bar_h = 24
+  local fuel_bar_y = y - fuel_bar_h / 2
 
-    -- Emoji icon (scaled by pop)
-    local ds = 8 * ps
-    emoji.draw(name, x, y, ds)
-    -- Crystal count
-    love.graphics.setColor(1, 1, 1, 0.8)
-    love.graphics.printf(tostring(crystals[name] or 0), x + 15, y - 14, 60, "left")
+  -- Label
+  love.graphics.setColor(1, 0.8, 0.2, 0.9)
+  love.graphics.print("Fuel", fuel_bar_x - 5, y - 30)
 
-    -- Shard progress bar (40x6px underneath icon)
-    local bar_w, bar_h = 40, 6
-    local bar_x = x - bar_w / 2
-    local bar_y = y + 18
-    local shard_count = shards[name] or 0
-    local fill_t = math.min(shard_count / shards_per, 1)
-    -- Background
-    love.graphics.setColor(0.15, 0.15, 0.15, 0.6)
-    love.graphics.rectangle("fill", bar_x, bar_y, bar_w, bar_h, 2, 2)
-    -- Fill
-    if fill_t > 0 then
-      love.graphics.setColor(rgb[1], rgb[2], rgb[3], 0.8)
-      love.graphics.rectangle("fill", bar_x, bar_y, bar_w * fill_t, bar_h, 2, 2)
-    end
+  -- Bar background
+  love.graphics.setColor(0.15, 0.15, 0.15, 0.7)
+  love.graphics.rectangle("fill", fuel_bar_x, fuel_bar_y, fuel_bar_w, fuel_bar_h, 4, 4)
 
-    -- Show shard amount arriving (prominent pop text)
-    if pop then
-      local fade = 1 - pop.time / HUD_POP_DURATION
-      local rise = pop.time / HUD_POP_DURATION * 20  -- float upward
-      local pop_text = "+" .. pop.amount
-      local tx, ty = x - 20, y - 50 - rise
-      -- Dark outline
-      love.graphics.setColor(0, 0, 0, fade * 0.7)
-      love.graphics.printf(pop_text, tx + 2, ty + 2, 100, "center")
-      -- Colored text
-      love.graphics.setColor(rgb[1], rgb[2], rgb[3], fade)
-      love.graphics.printf(pop_text, tx, ty, 100, "center")
-    end
+  -- Bar fill
+  local fill = math.min(fuel / fuel_cap, 1) * fuel_bar_w
+  if fill > 0 then
+    love.graphics.setColor(1, 0.7, 0.1, 0.85)
+    love.graphics.rectangle("fill", fuel_bar_x, fuel_bar_y, fill, fuel_bar_h, 4, 4)
+  end
+
+  -- Bar text
+  love.graphics.setColor(1, 1, 1, 0.9)
+  love.graphics.printf(fuel .. "/" .. fuel_cap, fuel_bar_x, fuel_bar_y + 1, fuel_bar_w, "center")
+
+  -- Metal count
+  local metal_x = 420
+  love.graphics.setColor(0.6, 0.7, 0.8)
+  love.graphics.print("Metal", metal_x, y - 30)
+  love.graphics.setColor(1, 1, 1, 0.9)
+  love.graphics.printf(tostring(resources.getMetal()), metal_x, y - 10, 100, "left")
+
+  -- Components count
+  local comp_x = 580
+  love.graphics.setColor(0.5, 0.8, 0.5)
+  love.graphics.print("Comp", comp_x, y - 30)
+  love.graphics.setColor(1, 1, 1, 0.9)
+  love.graphics.printf(tostring(resources.getComponents()), comp_x, y - 10, 100, "left")
+
+  -- Bags count
+  local bags_x = 740
+  local total_bags = bags.getTotalAvailable()
+  love.graphics.setColor(0.8, 0.6, 0.3)
+  love.graphics.print("Bags", bags_x, y - 30)
+  love.graphics.setColor(1, 1, 1, total_bags > 0 and 0.9 or 0.4)
+  love.graphics.printf(tostring(total_bags), bags_x, y - 10, 100, "left")
+
+  -- Free bag timer (if queue not full)
+  if bags.getFreeBagsQueued() < 2 then
+    local timer = bags.getFreeInterval() - bags.getFreeTimer()
+    local mins = math.floor(timer / 60)
+    local secs = math.floor(timer % 60)
+    love.graphics.setColor(0.6, 0.6, 0.6, 0.6)
+    love.graphics.printf(string.format("%d:%02d", mins, secs), bags_x + 40, y - 10, 80, "left")
   end
 end
 
--- Draw quest tracker for houses unlock (only when houses are locked)
-local function drawQuestTracker()
-  if upgrades.isHousesUnlocked() then return end
-
-  local alpha = math.min(quest_fade_time / 0.5, 1)
-  if alpha <= 0 then return end
-
-  local names = coin_utils.getShardNames()
-  local crystals = currency.getCrystals()
-  local shards = currency.getShards()
-  local shards_per = currency.getShardsPerCrystal()
-
-  -- Count completed colors
-  local completed = 0
-  for _, name in ipairs(names) do
-    if (crystals[name] or 0) >= 1 then
-      completed = completed + 1
-    end
-  end
-
-  -- Panel dimensions
-  local panel_w = 500
-  local panel_h = 36
-  local panel_x = (VW - panel_w) / 2
-  local panel_y = 72
-  local panel_r = 12
-
-  -- Pulsing golden glow when 4/5 complete
-  if completed >= 4 and completed < 5 then
-    local pulse = 0.3 + 0.3 * math.sin(love.timer.getTime() * 3)
-    love.graphics.setColor(1, 0.85, 0.2, pulse * alpha)
-    love.graphics.setLineWidth(3)
-    love.graphics.rectangle("line", panel_x - 2, panel_y - 2, panel_w + 4, panel_h + 4, panel_r + 2, panel_r + 2)
-    love.graphics.setLineWidth(1)
-  end
-
-  -- Dark panel background
-  love.graphics.setColor(0.08, 0.08, 0.12, 0.85 * alpha)
-  love.graphics.rectangle("fill", panel_x, panel_y, panel_w, panel_h, panel_r, panel_r)
-
-  -- Lock icon (left side)
-  local lock_x = panel_x + 24
-  local lock_cy = panel_y + panel_h / 2
-  local lock_s = 10
-  love.graphics.setColor(0.6, 0.6, 0.6, 0.8 * alpha)
-  -- Lock body
-  love.graphics.rectangle("fill", lock_x - lock_s, lock_cy - 2, lock_s * 2, lock_s + 4, 3, 3)
-  -- Lock shackle
-  love.graphics.setLineWidth(3)
-  love.graphics.arc("line", "open", lock_x, lock_cy - 4, lock_s * 0.7, math.pi, 0)
-  love.graphics.setLineWidth(1)
-
-  -- 5 colored circles with connecting line
-  local circle_r = 10
-  local circle_spacing = 48
-  local circles_total_w = (#names - 1) * circle_spacing
-  local circles_start_x = (VW - circles_total_w) / 2
-  local circle_y = panel_y + panel_h / 2
-
-  -- Connecting line
-  love.graphics.setColor(0.3, 0.3, 0.3, 0.5 * alpha)
-  love.graphics.setLineWidth(2)
-  love.graphics.line(circles_start_x, circle_y, circles_start_x + circles_total_w, circle_y)
-  love.graphics.setLineWidth(1)
-
-  for i, name in ipairs(names) do
-    local cx = circles_start_x + (i - 1) * circle_spacing
-    local rgb = coin_utils.getShardRGB(name)
-    local has_crystal = (crystals[name] or 0) >= 1
-    local shard_count = shards[name] or 0
-
-    if has_crystal then
-      -- Complete: filled circle with checkmark
-      love.graphics.setColor(rgb[1], rgb[2], rgb[3], alpha)
-      love.graphics.circle("fill", cx, circle_y, circle_r)
-      -- White checkmark
-      love.graphics.setColor(1, 1, 1, alpha)
-      love.graphics.setLineWidth(2.5)
-      love.graphics.line(cx - 5, circle_y, cx - 1, circle_y + 4)
-      love.graphics.line(cx - 1, circle_y + 4, cx + 5, circle_y - 4)
-      love.graphics.setLineWidth(1)
-    elseif shard_count > 0 then
-      -- In progress: dark circle with colored arc ring
-      love.graphics.setColor(0.15, 0.15, 0.15, 0.8 * alpha)
-      love.graphics.circle("fill", cx, circle_y, circle_r)
-      -- Colored arc showing shard progress
-      local arc_t = math.min(shard_count / shards_per, 1)
-      love.graphics.setColor(rgb[1], rgb[2], rgb[3], 0.9 * alpha)
-      love.graphics.setLineWidth(3)
-      love.graphics.arc("line", "open", cx, circle_y, circle_r,
-        -math.pi / 2, -math.pi / 2 + arc_t * math.pi * 2)
-      love.graphics.setLineWidth(1)
-    else
-      -- Empty: dim gray circle with faint colored border
-      love.graphics.setColor(0.15, 0.15, 0.15, 0.5 * alpha)
-      love.graphics.circle("fill", cx, circle_y, circle_r)
-      love.graphics.setColor(rgb[1], rgb[2], rgb[3], 0.25 * alpha)
-      love.graphics.setLineWidth(1.5)
-      love.graphics.circle("line", cx, circle_y, circle_r)
-      love.graphics.setLineWidth(1)
-    end
-  end
-
-  -- "N/5" counter (right side)
-  love.graphics.setColor(1, 1, 1, 0.8 * alpha)
-  love.graphics.setFont(font)
-  local counter_x = circles_start_x + circles_total_w + 20
-  love.graphics.printf(completed .. "/5", counter_x, circle_y - 14, 60, "left")
-end
+-- (Quest tracker removed — replaced by resource HUD)
 
 --------------------------------------------------------------------------------
 -- Screen lifecycle
 --------------------------------------------------------------------------------
 
 function game_2048_screen.enter()
-  -- Compute progressive grid metrics from current upgrade levels
-  local num_columns = upgrades.getBaseColumns()
-  local num_rows = upgrades.getBaseRows()
-  local metrics = layout.getGridMetrics(num_columns, num_rows)
-  layout.applyMetrics(metrics)
+  -- Only init a new game if not already active (preserves state on tab switch)
+  if not game_2048.isActive() then
+    game_2048.init()
+    selection = nil
+    shakeState.active = false
+    hammer_mode = false
+    resource_popups = {}
+    resetState.held = false
+    resetState.time = 0
+  end
 
-  -- Refresh all module caches
+  -- Compute fixed 3×5 grid layout
+  layout.computeBoxGrid()
+
+  -- Refresh module caches
   graphics.updateMetrics()
   input.updateMetrics()
 
@@ -789,25 +570,9 @@ function game_2048_screen.enter()
   ROW_STEP = layout.ROW_STEP
   TOP_Y = layout.GRID_TOP_Y
 
-  -- Recreate coin number font to match new COIN_R (halved for tight stacking)
+  -- Recreate coin number font to match new COIN_R
   local fontScale = layout.USE_FRUIT_IMAGES and 0.35 or 0.6
   coinNumberFont = love.graphics.newFont("comic shanns.otf", math.floor(layout.COIN_R * fontScale))
-
-  -- Store base values for debug slider
-  base_coin_r = layout.COIN_R
-  base_row_step = layout.ROW_STEP
-  slider_dragging = false
-
-  game_2048.init()
-  currency.startRun()
-  selection = nil
-  shakeState.active = false
-  hammer_mode = false
-  flying_shards = {}
-  hud_pops = {}
-  resetState.held = false
-  resetState.time = 0
-  quest_fade_time = 0
 end
 
 function game_2048_screen.exit()
@@ -821,8 +586,7 @@ function game_2048_screen.update(dt)
   animation.update(dt)
   particles.update(dt)
   updateButtonAnimations(dt)
-  upgrades.updateProduction(dt)
-  updateSliderDrag()
+  bags.update(dt)
 
   -- Update shake animation
   if shakeState.active then
@@ -832,12 +596,7 @@ function game_2048_screen.update(dt)
     end
   end
 
-  updateFlyingShards(dt)
-
-  -- Quest tracker fade-in
-  if quest_fade_time < 0.5 then
-    quest_fade_time = quest_fade_time + dt
-  end
+  updateResourcePopups(dt)
 
   -- Reset button hold tracking
   if resetState.held then
@@ -867,8 +626,7 @@ function game_2048_screen.draw()
   end
 
   graphics.drawBackground()
-  drawCurrencyHUD()
-  drawQuestTracker()
+  drawResourceHUD()
   drawProgressBar()
 
   -- Show merge message
@@ -901,19 +659,21 @@ function game_2048_screen.draw()
   animation.drawDealing(graphics.getBallImage(), nil, coinNumberFont)
 
   particles.draw()
-  drawFlyingShards()
+  drawResourcePopups()
 
   draw_merge_button()
   draw_add_coins_button()
   drawPowerupButtons()
   drawHammerOverlay()
   drawSoundToggles()
-  drawSlider()
 
   -- End screen shake
   if shake_x ~= 0 or shake_y ~= 0 then
     love.graphics.pop()
   end
+
+  -- Tab bar (drawn outside shake transform)
+  tab_bar.draw("game_2048")
 end
 
 function game_2048_screen.keypressed(key, scancode, isrepeat)
@@ -925,21 +685,27 @@ function game_2048_screen.keypressed(key, scancode, isrepeat)
       hammer_mode = false
       return
     end
-    screens.switch("upgrades")
+    screens.switch("arena")
   end
   if key == "f3" then
-    -- Debug: give +10 of each crystal and go to upgrades
-    local names = coin_utils.getShardNames()
-    for _, name in ipairs(names) do
-      currency.addCrystal(name, 10)
-    end
-    currency.save()
-    screens.switch("upgrades")
+    -- Debug: give resources and go to arena
+    resources.addFuel(50)
+    resources.addMetal(5)
+    resources.addComponents(10)
+    bags.addBags(5)
+    screens.switch("arena")
   end
 end
 
 function game_2048_screen.mousepressed(x, y, button)
   if button ~= 1 then return end
+
+  -- Check tab bar first
+  local tab = tab_bar.mousepressed(x, y)
+  if tab and tab ~= "game_2048" then
+    screens.switch(tab)
+    return
+  end
 
   -- Check sound toggle buttons first
   if handleSoundToggleClick(x, y) then
@@ -950,16 +716,6 @@ function game_2048_screen.mousepressed(x, y, button)
   if input.isOnResetButton(x, y) then
     resetState.held = true
     resetState.time = 0
-    return
-  end
-
-  -- Check debug size slider
-  if y >= SLIDER_Y - SLIDER_HANDLE_R and y <= SLIDER_Y + SLIDER_H + SLIDER_HANDLE_R
-     and x >= SLIDER_X - SLIDER_HANDLE_R and x <= SLIDER_X + SLIDER_W + SLIDER_HANDLE_R then
-    slider_dragging = true
-    local t = math.max(0, math.min(1, (x - SLIDER_X) / SLIDER_W))
-    size_scale = 0.5 + t * 1.5
-    applySliderScale()
     return
   end
 
@@ -1017,6 +773,7 @@ function game_2048_screen.mousepressed(x, y, button)
         sound.playMerge()
         hammer_mode = false
         if game_2048.isGameOver() then
+          game_2048.deactivate()
           screens.switch("game_over")
         end
       end
@@ -1086,6 +843,7 @@ function game_2048_screen.mousepressed(x, y, button)
       function()
         selection = nil
         if game_2048.isGameOver() then
+          game_2048.deactivate()
           screens.switch("game_over")
         end
       end,
@@ -1108,9 +866,6 @@ end
 function game_2048_screen.mousereleased(x, y, button)
   if button ~= 1 then return end
 
-  -- Stop slider drag
-  slider_dragging = false
-
   -- Release merge button
   if buttonState.merge.pressed then
     buttonState.merge.pressed = false
@@ -1123,19 +878,22 @@ function game_2048_screen.mousereleased(x, y, button)
           -- Final callback: when all boxes done
           function()
             if game_2048.isGameOver() then
+              game_2048.deactivate()
               screens.switch("game_over")
             end
           end,
           -- Per-box callback: when each box finishes merging
           function(box_data)
-            game_2048.executeMergeOnBox(box_data.box_idx)
+            local success, gained = game_2048.executeMergeOnBox(box_data.box_idx)
             sound.playMerge()
             mobile.vibrateMerge()
             progression.onMerge("2048", 1)
-            -- Spawn flying shard to HUD
-            local from_x = box_data.slot_x[1]
-            local from_y = box_data.slot_y[1]
-            spawnFlyingShards(from_x, from_y, box_data.old_number, #box_data.coins)
+            -- Spawn resource feedback popup
+            if gained then
+              local from_x = box_data.slot_x[1]
+              local from_y = box_data.slot_y[1]
+              spawnResourcePopup(from_x, from_y, gained)
+            end
           end,
           -- Particles module reference
           particles
@@ -1144,38 +902,37 @@ function game_2048_screen.mousereleased(x, y, button)
     end
   end
 
-  -- Release add button
+  -- Release add button (bag-based dealing)
   if buttonState.add.pressed then
     buttonState.add.pressed = false
     buttonState.add.targetScale = 1.0
     if input.isInsideButton(x, y, ADD_BUTTON_X, ADD_BUTTON_Y, BUTTON_WIDTH, BUTTON_HEIGHT) and not animation.isAnimating() then
-      -- Calculate coins to add for dealing animation
-      local coins_to_deal = game_2048.calculateCoinsToAdd()
+      -- Only deal if bags available
+      if game_2048.hasBags() then
+        local coins_to_deal = game_2048.dealFromBag()
+        if coins_to_deal and #coins_to_deal > 0 then
+          local state = game_2048.getState()
 
-      if #coins_to_deal > 0 then
-        local state = game_2048.getState()
-
-        animation.startDealing(coins_to_deal, "2048",
-          -- Final callback: when all coins have landed
-          function()
-            if game_2048.isGameOver() then
-              screens.switch("game_over")
-            end
-          end,
-          -- Per-coin callback: when each coin lands
-          function(coin_data, box_idx, slot)
-            game_2048.place_coin(box_idx, coin_data)
-            sound.playPickup()
-            mobile.vibrateDrop()
-            -- Spawn particle effect at landing position
-            local px, py = layout.slotPosition(box_idx, slot)
-            local num = coin_utils.getCoinNumber(coin_data)
-            local col = coin_utils.numberToColor(num, state.MAX_NUMBER)
-            particles.spawn(px, py, col)
-          end,
-          particles
-        )
-        sound.playAdd()
+          animation.startDealing(coins_to_deal, "2048",
+            function()
+              if game_2048.isGameOver() then
+                game_2048.deactivate()
+                screens.switch("game_over")
+              end
+            end,
+            function(coin_data, box_idx, slot)
+              game_2048.place_coin(box_idx, coin_data)
+              sound.playPickup()
+              mobile.vibrateDrop()
+              local px, py = layout.slotPosition(box_idx, slot)
+              local num = coin_utils.getCoinNumber(coin_data)
+              local col = coin_utils.numberToColor(num, state.MAX_NUMBER)
+              particles.spawn(px, py, col)
+            end,
+            particles
+          )
+          sound.playAdd()
+        end
       end
     end
   end
@@ -1195,6 +952,7 @@ function game_2048_screen.mousereleased(x, y, button)
           animation.startDealing(coins_to_deal, "2048",
             function()
               if game_2048.isGameOver() then
+                game_2048.deactivate()
                 screens.switch("game_over")
               end
             end,

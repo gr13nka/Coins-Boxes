@@ -1,4 +1,0 @@
-adding new boxes for points
-adding rows for boxes and how they are drawn
-add background picture
-  "vim.normalModeKeyBindingsNonRecursive": [         {             "before": ["f"],             "after": ["<leader>", "<leader>", "f"]         },         {             "before": ["j"],             "after": ["<leader>", "<leader>", "j"]         },         {             "before": ["k"],             "after": ["<leader>", "<leader>", "k"]         },         {             "before": ["h"],             "after": ["<leader>", "<leader>", "/"]         }     ],     "vim.normalModeKeyBindings": [        {             "before": ["<leader>", "m"],             "commands": [                 "bookmarks.toggle"             ]         },         {             "before": ["<leader>", "b"],             "commands": [                 "bookmarks.list"             ]         }     ]

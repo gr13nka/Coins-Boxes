@@ -1,5 +1,5 @@
 function love.conf(t)
-  t.console = false -- open a console window on Windows
+  t.console = true -- open a console window on Windows
   t.window.resizable  = true
   t.window.borderless = false
   t.window.minwidth   = 160
