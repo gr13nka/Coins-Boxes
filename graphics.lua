@@ -18,9 +18,6 @@ local GRID_X_OFFSET = layout.GRID_LEFT_OFFSET
 local ballImage
 local ballImgW, ballImgH  -- cached ball image dimensions
 
--- Dimension cache for fruit images (lazy-fill, keyed by image userdata)
-local dimCache = {}
-
 -- Font metric caches
 local fontHeightCache = {}                -- fontHeightCache[font] = height
 local fontWidthCache = {}                 -- fontWidthCache[font][num_str] = width
@@ -44,15 +41,6 @@ end
 --- Get the ball image (for animation module)
 function graphics.getBallImage()
   return ballImage
-end
-
--- Get cached dimensions for an image (lazy-fill)
-local function getCachedDims(img)
-  local d = dimCache[img]
-  if d then return d[1], d[2] end
-  local w, h = img:getDimensions()
-  dimCache[img] = {w, h}
-  return w, h
 end
 
 -- Get cached font height
@@ -110,8 +98,7 @@ function graphics.drawCoins(boxes, COLORS, skipBoxes)
   return x, y
 end
 
--- Draw a single 2048 coin at (x, y)
--- Uses fruit images or tinted ball depending on layout.USE_FRUIT_IMAGES
+-- Draw a single coin at (x, y)
 -- Also used by animation.lua for consistent rendering
 -- hideNumber: optional, if true skip drawing the number text
 local RING_COLORS = {
@@ -122,22 +109,11 @@ local RING_COLORS = {
 }
 
 function graphics.drawCoin2048(font, x, y, num, MAX_NUMBER, scaleOverride, hideNumber)
-  local imgW, imgH, img, scale
-  if layout.USE_FRUIT_IMAGES then
-    img = coin_utils.numberToImage(num)
-    imgW, imgH = getCachedDims(img)
-    scale = (COIN_R * 2) / imgW
-    if scaleOverride then scale = scale * scaleOverride end
-    love.graphics.setColor(1, 1, 1)
-  else
-    img = ballImage
-    imgW, imgH = ballImgW, ballImgH
-    scale = (COIN_R * 2) / imgW
-    if scaleOverride then scale = scale * scaleOverride end
-    local col = coin_utils.numberToColor(num, MAX_NUMBER)
-    love.graphics.setColor(col)
-  end
-  love.graphics.draw(img, x, y, 0, scale, scale, imgW / 2, imgH / 2)
+  local scale = (COIN_R * 2) / ballImgW
+  if scaleOverride then scale = scale * scaleOverride end
+  local col = coin_utils.numberToColor(num, MAX_NUMBER)
+  love.graphics.setColor(col)
+  love.graphics.draw(ballImage, x, y, 0, scale, scale, ballImgW / 2, ballImgH / 2)
   -- Cycle tier ring border
   local cycle = coin_utils.numberToCycle(num)
   if cycle > 0 then
@@ -151,11 +127,7 @@ function graphics.drawCoin2048(font, x, y, num, MAX_NUMBER, scaleOverride, hideN
   end
   -- Number text (skip if hideNumber)
   if not hideNumber then
-    if layout.USE_FRUIT_IMAGES then
-      love.graphics.setColor(0, 0, 0)
-    else
-      love.graphics.setColor(1, 1, 1)
-    end
+    love.graphics.setColor(1, 1, 1)
     love.graphics.setFont(font)
     local num_str = tostring(num)
     local text_width = getCachedFontWidth(font, num_str)
@@ -165,7 +137,7 @@ function graphics.drawCoin2048(font, x, y, num, MAX_NUMBER, scaleOverride, hideN
 end
 
 --- Draw all coins for 2048 mode (with numbers)
--- @param boxes Array of box arrays containing {number=N} coin objects
+-- @param boxes Sparse table of box arrays indexed by grid position (1-15)
 -- @param MAX_NUMBER Maximum possible coin number (for color mapping)
 -- @param font Font for drawing numbers
 -- @param skipBoxes Optional table of box indices to skip (for merge animation)
@@ -174,8 +146,10 @@ function graphics.drawCoins2048(boxes, MAX_NUMBER, font, skipBoxes)
   local x, y
   skipBoxes = skipBoxes or {}
 
-  for column, box in ipairs(boxes) do
-    if not skipBoxes[column] then
+  -- Iterate all 15 grid positions; skip locked (nil) and animation-locked boxes
+  for column = 1, 15 do
+    local box = boxes[column]
+    if box and not skipBoxes[column] then
       local bottom_slot = #box
       for row, coin in ipairs(box) do
         local num = coin_utils.getCoinNumber(coin)
@@ -238,27 +212,60 @@ local function drawTray(bx, by, box_w, box_h, BOX_ROWS, is_shaking)
   love.graphics.rectangle("line", bx, by, box_w, box_h, 4, 4)
 end
 
---- Draw box grid for 2048 mode (3×5 grid of box trays)
--- @param boxes Array of boxes (for column count)
+--- Draw a locked (not yet unlocked) box slot with dimmed appearance.
+local function drawLockedTray(bx, by, box_w, box_h)
+  -- Dark fill
+  love.graphics.setColor(0.10, 0.10, 0.12, 0.65)
+  love.graphics.rectangle("fill", bx, by, box_w, box_h, 4, 4)
+  -- Dim border
+  love.graphics.setColor(0.22, 0.22, 0.25, 0.35)
+  love.graphics.rectangle("line", bx, by, box_w, box_h, 4, 4)
+  -- Lock icon: arc (shackle) + body rectangle
+  local cx = bx + box_w * 0.5
+  local cy = by + box_h * 0.5
+  local r = box_h * 0.09
+  love.graphics.setColor(0.30, 0.30, 0.33, 0.55)
+  love.graphics.setLineWidth(3)
+  love.graphics.arc("line", "open", cx, cy - box_h * 0.07, r, math.pi, 2 * math.pi)
+  love.graphics.rectangle("fill", cx - r, cy - box_h * 0.02, r * 2, box_h * 0.14, 2, 2)
+  love.graphics.setLineWidth(1)
+end
+
+--- Draw box grid for 2048 mode (3×5 grid of box trays).
+-- Locked boxes (boxes[column] == nil) are drawn dimmed. Active boxes drawn normally.
+-- @param boxes Sparse table of boxes indexed by grid position (1-15)
 -- @param BOX_ROWS Number of rows per box
 -- @param shakeState Table with {active, box_index, time, duration} for shake animation
--- @return top_x, top_y The coordinates of the last drawn cell
+-- @return top_x, top_y The coordinates of the last active cell (bottom-right of active area)
 function graphics.drawBoxes2048(boxes, BOX_ROWS, shakeState)
   local x, y
 
-  for column = 1, #boxes do
-    local shake_offset = 0
-    if shakeState.active and shakeState.box_index == column then
-      shake_offset = math.sin(shakeState.time * 50) * 8 * (1 - shakeState.time / shakeState.duration)
-    end
-
+  for column = 1, 15 do
     local bx, by = layout.boxPosition(column)
-    bx = bx + shake_offset
-    x = bx + layout.BOX_W
-    y = by + layout.BOX_H
 
-    local is_shaking = shakeState.active and shakeState.box_index == column
-    drawTray(bx, by, layout.BOX_W, layout.BOX_H, BOX_ROWS, is_shaking)
+    if not boxes[column] then
+      -- Locked box: draw dimmed placeholder
+      drawLockedTray(bx, by, layout.BOX_W, layout.BOX_H)
+    else
+      -- Active box: draw normal tray
+      local shake_offset = 0
+      if shakeState.active and shakeState.box_index == column then
+        shake_offset = math.sin(shakeState.time * 50) * 8 * (1 - shakeState.time / shakeState.duration)
+      end
+      bx = bx + shake_offset
+      x = bx + layout.BOX_W
+      y = by + layout.BOX_H
+
+      local is_shaking = shakeState.active and shakeState.box_index == column
+      drawTray(bx, by, layout.BOX_W, layout.BOX_H, BOX_ROWS, is_shaking)
+    end
+  end
+
+  -- Fallback: if no active boxes set x,y (shouldn't happen), use bottom-right of grid
+  if not x then
+    x, y = layout.boxPosition(15)
+    x = x + layout.BOX_W
+    y = y + layout.BOX_H
   end
 
   return x, y

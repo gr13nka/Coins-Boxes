@@ -16,14 +16,17 @@ end
 --- Determine which box was clicked (for 2048 mode, 3×5 grid)
 -- @param x Click x coordinate (game space)
 -- @param y Click y coordinate (game space)
--- @param boxes The boxes array to check count
+-- @param boxes Sparse table of boxes indexed by grid position (1-15); nil = locked
 -- @param top_y Unused (kept for API compat)
--- @return Box index (1-based) or nil if outside grid
+-- @return Grid position (1-15) or nil if outside grid or on a locked box
 function input.boxAt2048(x, y, boxes, top_y)
-  for i = 1, #boxes do
-    local bx, by = layout.boxPosition(i)
-    if x >= bx and x < bx + layout.BOX_W and y >= by and y < by + layout.BOX_H then
-      return i
+  -- Iterate all 15 grid slots; skip locked (nil) ones
+  for i = 1, 15 do
+    if boxes[i] then
+      local bx, by = layout.boxPosition(i)
+      if x >= bx and x < bx + layout.BOX_W and y >= by and y < by + layout.BOX_H then
+        return i
+      end
     end
   end
   return nil

@@ -15,7 +15,7 @@ local bags = require("bags")
 local powerups = require("powerups")
 local tab_bar = require("tab_bar")
 
-utils.debug_stuff1()
+-- Debugger is initialized in conf.lua (must run before love.load)
 
 -- Layout constants
 local VW, VH = layout.VW, layout.VH
@@ -81,9 +81,6 @@ function love.load()
   -- Load assets
   love.graphics.setDefaultFilter("nearest", "nearest", 1)
 
-  local coin_utils = require("coin_utils")
-  coin_utils.loadImages()
-
   local ballImage = love.graphics.newImage("assets/ball.png")
   graphics.init(ballImage)
 
@@ -96,7 +93,7 @@ function love.load()
   -- Fonts
   font = love.graphics.newFont("comic shanns.otf", layout.FONT_SIZE)
   love.graphics.setFont(font)
-  local fontScale = layout.USE_FRUIT_IMAGES and 0.7 or 1.2
+  local fontScale = 1.2
   coinNumberFont = love.graphics.newFont("comic shanns.otf", math.floor(layout.COIN_R * fontScale))
 
   -- Initialize particle system
@@ -116,20 +113,20 @@ function love.load()
   }
 
   -- Load and register game screens
-  local game_2048_screen = require("game_2048_screen")
+  local coin_sort_screen = require("coin_sort_screen")
   local game_over_screen = require("game_over_screen")
   local arena_screen = require("arena_screen")
 
-  game_2048_screen.init(assets)
+  coin_sort_screen.init(assets)
   game_over_screen.init(assets)
   arena_screen.init(assets)
 
-  screens.register("game_2048", game_2048_screen)
+  screens.register("coin_sort", coin_sort_screen)
   screens.register("game_over", game_over_screen)
   screens.register("arena", arena_screen)
 
   -- Start directly in Coin Sort mode
-  screens.switch("game_2048")
+  screens.switch("coin_sort")
 end
 
 function love.resize(w, h)
@@ -171,7 +168,7 @@ function love.keypressed(key, scancode, isrepeat)
     powerups.init()
     local arena = require("arena")
     arena.init()
-    screens.switch("game_2048")
+    screens.switch("coin_sort")
     return
   end
   screens.keypressed(key, scancode, isrepeat)
@@ -206,4 +203,20 @@ end
 -- giving us single-tap = single mousepressed. Defining touch callbacks disables
 -- this, which caused double-fire issues on some mobile devices.
 
-utils.debug_stuff2()
+
+local love_errorhandler = love.errorhandler
+
+function love.errorhandler(msg)
+  if _G.lldebugger then
+    error(msg, 2)
+  end
+  local trace = debug.traceback(tostring(msg), 2)
+  pcall(function()
+    local f = io.open("/tmp/love_crash.log", "w")
+    if f then f:write(os.date() .. "\n" .. trace .. "\n"); f:close() end
+  end)
+  pcall(function()
+    love.filesystem.write("crash.log", os.date() .. "\n" .. trace .. "\n")
+  end)
+  return love_errorhandler(msg)
+end

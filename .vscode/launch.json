@@ -5,19 +5,24 @@
       "type": "lua-local",
       "request": "launch",
       "name": "Debug",
-      "cwd": "${workspaceFolder}",
-      "program": { "command": "love" },
-      "args": [ ".", "debug" ],
-      "stopOnEntry": false
+      "program": {
+        "command": "love"
+      },
+      "args": [
+        "."
+      ],
     },
     {
       "type": "lua-local",
       "request": "launch",
       "name": "Release",
-      "cwd": "${workspaceFolder}",
-      "program": { "command": "love" },
-      "args": [ "." ]
-    }
+      "program": {
+        "command": "love"
+      },
+      "args": [
+        ".",
+      ],
+    },
   ]
 }
 

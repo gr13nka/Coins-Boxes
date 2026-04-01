@@ -11,8 +11,8 @@ Keep your visuals and logic separate.
 | File | Role |
 |---|---|
 | `main.lua` | Entry point: LOVE callbacks, window setup, asset loading, screen registration |
-| `game_2048.lua` | 2048 mode logic. Coins are `{number=N}` objects (1-50). |
-| `game_2048_screen.lua` | 2048 mode screen (UI, input, drawing) |
+| `coin_sort.lua` | Coin Sort mode logic. Coins are `{number=N}` objects (1-50). |
+| `coin_sort_screen.lua` | Coin Sort mode screen (UI, input, drawing) |
 | `game_over_screen.lua` | Post-run stats: score, resource summary, Continue to Arena button |
 | `arena.lua` | Merge Arena logic: 7x8 grid, boxes/sealed/items, dispenser, stash, generators |
 | `arena_chains.lua` | 12 item chains with colors, items, generator specs, drop tables (data only) |
@@ -29,7 +29,7 @@ Keep your visuals and logic separate.
 | `tab_bar.lua` | Bottom tab bar UI component for screen switching |
 | `powerups.lua` | Consumable power-ups: Auto Sort, Hammer (data only) |
 | `progression.lua` | Unlock/achievement system with file persistence (`progression.dat`) |
-| `coin_utils.lua` | 2048 helpers: 5-color cycling, shard mapping, fruit image loading |
+| `coin_utils.lua` | Coin Sort helpers: 5-color cycling, shard mapping |
 | `sound.lua` | Sound loading, playback, toggle state |
 | `utils.lua` | `each_coin()` iterator and debugger setup |
 | `conf.lua` | LOVE window config (resizable, HiDPI) |
@@ -38,20 +38,20 @@ Keep your visuals and logic separate.
 ## Key Patterns
 
 - **No goto** — use `repeat/until` loops for retries. Goto breaks the web build.
-- **Logic/visual separation** — data modules (`resources`, `bags`, `game_2048`, `powerups`) have zero drawing code; screen modules handle all rendering.
+- **Logic/visual separation** — data modules (`resources`, `bags`, `coin_sort`, `powerups`) have zero drawing code; screen modules handle all rendering.
 - **Module exports** — each module returns a table of public functions.
 - **Iterator** — `utils.each_coin(boxes)` for coin traversal.
 - **Immediate-mode UI** — buttons drawn as rectangles, hit-tested on mouse click.
 
 ## Rendering
 
-1080x2400 virtual canvas (portrait) with letterboxing. Screen-to-game coord conversion via `ox`, `oy`, `scale` in `main.lua`. Coin style toggle: `layout.USE_FRUIT_IMAGES` (`false` = tinted `ball.png`, `true` = per-color fruit PNGs).
+1080x2400 virtual canvas (portrait) with letterboxing. Screen-to-game coord conversion via `ox`, `oy`, `scale` in `main.lua`. Coins are always rendered as tinted `ball.png`.
 
 ## Screen System
 
 Each screen is a table with optional methods: `enter()`, `exit()`, `update(dt)`, `draw()`, `mousepressed(x, y, button)`, `keypressed(key, scancode, isrepeat)`.
 
-**Active Screens:** `game_2048` (Coin Sort, default start), `arena` (Merge Arena), `game_over`
+**Active Screens:** `coin_sort` (Coin Sort, default start), `arena` (Merge Arena), `game_over`
 **Dormant Screens:** `mode_select` — kept in code but not registered.
 
 **Adding a new screen:**
@@ -62,7 +62,7 @@ Each screen is a table with optional methods: `enter()`, `exit()`, `update(dt)`,
 ## Two-Screen Loop (Coin Sort + Merge Arena)
 
 ```
-[App Start] -> [game_2048] <--tab bar--> [arena]
+[App Start] -> [coin_sort] <--tab bar--> [arena]
                    |                        ^
              [all boxes full,               |
               no merges possible]           |
@@ -73,7 +73,7 @@ Each screen is a table with optional methods: `enter()`, `exit()`, `update(dt)`,
              ["Continue to Arena"] ---------+
 ```
 
-1. `game_2048_screen.enter()` uses fixed 3×5 grid (15 boxes, 10 slots each), inits game
+1. `coin_sort_screen.enter()` uses fixed 3×5 grid (15 boxes, 10 slots each), inits game
 2. Deal coins from bags (limited). Merge coins to earn Fuel/Metal/Components.
 3. Switch to Arena via tab bar. Generators cost 1 Fuel per tap to produce items.
 4. Completing arena orders rewards XP + items (to dispenser queue).
@@ -81,7 +81,7 @@ Each screen is a table with optional methods: `enter()`, `exit()`, `update(dt)`,
 
 **Resource flow:** Coin Sort merges → Fuel → Arena generators → items → orders → XP + more items
 
-**Tab bar** (tab_bar.lua) is drawn by both game_2048_screen and arena_screen at bottom of canvas. Handles its own hit testing.
+**Tab bar** (tab_bar.lua) is drawn by both coin_sort_screen and arena_screen at bottom of canvas. Handles its own hit testing.
 
 **Free bag timer** ticks on all screens via `bags.update(dt)`.
 
@@ -133,7 +133,7 @@ See `layout.lua` for all static values and metric formulas.
 - `layout.columnPosition(column)` transparently handles row wrapping
 - Can combine with two-layer mode (7+ cols AND 8+ rows)
 
-## 2048 Mode (game_2048.lua)
+## Coin Sort Mode (coin_sort.lua)
 
 Coins are `{number=N}`, 5 cycling colors via `coin_utils.numberToColor()`. Placement: same number or empty slot only. Full box of same number → `MERGE_OUTPUT` (2) coins of number+1. See module for all balance constants.
 
@@ -244,18 +244,18 @@ Coin bags consumed in Coin Sort to deal coins. Free bags generate on timer (12 m
 - **Auto Sort** — redistributes all coins left-to-right by number type.
 - **Hammer** — clears an entire column. Activates targeting mode (red overlay, click column to clear, Escape to cancel).
 
-Both start at 100 charges (dev/testing). `game_2048.autoSort()` returns dealing animation data. `game_2048.clearColumn(col_idx)` returns removed coins.
+Both start at 100 charges (dev/testing). `coin_sort.autoSort()` returns dealing animation data. `coin_sort.clearColumn(col_idx)` returns removed coins.
 
-## 2048 Gameplay Screen (game_2048_screen.lua)
+## Coin Sort Gameplay Screen (coin_sort_screen.lua)
 
-**Responsive input:** only blocked during coin flight (~0.23s). Players can pick/place during merge/deal. Merge/Add buttons require full idle. Classic mode retains full blocking.
+**Responsive input:** only blocked during coin flight (~0.23s). Players can pick/place during merge/deal. Merge/Add buttons require full idle.
 
 **Reset button** (top-right): hold 3 seconds to reset all progress via `progression.reset()`.
 
 ## Assets
 
 - `/sfx/` — sound effects, `/bgnd_music/` — background music
-- `/assets/` — sprites: `ball.png` (tinted per color), `Red.png`, `Green.png`, `Purple.png`, `Blue.png`, `Pink.png` (1024x1024 fruit coins with ~200x200 center slot for number)
+- `/assets/` — sprites: `ball.png` (tinted per color for coins)
 - `comic shanns.otf` — custom UI font
 
 ## Mobile Touch Input
@@ -264,7 +264,7 @@ Both start at 100 charges (dev/testing). `game_2048.autoSort()` returns dealing 
 
 **Web touch debounce:** SDL+Emscripten (love.js) fires BOTH a synthetic mouse event (`istouch=true`) AND a duplicate real mouse event (`istouch=false`) for a single touch. `main.lua` debounces this: when `istouch=true`, timestamp is recorded; any non-touch mouse event within 0.2s is ignored.
 
-`game_2048_screen.lua` provides `isPointerDown()` and `getPointerPosition()` helpers that check both `love.mouse` and `love.touch` for extra robustness.
+`coin_sort_screen.lua` provides `isPointerDown()` and `getPointerPosition()` helpers that check both `love.mouse` and `love.touch` for extra robustness.
 
 ## Platform Detection (mobile.lua)
 
@@ -276,7 +276,7 @@ Both start at 100 charges (dev/testing). `game_2048.autoSort()` returns dealing 
 
 - **No FPS cap**: update and draw run at native rate on all platforms (browser typically provides 50-60fps). Animation speed multiplier is always 4x for snappy feel.
 - **Particles**: `particles.lua` uses active-list pool (O(1) alloc, update skips dead) + SpriteBatch (1 draw call for all particles). `mobile.isLowPerformance()` halves particle counts (150 max, 10 per burst, 18 per merge), reduces lifetime/bounces, and skips the per-particle highlight.
-- **Graphics caching**: `graphics.lua` caches `getDimensions()` for ball and fruit images, and `font:getWidth()`/`font:getHeight()` per font. Two-layer rendering uses step-2 iteration (no modulo per coin).
+- **Graphics caching**: `graphics.lua` caches `getDimensions()` for the ball image, and `font:getWidth()`/`font:getHeight()` per font. Two-layer rendering uses step-2 iteration (no modulo per coin).
 - **Canvas**: `{dpiscale = 1}` prevents oversized textures on HiDPI mobile GPUs.
 
 ## FPS Counter

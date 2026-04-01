@@ -55,9 +55,6 @@ local layout = {
     SAFE_AREA_TOP = 80,
     SAFE_AREA_BOTTOM = 60,
 
-    -- Coin style
-    USE_FRUIT_IMAGES = false,
-
     -- Legacy flags (kept as false for any code that checks them)
     TWO_LAYER = false,
     MULTI_ROW = false,
@@ -81,8 +78,8 @@ function layout.computeBoxGrid()
 
     -- Coin sizing: big relative to box width (coins nearly fill the box)
     -- Use the smaller of width-based and row-based limits
-    local r_from_width = math.floor(layout.BOX_W * 0.46)
-    local r_from_rows = math.floor(layout.ROW_STEP * 0.50)
+    local r_from_width = math.floor(layout.BOX_W * 0.56)
+    local r_from_rows = math.floor(layout.ROW_STEP * 0.62)
     layout.COIN_R = math.min(r_from_width, r_from_rows)
 
     -- Column step: horizontal spacing between box centers

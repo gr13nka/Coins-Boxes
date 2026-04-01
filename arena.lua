@@ -291,15 +291,28 @@ function arena.refillShuffleBag()
   end
 end
 
--- Pull next item from shuffle bag. Refills if empty, falls back to random.
+-- Pull next item from shuffle bag that this generator's chain can produce.
+-- Refills if empty, falls back to chain's own drop table if no match found.
 function arena.pullFromShuffleBag(gen_chain_id, gen_level)
   if #shuffle_bag == 0 then
     arena.refillShuffleBag()
   end
-  if #shuffle_bag > 0 then
-    return table.remove(shuffle_bag, 1)
+  -- Build a set of valid chain_id + level combos this generator can produce
+  local produces = arena_chains.getProduces(gen_chain_id)
+  if produces and #shuffle_bag > 0 then
+    local valid = {}
+    for _, p in ipairs(produces) do
+      for lv = 1, p.max_level do
+        valid[p.chain_id .. ":" .. lv] = true
+      end
+    end
+    for i, item in ipairs(shuffle_bag) do
+      if valid[item.chain_id .. ":" .. item.level] then
+        return table.remove(shuffle_bag, i)
+      end
+    end
   end
-  -- Fallback: all orders complete, use normal random drop
+  -- Fallback: bag empty or no matching item — use chain's own drop table
   return arena_chains.rollDrop(gen_chain_id, gen_level)
 end
 

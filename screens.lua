@@ -127,7 +127,7 @@ function mode_select.enter()
             height = 120,
             unlock_key = "mode_2048",  -- progression unlock key
             action = function()
-                screens.switch("game_2048")
+                screens.switch("coin_sort")
             end
         },
     }

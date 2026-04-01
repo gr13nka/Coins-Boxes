@@ -23,25 +23,37 @@ local CELL_GAP = 4
 local GRID_WIDTH = GRID_COLS * CELL_SIZE + (GRID_COLS - 1) * CELL_GAP  -- 1004
 local GRID_HEIGHT = GRID_ROWS * CELL_SIZE + (GRID_ROWS - 1) * CELL_GAP -- 1148
 local GRID_X = math.floor((VW - GRID_WIDTH) / 2)
-local GRID_TOP_Y = 150
 
--- Dispenser area
-local DISPENSER_Y = 45
-local DISPENSER_SLOT_SIZE = 90
-local DISPENSER_X = math.floor(VW / 2 - DISPENSER_SLOT_SIZE / 2)
+-- Resources bar (top)
+local RESOURCES_H = 90
 
--- Stash area
-local STASH_Y = GRID_TOP_Y + GRID_HEIGHT + 12
-local STASH_SLOT_SIZE = 110
+-- Header row: dispenser circle (left) + compact orders strip (right)
+local HEADER_Y = 95
+local HEADER_H = 155
+local HEADER_BOTTOM = HEADER_Y + HEADER_H  -- 250
+
+-- Dispenser circle (left side of header)
+local DISP_SIZE = 130
+local DISP_X = 25
+local DISP_Y = HEADER_Y + math.floor((HEADER_H - DISP_SIZE) / 2)
+
+-- Orders strip (right of dispenser)
+local ORDERS_STRIP_X = DISP_X + DISP_SIZE + 20  -- ~175
+local ORDERS_STRIP_W = VW - ORDERS_STRIP_X - 10  -- ~895
+local ORDER_COMPACT_W = 200
+local ORDER_COMPACT_H = HEADER_H - 10            -- ~145
+local ORDER_COMPACT_GAP = 8
+
+-- Grid (shifted down to make room for header)
+local GRID_TOP_Y = 260
+
+-- Stash / Storage
+local STASH_Y = GRID_TOP_Y + GRID_HEIGHT + 12   -- 1420
+local STASH_SLOT_SIZE = 100
 local STASH_GAP = 6
 local STASH_COUNT = 8
 local STASH_WIDTH = STASH_COUNT * STASH_SLOT_SIZE + (STASH_COUNT - 1) * STASH_GAP
 local STASH_X = math.floor((VW - STASH_WIDTH) / 2)
-
--- Orders area
-local ORDERS_Y = STASH_Y + STASH_SLOT_SIZE + 15
-local ORDER_CARD_H = 230
-local ORDER_CARD_GAP = 10
 
 -- Drag state
 local drag = nil  -- {source, index, item, x, y, start_x, start_y}
@@ -99,8 +111,10 @@ local function stashScreenPos(slot)
 end
 
 local function isInDispenser(x, y)
-  return x >= DISPENSER_X and x < DISPENSER_X + DISPENSER_SLOT_SIZE
-     and y >= DISPENSER_Y and y < DISPENSER_Y + DISPENSER_SLOT_SIZE
+  local cx = DISP_X + DISP_SIZE / 2
+  local cy = DISP_Y + DISP_SIZE / 2
+  local dx, dy = x - cx, y - cy
+  return dx * dx + dy * dy <= (DISP_SIZE / 2) * (DISP_SIZE / 2)
 end
 
 -- === DRAWING HELPERS ===
@@ -182,44 +196,83 @@ end
 
 -- === MAIN DRAWING FUNCTIONS ===
 
-local function drawFuelBar()
+-- Draw the three resources (Fuel, Metal, Components) as a horizontal pill row
+local function drawResources()
   love.graphics.setFont(font)
-  love.graphics.setColor(1, 0.8, 0.2, 0.9)
-  love.graphics.printf("Fuel: " .. resources.getFuel() .. "/" .. resources.getFuelCap(), 10, 8, 250, "left")
-  love.graphics.setColor(0.3, 0.7, 1.0)
-  love.graphics.printf("Level " .. arena_orders.getCurrentLevel(), VW - 200, 8, 190, "right")
-  love.graphics.setColor(0.6, 0.7, 0.6)
-  local completed = arena_orders.getCompletedCount()
-  local total = arena_orders.getLevelOrderCount()
-  love.graphics.printf("Orders: " .. completed .. "/" .. total, VW / 2 - 100, 8, 200, "center")
+  local pill_w = 300
+  local pill_h = 56
+  local gap = 30
+  local total_w = 3 * pill_w + 2 * gap
+  local start_x = math.floor((VW - total_w) / 2)
+  local py = math.floor((RESOURCES_H - pill_h) / 2)
+
+  local entries = {
+    {label = "Fuel",       value = resources.getFuel() .. "/" .. resources.getFuelCap(), color = {1, 0.75, 0.15}},
+    {label = "Metal",      value = tostring(resources.getMetal()),                       color = {0.55, 0.75, 0.9}},
+    {label = "Components", value = tostring(resources.getComponents()),                  color = {0.4, 0.9, 0.55}},
+  }
+
+  for i, entry in ipairs(entries) do
+    local px = start_x + (i - 1) * (pill_w + gap)
+    -- Pill background
+    love.graphics.setColor(0.1, 0.1, 0.18, 0.9)
+    love.graphics.rectangle("fill", px, py, pill_w, pill_h, 10, 10)
+    love.graphics.setColor(entry.color[1], entry.color[2], entry.color[3], 0.5)
+    love.graphics.rectangle("line", px, py, pill_w, pill_h, 10, 10)
+    -- Label
+    love.graphics.setColor(entry.color[1], entry.color[2], entry.color[3], 0.8)
+    love.graphics.printf(entry.label, px + 8, py + 6, pill_w / 2 - 8, "left")
+    -- Value
+    love.graphics.setColor(1, 1, 1, 0.95)
+    love.graphics.printf(entry.value, px + pill_w / 2, py + 6, pill_w / 2 - 8, "right")
+  end
+
+  -- Level info (top-right corner)
+  love.graphics.setColor(0.3, 0.7, 1.0, 0.8)
+  love.graphics.printf("Lv " .. arena_orders.getCurrentLevel(), VW - 110, 8, 100, "right")
 end
 
+-- Draw the dispenser as a circle on the left side of the header row
 local function drawDispenser()
-  local step = arena.getTutorialStep()
-  local show = true
-  -- Always show dispenser
+  local cx = DISP_X + DISP_SIZE / 2
+  local cy = DISP_Y + DISP_SIZE / 2
+  local r = DISP_SIZE / 2
 
-  -- Slot background
-  love.graphics.setColor(0.12, 0.12, 0.2, 0.9)
-  love.graphics.rectangle("fill", DISPENSER_X, DISPENSER_Y, DISPENSER_SLOT_SIZE, DISPENSER_SLOT_SIZE, 8, 8)
-  love.graphics.setColor(0.3, 0.5, 0.7, 0.6)
-  love.graphics.rectangle("line", DISPENSER_X, DISPENSER_Y, DISPENSER_SLOT_SIZE, DISPENSER_SLOT_SIZE, 8, 8)
+  -- Outer ring
+  love.graphics.setColor(0.25, 0.35, 0.5, 0.9)
+  love.graphics.circle("fill", cx, cy, r)
+  love.graphics.setColor(0.4, 0.6, 0.85, 0.7)
+  love.graphics.setLineWidth(3)
+  love.graphics.circle("line", cx, cy, r)
+  love.graphics.setLineWidth(1)
 
-  -- Item (tap to pop, no dragging)
+  -- Item inside circle
   local item = arena.getDispenserItem()
   if item then
-    drawCellItem(item.chain_id, item.level, DISPENSER_X, DISPENSER_Y, DISPENSER_SLOT_SIZE, false, 1)
+    -- Draw item centered in circle
+    local item_size = DISP_SIZE * 0.72
+    local ix = cx - item_size / 2
+    local iy = cy - item_size / 2
+    drawCellItem(item.chain_id, item.level, ix, iy, item_size, false, 1)
   else
-    love.graphics.setColor(0.3, 0.3, 0.4, 0.5)
-    love.graphics.printf("--", DISPENSER_X, DISPENSER_Y + 30, DISPENSER_SLOT_SIZE, "center")
+    love.graphics.setColor(0.4, 0.4, 0.55, 0.7)
+    love.graphics.printf("--", DISP_X, cy - 14, DISP_SIZE, "center")
   end
 
-  -- Queue count
+  -- Queue count badge (top-right of circle)
   local qsize = arena.getDispenserSize()
   if qsize > 1 then
-    love.graphics.setColor(0.7, 0.7, 0.8)
-    love.graphics.printf("+" .. (qsize - 1), DISPENSER_X + DISPENSER_SLOT_SIZE + 8, DISPENSER_Y + 30, 60, "left")
+    local bx = DISP_X + DISP_SIZE - 30
+    local by = DISP_Y + 2
+    love.graphics.setColor(0.15, 0.5, 0.85, 0.95)
+    love.graphics.circle("fill", bx + 15, by + 15, 18)
+    love.graphics.setColor(1, 1, 1)
+    love.graphics.printf("+" .. (qsize - 1), bx, by + 4, 30, "center")
   end
+
+  -- "Tap" hint label below circle
+  love.graphics.setColor(0.5, 0.6, 0.7, 0.5)
+  love.graphics.printf("Dispenser", DISP_X - 10, DISP_Y + DISP_SIZE + 4, DISP_SIZE + 20, "center")
 end
 
 -- Compute which grid cells hold items needed for visible orders (green highlight)
@@ -323,7 +376,7 @@ local function drawStash()
   if step ~= "done" and type(step) == "number" and step < 15 then return end
 
   love.graphics.setColor(0.5, 0.5, 0.6, 0.5)
-  love.graphics.printf("STASH", 0, STASH_Y - 20, VW, "center")
+  love.graphics.printf("Storage", 0, STASH_Y - 22, VW, "center")
 
   for slot = 1, STASH_COUNT do
     local sx, sy = stashScreenPos(slot)
@@ -345,102 +398,85 @@ local function drawStash()
   end
 end
 
-local function drawOrders()
+-- Compact horizontal orders strip shown in the header row (right of dispenser)
+local function drawOrdersStrip()
   local step = arena.getTutorialStep()
   if step ~= "done" and type(step) == "number" and step < 13 then return end
 
   local visible = arena_orders.getVisibleOrders()
+
   if #visible == 0 then
-    love.graphics.setColor(0.5, 0.8, 0.5)
-    love.graphics.printf("All orders complete!", 0, ORDERS_Y + 20, VW, "center")
+    love.graphics.setColor(0.5, 0.8, 0.5, 0.8)
+    local mid_y = HEADER_Y + math.floor(HEADER_H / 2) - 14
+    love.graphics.printf("All orders complete!", ORDERS_STRIP_X, mid_y, ORDERS_STRIP_W, "center")
     return
   end
 
-  local card_w = math.floor((VW - 30 - (#visible - 1) * ORDER_CARD_GAP) / #visible)
+  -- Count items on board once for all orders
+  local on_board_counts = {}
+  local grid_data = arena.getGrid()
+  for gi = 1, arena.getGridSize() do
+    local cell = grid_data[gi]
+    if cell and not cell.state then
+      local key = cell.chain_id .. ":" .. cell.level
+      on_board_counts[key] = (on_board_counts[key] or 0) + 1
+    end
+  end
+
+  local icon_size = 70  -- item circle size inside compact card
 
   for i, order in ipairs(visible) do
-    local ox = 15 + (i - 1) * (card_w + ORDER_CARD_GAP)
-    local oy = ORDERS_Y
-
+    local ox = ORDERS_STRIP_X + (i - 1) * (ORDER_COMPACT_W + ORDER_COMPACT_GAP)
+    local oy = HEADER_Y + math.floor((HEADER_H - ORDER_COMPACT_H) / 2)
     local can_complete = arena.canCompleteOrder(order.id)
 
     -- Card background
-    if can_complete then
-      love.graphics.setColor(0.08, 0.22, 0.08, 0.9)
-    else
-      love.graphics.setColor(0.08, 0.08, 0.13, 0.85)
-    end
-    love.graphics.rectangle("fill", ox, oy, card_w, ORDER_CARD_H, 8, 8)
-    love.graphics.setColor(can_complete and {0.3, 0.8, 0.3, 0.7} or {0.2, 0.2, 0.3, 0.5})
-    love.graphics.rectangle("line", ox, oy, card_w, ORDER_CARD_H, 8, 8)
+    love.graphics.setColor(can_complete and {0.07, 0.22, 0.07, 0.92} or {0.08, 0.08, 0.15, 0.88})
+    love.graphics.rectangle("fill", ox, oy, ORDER_COMPACT_W, ORDER_COMPACT_H, 8, 8)
+    love.graphics.setColor(can_complete and {0.3, 0.8, 0.3, 0.7} or {0.2, 0.22, 0.32, 0.5})
+    love.graphics.setLineWidth(2)
+    love.graphics.rectangle("line", ox, oy, ORDER_COMPACT_W, ORDER_COMPACT_H, 8, 8)
+    love.graphics.setLineWidth(1)
 
-    -- Character name
-    love.graphics.setColor(0.7, 0.8, 0.9)
-    love.graphics.printf(order.character, ox + 6, oy + 4, card_w - 12, "left")
+    -- Character name (top)
+    love.graphics.setColor(0.65, 0.75, 0.9, 0.9)
+    love.graphics.printf(order.character, ox + 6, oy + 5, ORDER_COMPACT_W - 12, "left")
 
-    -- XP reward
-    love.graphics.setColor(0.4, 0.7, 1.0)
-    love.graphics.printf("+" .. order.xp_reward .. " XP", ox + 6, oy + 4, card_w - 12, "right")
+    -- XP reward (top-right)
+    love.graphics.setColor(0.4, 0.75, 1.0, 0.85)
+    love.graphics.printf("+" .. order.xp_reward .. "XP", ox + 4, oy + 5, ORDER_COMPACT_W - 8, "right")
 
-    -- Requirements
-    local req_y = oy + 30
-    for _, req in ipairs(order.requirements) do
-      local c = arena_chains.getColor(req.chain_id)
-      local name = arena_chains.getItemName(req.chain_id, req.level) or "?"
+    -- Item icons in a row (center area)
+    local reqs = order.requirements
+    local icon_gap = 6
+    local icons_total_w = #reqs * icon_size + (#reqs - 1) * icon_gap
+    local icons_start_x = ox + math.floor((ORDER_COMPACT_W - icons_total_w) / 2)
+    local icons_y = oy + 30
 
-      -- Count on board
-      local on_board = 0
-      local grid_data = arena.getGrid()
-      for gi = 1, arena.getGridSize() do
-        local cell = grid_data[gi]
-        if cell and not cell.state and cell.chain_id == req.chain_id and cell.level == req.level then
-          on_board = on_board + 1
-        end
-      end
+    for j, req in ipairs(reqs) do
+      local ix = icons_start_x + (j - 1) * (icon_size + icon_gap)
+      local key = req.chain_id .. ":" .. req.level
+      local on_board = on_board_counts[key] or 0
       local have_enough = on_board >= req.count
 
-      -- Colored dot
-      love.graphics.setColor(c[1], c[2], c[3])
-      love.graphics.circle("fill", ox + 16, req_y + 12, 6)
+      -- Draw item icon
+      drawCellItem(req.chain_id, req.level, ix, icons_y, icon_size, false, have_enough and 1 or 0.55)
 
-      -- Text
-      if have_enough then
-        love.graphics.setColor(0.3, 0.95, 0.3)
-      else
-        love.graphics.setColor(0.85, 0.85, 0.85)
-      end
-      local label = name
-      if req.count > 1 then label = req.count .. "x " .. name end
-      love.graphics.printf(label .. " " .. on_board .. "/" .. req.count,
-        ox + 28, req_y + 2, card_w - 40, "left")
-      req_y = req_y + 28
+      -- Count badge below icon
+      love.graphics.setColor(have_enough and {0.2, 0.9, 0.2} or {0.75, 0.75, 0.75})
+      love.graphics.printf(on_board .. "/" .. req.count, ix, icons_y + icon_size - 2, icon_size, "center")
     end
 
-    -- Item rewards preview
-    if order.item_rewards and #order.item_rewards > 0 then
-      req_y = req_y + 4
-      love.graphics.setColor(0.6, 0.6, 0.5, 0.6)
-      love.graphics.printf("Rewards:", ox + 6, req_y, card_w - 12, "left")
-      req_y = req_y + 20
-      local reward_text = {}
-      for _, rw in ipairs(order.item_rewards) do
-        local rname = arena_chains.getItemName(rw.chain_id, rw.level) or "?"
-        reward_text[#reward_text + 1] = rname
-      end
-      love.graphics.setColor(0.7, 0.7, 0.5, 0.7)
-      love.graphics.printf(table.concat(reward_text, ", "), ox + 6, req_y, card_w - 12, "left")
-    end
-
-    -- Complete button
+    -- COMPLETE overlay button (shown when completable)
     if can_complete then
-      local btn_y = oy + ORDER_CARD_H - 44
-      local btn_w = card_w - 16
-      love.graphics.setColor(0.15, 0.55, 0.2)
-      love.graphics.rectangle("fill", ox + 8, btn_y, btn_w, 36, 6, 6)
+      local btn_y = oy + ORDER_COMPACT_H - 38
+      love.graphics.setColor(0.15, 0.6, 0.2, 0.95)
+      love.graphics.rectangle("fill", ox + 6, btn_y, ORDER_COMPACT_W - 12, 32, 6, 6)
       love.graphics.setColor(1, 1, 1)
-      love.graphics.printf("COMPLETE", ox + 8, btn_y + 6, btn_w, "center")
+      love.graphics.printf("COMPLETE", ox + 6, btn_y + 6, ORDER_COMPACT_W - 12, "center")
     end
   end
+
 end
 
 local function drawDragged()
@@ -480,11 +516,11 @@ local function drawTutorial()
 
   local tooltip = TUTORIAL_TOOLTIPS[step]
   if tooltip and tooltip ~= "" then
-    -- Draw tooltip above dispenser
+    -- Draw tooltip below header row
     love.graphics.setColor(0, 0, 0, 0.7)
-    love.graphics.rectangle("fill", 40, DISPENSER_Y + DISPENSER_SLOT_SIZE + 4, VW - 80, 32, 6, 6)
+    love.graphics.rectangle("fill", 40, HEADER_BOTTOM + 4, VW - 80, 32, 6, 6)
     love.graphics.setColor(1, 1, 0.7)
-    love.graphics.printf(tooltip, 0, DISPENSER_Y + DISPENSER_SLOT_SIZE + 10, VW, "center")
+    love.graphics.printf(tooltip, 0, HEADER_BOTTOM + 10, VW, "center")
   end
 
   -- Highlight specific cells during certain steps
@@ -678,11 +714,11 @@ function arena_screen.draw()
   love.graphics.setColor(0.06, 0.06, 0.1)
   love.graphics.rectangle("fill", 0, 0, VW, VH)
 
-  drawFuelBar()
+  drawResources()
   drawDispenser()
+  drawOrdersStrip()
   drawGrid()
   drawStash()
-  drawOrders()
   drawDragged()
   drawTutorial()
 
@@ -709,23 +745,21 @@ function arena_screen.mousepressed(x, y, button)
     return
   end
 
-  -- Order complete buttons
+  -- Order complete buttons (compact strip in header)
   local step = arena.getTutorialStep()
   local show_orders = step == "done" or (type(step) == "number" and step >= 13)
   if show_orders then
     local visible = arena_orders.getVisibleOrders()
-    local card_w = math.floor((VW - 30 - (#visible - 1) * ORDER_CARD_GAP) / math.max(1, #visible))
     for i, order in ipairs(visible) do
       if arena.canCompleteOrder(order.id) then
-        local ox = 15 + (i - 1) * (card_w + ORDER_CARD_GAP)
-        local btn_y = ORDERS_Y + ORDER_CARD_H - 44
-        local btn_w = card_w - 16
-        if x >= ox + 8 and x <= ox + 8 + btn_w and y >= btn_y and y <= btn_y + 36 then
+        local ox = ORDERS_STRIP_X + (i - 1) * (ORDER_COMPACT_W + ORDER_COMPACT_GAP)
+        local oy = HEADER_Y + math.floor((HEADER_H - ORDER_COMPACT_H) / 2)
+        local btn_y = oy + ORDER_COMPACT_H - 38
+        if x >= ox + 6 and x <= ox + ORDER_COMPACT_W - 6 and y >= btn_y and y <= btn_y + 32 then
           local reward = arena.completeOrder(order.id)
           if reward then
             showNotification("Order complete! +" .. (reward.xp_reward or 0) .. " XP", {0.3, 0.95, 0.3})
             advanceTutorial("complete_order", nil)
-            -- Check level completion
             local level_result = arena.checkLevelComplete()
             if level_result then
               showNotification("Level " .. level_result.new_level .. " unlocked!", {0.4, 0.8, 1.0})
@@ -884,7 +918,7 @@ function arena_screen.keypressed(key)
     love.event.quit()
   end
   if key == "escape" then
-    screens.switch("game_2048")
+    screens.switch("coin_sort")
   end
 end
 

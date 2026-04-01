@@ -1,6 +1,6 @@
 -- tab_bar.lua
 -- Bottom tab bar UI component for switching between Coin Sort and Arena screens.
--- Drawn by both game_2048_screen and arena_screen.
+-- Drawn by both coin_sort_screen and arena_screen.
 
 local layout = require("layout")
 
@@ -14,7 +14,7 @@ local TAB_Y = VH - TAB_HEIGHT
 local font
 
 local TABS = {
-  { id = "game_2048", label = "Coin Sort" },
+  { id = "coin_sort", label = "Coin Sort" },
   { id = "arena",     label = "Arena" },
 }
 

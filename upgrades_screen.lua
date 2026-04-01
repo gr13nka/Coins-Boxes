@@ -1124,7 +1124,7 @@ local function handlePlayClick(x, y)
   local by = PLAY_BTN_Y + yoff
   local px = (VW - PLAY_BTN_W) / 2
   if x >= px and x <= px + PLAY_BTN_W and y >= by and y <= by + PLAY_BTN_H then
-    screens.switch("game_2048")
+    screens.switch("coin_sort")
     return true
   end
   return false
@@ -1158,7 +1158,7 @@ function upgrades_screen.keypressed(key)
   end
   if key == "return" or key == "space" then
     if not picker.active then
-      screens.switch("game_2048")
+      screens.switch("coin_sort")
     end
   end
   if key == "\\" then

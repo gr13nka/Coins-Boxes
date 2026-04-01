@@ -26,7 +26,7 @@ local ORDER_LEVELS = {
     orders = {
       {
         id = "L1_1", character = "Meryl",
-        requirements = { req("Da", 1) },
+        requirements = { req("Da", 2) },
         xp_reward = 2,
         item_rewards = { rw("Me", 1) },
       },

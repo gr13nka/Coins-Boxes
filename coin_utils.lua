@@ -14,9 +14,6 @@ local SHARD_RGB = {
 }
 local SHARD_NAMES = {"red", "green", "purple", "blue", "pink"}
 
--- Per-color fruit images (loaded by coin_utils.loadImages)
-local SHARD_IMAGES = {}
-
 -- Map a number (1-50) to RGB color via 5-color cycling
 function coin_utils.numberToColor(number, max_number)
   return SHARD_RGB[((number - 1) % 5) + 1]
@@ -63,35 +60,6 @@ end
 -- Create a new coin object
 function coin_utils.createCoin(number)
     return {number = number}
-end
-
--- Load per-color fruit images (call once during love.load)
-function coin_utils.loadImages()
-  SHARD_IMAGES = {
-    love.graphics.newImage("assets/Red.png"),     -- red    (1, 6, 11...)
-    love.graphics.newImage("assets/Green.png"),    -- green  (2, 7, 12...)
-    love.graphics.newImage("assets/Purple.png"),   -- purple (3, 8, 13...)
-    love.graphics.newImage("assets/Blue.png"),     -- blue   (4, 9, 14...)
-    love.graphics.newImage("assets/Pink.png"),     -- pink   (5, 10, 15...)
-  }
-end
-
--- Map a coin number to its fruit image via 5-color cycle
-function coin_utils.numberToImage(number)
-  return SHARD_IMAGES[((number - 1) % 5) + 1]
-end
-
--- Map a shard color name to its fruit image
-function coin_utils.colorNameToImage(color_name)
-  for i, name in ipairs(SHARD_NAMES) do
-    if name == color_name then return SHARD_IMAGES[i] end
-  end
-  return SHARD_IMAGES[1]
-end
-
--- Get the loaded images array
-function coin_utils.getImages()
-  return SHARD_IMAGES
 end
 
 return coin_utils

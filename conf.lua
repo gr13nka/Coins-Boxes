@@ -1,5 +1,10 @@
+-- Start debugger if launched from VS Code debug adapter (must run before love.conf)
+if os.getenv("LOCAL_LUA_DEBUGGER_VSCODE") == "1" then
+  require("lldebugger").start()
+end
+
 function love.conf(t)
-  t.console = true -- open a console window on Windows
+  t.console = os.getenv("LOCAL_LUA_DEBUGGER_VSCODE") ~= "1" -- console conflicts with debugger stdio
   t.window.resizable  = true
   t.window.borderless = false
   t.window.minwidth   = 160

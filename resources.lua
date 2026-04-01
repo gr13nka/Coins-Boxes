@@ -43,7 +43,7 @@ function resources.save()
   progression.save()
 end
 
--- Called from game_2048 when coins merge. new_number = level of resulting coin.
+-- Called from coin_sort when coins merge. new_number = level of resulting coin.
 -- Returns table of resources gained (for UI feedback).
 function resources.onCoinMerge(new_number)
   local r = MERGE_REWARDS[new_number]

@@ -5,7 +5,7 @@ local screens = require("screens")
 local layout = require("layout")
 local resources = require("resources")
 local bags = require("bags")
-local game_2048 = require("game_2048")
+local coin_sort = require("coin_sort")
 local progression = require("progression")
 
 local game_over_screen = {}
@@ -30,7 +30,7 @@ function game_over_screen.init(assets)
 end
 
 function game_over_screen.enter()
-  local state = game_2048.getState()
+  local state = coin_sort.getState()
   final_score = state.points
 
   -- Snapshot resources

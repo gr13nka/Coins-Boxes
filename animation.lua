@@ -156,7 +156,7 @@ function animation.startFlight(dest_box_idx, dest_slot, callback, coinLandCallba
 end
 
 -- Start merge animation for multiple boxes
--- merge_data: array from game_2048.getMergeableBoxes()
+-- merge_data: array from coin_sort.getMergeableBoxes()
 -- callback: called when ALL merges complete
 -- boxMergeCallback: called when EACH box finishes merging (receives merge info)
 -- particlesRef: reference to particles module
@@ -734,32 +734,17 @@ function animation.drawDealing(ballImage, COLORS, font)
             local rotation = coin_data.rotation or 0
 
             if dealing_mode == "2048" and coin_utils.isCoin(coin_data.coin) then
-                -- 2048 mode: fruit image or tinted ball depending on config
                 local num = coin_data.coin.number
-                local coinImage, cImgW, cImgH, cScale
-                if layout.USE_FRUIT_IMAGES then
-                    coinImage = coin_utils.numberToImage(num)
-                    cImgW, cImgH = coinImage:getDimensions()
-                    cScale = (layout.COIN_R * 2) / cImgW * coinScale
-                    love.graphics.setColor(1, 1, 1)
-                else
-                    coinImage = ballImage
-                    cImgW, cImgH = coinImage:getDimensions()
-                    cScale = (layout.COIN_R * 2) / cImgW * coinScale
-                    love.graphics.setColor(coin_utils.numberToColor(num, 50))
-                end
-                love.graphics.draw(coinImage, x, y, rotation, cScale, cScale, cImgW / 2, cImgH / 2)
+                local cScale = (layout.COIN_R * 2) / imgW * coinScale
+                love.graphics.setColor(coin_utils.numberToColor(num, 50))
+                love.graphics.draw(ballImage, x, y, rotation, cScale, cScale, imgW / 2, imgH / 2)
 
                 -- Draw number rotated with coin
                 if font then
                     love.graphics.push()
                     love.graphics.translate(x, y)
                     love.graphics.rotate(rotation)
-                    if layout.USE_FRUIT_IMAGES then
-                        love.graphics.setColor(0, 0, 0)
-                    else
-                        love.graphics.setColor(1, 1, 1)
-                    end
+                    love.graphics.setColor(1, 1, 1)
                     love.graphics.setFont(font)
                     local num_str = tostring(num)
                     local text_width = font:getWidth(num_str)
