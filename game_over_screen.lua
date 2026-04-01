@@ -53,48 +53,48 @@ function game_over_screen.draw()
   love.graphics.setFont(font)
 
   -- Title
-  love.graphics.setColor(1, 0.3, 0.3)
+  love.graphics.setColor(0.80, 0.38, 0.22)
   love.graphics.printf("GAME OVER", 0, 200, VW, "center")
 
   -- Score
-  love.graphics.setColor(1, 1, 1)
+  love.graphics.setColor(0.92, 0.88, 0.78)
   love.graphics.printf("Score: " .. final_score, 0, 340, VW, "center")
 
   -- Resource summary
-  love.graphics.setColor(0.8, 0.8, 0.8)
+  love.graphics.setColor(0.65, 0.68, 0.58)
   love.graphics.printf("Resources", 0, 500, VW, "center")
 
   local row_y = 580
   local row_h = 80
 
   -- Fuel
-  love.graphics.setColor(1, 0.8, 0.2)
+  love.graphics.setColor(0.82, 0.70, 0.30)
   love.graphics.printf("Fuel", 200, row_y, 200, "left")
-  love.graphics.setColor(1, 1, 1)
+  love.graphics.setColor(0.92, 0.88, 0.78)
   love.graphics.printf(snap_fuel .. " / " .. resources.getFuelCap(), 500, row_y, 300, "left")
 
   -- Metal
-  love.graphics.setColor(0.6, 0.7, 0.8)
+  love.graphics.setColor(0.50, 0.60, 0.55)
   love.graphics.printf("Metal", 200, row_y + row_h, 200, "left")
-  love.graphics.setColor(1, 1, 1)
+  love.graphics.setColor(0.92, 0.88, 0.78)
   love.graphics.printf(tostring(snap_metal), 500, row_y + row_h, 300, "left")
 
   -- Components
-  love.graphics.setColor(0.5, 0.8, 0.5)
+  love.graphics.setColor(0.42, 0.62, 0.40)
   love.graphics.printf("Components", 200, row_y + row_h * 2, 200, "left")
-  love.graphics.setColor(1, 1, 1)
+  love.graphics.setColor(0.92, 0.88, 0.78)
   love.graphics.printf(tostring(snap_components), 500, row_y + row_h * 2, 300, "left")
 
   -- Bags
-  love.graphics.setColor(0.8, 0.6, 0.3)
+  love.graphics.setColor(0.68, 0.55, 0.32)
   love.graphics.printf("Bags", 200, row_y + row_h * 3, 200, "left")
-  love.graphics.setColor(1, 1, 1)
+  love.graphics.setColor(0.92, 0.88, 0.78)
   love.graphics.printf(tostring(snap_bags), 500, row_y + row_h * 3, 300, "left")
 
   -- Continue button
-  love.graphics.setColor(0.2, 0.75, 0.3)
+  love.graphics.setColor(0.25, 0.65, 0.35)
   love.graphics.rectangle("fill", BTN_X, BTN_Y, BTN_W, BTN_H, 12, 12)
-  love.graphics.setColor(1, 1, 1)
+  love.graphics.setColor(0.92, 0.88, 0.78)
   love.graphics.printf("Continue to Arena", BTN_X, BTN_Y + (BTN_H - layout.FONT_SIZE) / 2, BTN_W, "center")
 end
 

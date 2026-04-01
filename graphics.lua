@@ -68,7 +68,7 @@ end
 
 --- Draw a solid color background
 function graphics.drawBackground()
-  love.graphics.clear(0.12, 0.12, 0.18)
+  love.graphics.clear(0.18, 0.22, 0.16)
 end
 
 --- Draw all coins for classic mode
@@ -102,10 +102,10 @@ end
 -- Also used by animation.lua for consistent rendering
 -- hideNumber: optional, if true skip drawing the number text
 local RING_COLORS = {
-  {0.85, 0.85, 0.9},   -- cycle 1: silver
-  {1.0, 0.85, 0.25},   -- cycle 2: gold
-  {0.3, 0.9, 1.0},     -- cycle 3: cyan/diamond
-  {0.9, 0.3, 0.9},     -- cycle 4: magenta
+  {0.75, 0.80, 0.68},  -- cycle 1: mossy silver
+  {0.85, 0.75, 0.32},  -- cycle 2: aged gold
+  {0.35, 0.82, 0.58},  -- cycle 3: forest water
+  {0.72, 0.35, 0.65},  -- cycle 4: cave crystal
 }
 
 function graphics.drawCoin2048(font, x, y, num, MAX_NUMBER, scaleOverride, hideNumber)
@@ -187,7 +187,7 @@ local function drawTray(bx, by, box_w, box_h, BOX_ROWS, is_shaking)
   if is_shaking then
     love.graphics.setColor(0.35, 0.12, 0.12, 0.45)
   else
-    love.graphics.setColor(0.22, 0.24, 0.30, 0.35)
+    love.graphics.setColor(0.18, 0.25, 0.16, 0.35)
   end
   love.graphics.rectangle("fill", bx, by, box_w, box_h, 4, 4)
 
@@ -195,7 +195,7 @@ local function drawTray(bx, by, box_w, box_h, BOX_ROWS, is_shaking)
   if is_shaking then
     love.graphics.setColor(0.6, 0.2, 0.2, 0.4)
   else
-    love.graphics.setColor(0.38, 0.40, 0.48, 0.3)
+    love.graphics.setColor(0.30, 0.40, 0.26, 0.3)
   end
   love.graphics.setLineWidth(1)
   for row = 1, BOX_ROWS - 1 do
@@ -207,7 +207,7 @@ local function drawTray(bx, by, box_w, box_h, BOX_ROWS, is_shaking)
   if is_shaking then
     love.graphics.setColor(0.8, 0.25, 0.25, 0.5)
   else
-    love.graphics.setColor(0.38, 0.40, 0.48, 0.4)
+    love.graphics.setColor(0.30, 0.42, 0.26, 0.4)
   end
   love.graphics.rectangle("line", bx, by, box_w, box_h, 4, 4)
 end
@@ -215,16 +215,16 @@ end
 --- Draw a locked (not yet unlocked) box slot with dimmed appearance.
 local function drawLockedTray(bx, by, box_w, box_h)
   -- Dark fill
-  love.graphics.setColor(0.10, 0.10, 0.12, 0.65)
+  love.graphics.setColor(0.10, 0.14, 0.10, 0.65)
   love.graphics.rectangle("fill", bx, by, box_w, box_h, 4, 4)
   -- Dim border
-  love.graphics.setColor(0.22, 0.22, 0.25, 0.35)
+  love.graphics.setColor(0.18, 0.24, 0.16, 0.35)
   love.graphics.rectangle("line", bx, by, box_w, box_h, 4, 4)
   -- Lock icon: arc (shackle) + body rectangle
   local cx = bx + box_w * 0.5
   local cy = by + box_h * 0.5
   local r = box_h * 0.09
-  love.graphics.setColor(0.30, 0.30, 0.33, 0.55)
+  love.graphics.setColor(0.28, 0.35, 0.26, 0.55)
   love.graphics.setLineWidth(3)
   love.graphics.arc("line", "open", cx, cy - box_h * 0.07, r, math.pi, 2 * math.pi)
   love.graphics.rectangle("fill", cx - r, cy - box_h * 0.02, r * 2, box_h * 0.14, 2, 2)

@@ -25,7 +25,7 @@ local CHAIN_DATA = {
 
   Ch = {
     name = "Chill",
-    color = {0.4, 0.85, 1.0},
+    color = {0.45, 0.80, 0.60},
     generator_threshold = 4,
     generator_name = "Fridge",
     items = {
@@ -42,7 +42,7 @@ local CHAIN_DATA = {
 
   Cu = {
     name = "Cupboard",
-    color = {0.7, 0.5, 0.3},
+    color = {0.62, 0.45, 0.28},
     generator_threshold = 4,
     generator_name = "Cupboard",
     items = {
@@ -60,7 +60,7 @@ local CHAIN_DATA = {
 
   He = {
     name = "Heating",
-    color = {0.9, 0.35, 0.2},
+    color = {0.80, 0.38, 0.22},
     generator_threshold = 4,
     generator_name = "Toaster",
     items = {
@@ -75,7 +75,7 @@ local CHAIN_DATA = {
 
   Bl = {
     name = "Blending",
-    color = {0.7, 0.4, 0.9},
+    color = {0.52, 0.32, 0.65},
     generator_threshold = 4,
     generator_name = "Blender",
     items = {
@@ -90,7 +90,7 @@ local CHAIN_DATA = {
 
   Ki = {
     name = "Kitchenware",
-    color = {0.3, 0.75, 0.3},
+    color = {0.28, 0.65, 0.30},
     generator_threshold = 7,
     generator_name = "Pot",
     items = {
@@ -104,7 +104,7 @@ local CHAIN_DATA = {
 
   Ta = {
     name = "Tableware",
-    color = {0.3, 0.5, 0.9},
+    color = {0.35, 0.52, 0.68},
     generator_threshold = 7,
     generator_name = "Carafe",
     items = {
@@ -120,7 +120,7 @@ local CHAIN_DATA = {
 
   Me = {
     name = "Meat",
-    color = {0.8, 0.25, 0.2},
+    color = {0.68, 0.28, 0.22},
     items = {
       "Smoked Meat", "Sausage", "Meatballs", "BBQ Wings", "Nuggets",
       "Drum Stick", "Steak", "Schnitzel", "Schweinhaxe", "Ham",
@@ -130,7 +130,7 @@ local CHAIN_DATA = {
 
   Da = {
     name = "Dairy",
-    color = {0.95, 0.85, 0.4},
+    color = {0.82, 0.73, 0.38},
     items = {
       "Egg", "Sunny Side Up", "Scrambled Eggs", "Glass of Milk", "Milk Bottle",
       "Farmer's Can", "Sour Cream", "Soft Cheese", "Mozzarella", "Braided Cheese",
@@ -140,7 +140,7 @@ local CHAIN_DATA = {
 
   Ba = {
     name = "Bakery",
-    color = {0.85, 0.65, 0.3},
+    color = {0.75, 0.60, 0.32},
     items = {
       "Wheat Flour", "Flour Bag", "Bread Slice", "Pretzel", "Croissant",
       "Bagel", "Loaf of Bread", "Ciabatta", "Challah", "Mouse Loaf",
@@ -149,7 +149,7 @@ local CHAIN_DATA = {
 
   De = {
     name = "Desert",
-    color = {0.9, 0.5, 0.7},
+    color = {0.78, 0.48, 0.60},
     items = {
       "Brown Sugar", "Sugar Cubes", "Chocolate", "Truffles", "Doughnut",
       "Eclair", "Strudel", "Cupcake", "Pie", "Devil Cake Piece",
@@ -159,7 +159,7 @@ local CHAIN_DATA = {
 
   So = {
     name = "Soups",
-    color = {0.5, 0.7, 0.2},
+    color = {0.42, 0.60, 0.22},
     items = {
       "Noodle Soup", "Clam Chowder", "Gumbo", "Onion Soup", "Chili",
       "Strawberry Soup",
@@ -168,7 +168,7 @@ local CHAIN_DATA = {
 
   Be = {
     name = "Beverages",
-    color = {0.2, 0.7, 0.7},
+    color = {0.25, 0.60, 0.55},
     items = {
       "Glass of Water", "Cup of Tea", "Coffee", "Orange Juice", "Lemonade",
       "Merge Cola",

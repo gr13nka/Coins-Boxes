@@ -119,23 +119,96 @@ end
 
 -- === DRAWING HELPERS ===
 
+-- Per-chain shape assignments
+local CHAIN_SHAPES = {
+  Ch = "hexagon",      -- ice crystals are hexagonal
+  Cu = "square",       -- box/storage is rectangular
+  He = "triangle_up",  -- fire/heat rises
+  Bl = "circle",       -- spinning blender = round
+  Ki = "pentagon",     -- 5 kitchen tools
+  Ta = "diamond",      -- elegant/angular tableware
+  Me = "octagon",      -- thick/solid like a cut of meat
+  Da = "star_6",       -- 6-pointed dairy star
+  Ba = "star_5",       -- classic 5-pointed star
+  De = "star_4",       -- 4-pointed sugar crystal sparkle
+  So = "triangle_down",-- liquid pours down
+  Be = "heptagon",     -- 7-sided cup rim view
+}
+
+-- n-gon vertices centered at (cx,cy), circumradius r, first vertex at start_angle
+local function makeNGon(cx, cy, r, n, start_angle)
+  local v, step = {}, 2 * math.pi / n
+  for i = 0, n - 1 do
+    local a = start_angle + i * step
+    v[#v+1] = cx + r * math.cos(a)
+    v[#v+1] = cy + r * math.sin(a)
+  end
+  return v
+end
+
+-- Star polygon vertices: n_points outer/inner alternating, outer radius r, inner r_inner
+local function makeStar(cx, cy, r, r_inner, n_points, start_angle)
+  local v, step = {}, math.pi / n_points
+  for i = 0, n_points * 2 - 1 do
+    local a = start_angle + i * step
+    local rr = (i % 2 == 0) and r or r_inner
+    v[#v+1] = cx + rr * math.cos(a)
+    v[#v+1] = cy + rr * math.sin(a)
+  end
+  return v
+end
+
+-- Draw the geometric shape for a given chain
+local function drawShape(shape, cx, cy, r, mode)
+  mode = mode or "fill"
+  local hp = -math.pi / 2  -- half-pi, points first vertex upward
+  if shape == "circle" then
+    love.graphics.circle(mode, cx, cy, r)
+  elseif shape == "hexagon" then
+    love.graphics.polygon(mode, makeNGon(cx, cy, r, 6, hp))
+  elseif shape == "square" then
+    love.graphics.polygon(mode, makeNGon(cx, cy, r, 4, -math.pi * 0.75))
+  elseif shape == "diamond" then
+    love.graphics.polygon(mode, makeNGon(cx, cy, r, 4, hp))
+  elseif shape == "triangle_up" then
+    love.graphics.polygon(mode, makeNGon(cx, cy, r, 3, hp))
+  elseif shape == "triangle_down" then
+    love.graphics.polygon(mode, makeNGon(cx, cy, r, 3, math.pi / 2))
+  elseif shape == "pentagon" then
+    love.graphics.polygon(mode, makeNGon(cx, cy, r, 5, hp))
+  elseif shape == "heptagon" then
+    love.graphics.polygon(mode, makeNGon(cx, cy, r, 7, hp))
+  elseif shape == "octagon" then
+    love.graphics.polygon(mode, makeNGon(cx, cy, r, 8, hp))
+  elseif shape == "star_5" then
+    love.graphics.polygon(mode, makeStar(cx, cy, r, r * 0.42, 5, hp))
+  elseif shape == "star_6" then
+    love.graphics.polygon(mode, makeStar(cx, cy, r, r * 0.48, 6, hp))
+  elseif shape == "star_4" then
+    love.graphics.polygon(mode, makeStar(cx, cy, r, r * 0.38, 4, hp))
+  else
+    love.graphics.circle(mode, cx, cy, r)
+  end
+end
+
 local function drawItemCircle(chain_id, level, cx, cy, radius, alpha)
   alpha = alpha or 1
   local c = arena_chains.getColor(chain_id)
+  local shape = CHAIN_SHAPES[chain_id] or "circle"
 
-  -- Shadow
+  -- Shadow (same shape, offset)
   love.graphics.setColor(0, 0, 0, 0.3 * alpha)
-  love.graphics.circle("fill", cx + 2, cy + 2, radius)
+  drawShape(shape, cx + 2, cy + 2, radius)
 
-  -- Main circle
+  -- Main shape
   love.graphics.setColor(c[1], c[2], c[3], alpha)
-  love.graphics.circle("fill", cx, cy, radius)
+  drawShape(shape, cx, cy, radius)
 
   -- Highlight
   love.graphics.setColor(1, 1, 1, 0.2 * alpha)
   love.graphics.circle("fill", cx - radius * 0.2, cy - radius * 0.25, radius * 0.35)
 
-  -- Level number
+  -- Level number background + text
   love.graphics.setColor(0, 0, 0, 0.5 * alpha)
   love.graphics.circle("fill", cx, cy, radius * 0.42)
   love.graphics.setColor(1, 1, 1, alpha)
@@ -215,7 +288,7 @@ local function drawResources()
   for i, entry in ipairs(entries) do
     local px = start_x + (i - 1) * (pill_w + gap)
     -- Pill background
-    love.graphics.setColor(0.1, 0.1, 0.18, 0.9)
+    love.graphics.setColor(0.12, 0.16, 0.11, 0.9)
     love.graphics.rectangle("fill", px, py, pill_w, pill_h, 10, 10)
     love.graphics.setColor(entry.color[1], entry.color[2], entry.color[3], 0.5)
     love.graphics.rectangle("line", px, py, pill_w, pill_h, 10, 10)
@@ -228,7 +301,7 @@ local function drawResources()
   end
 
   -- Level info (top-right corner)
-  love.graphics.setColor(0.3, 0.7, 1.0, 0.8)
+  love.graphics.setColor(0.45, 0.75, 0.50, 0.8)
   love.graphics.printf("Lv " .. arena_orders.getCurrentLevel(), VW - 110, 8, 100, "right")
 end
 
@@ -239,9 +312,9 @@ local function drawDispenser()
   local r = DISP_SIZE / 2
 
   -- Outer ring
-  love.graphics.setColor(0.25, 0.35, 0.5, 0.9)
+  love.graphics.setColor(0.18, 0.30, 0.20, 0.9)
   love.graphics.circle("fill", cx, cy, r)
-  love.graphics.setColor(0.4, 0.6, 0.85, 0.7)
+  love.graphics.setColor(0.30, 0.50, 0.30, 0.7)
   love.graphics.setLineWidth(3)
   love.graphics.circle("line", cx, cy, r)
   love.graphics.setLineWidth(1)
@@ -309,9 +382,9 @@ local function drawGrid()
     local cell = grid_data[i]
 
     -- Slot background
-    love.graphics.setColor(0.08, 0.08, 0.14, 0.85)
+    love.graphics.setColor(0.10, 0.14, 0.10, 0.85)
     love.graphics.rectangle("fill", x, y, CELL_SIZE, CELL_SIZE, 6, 6)
-    love.graphics.setColor(0.18, 0.18, 0.26, 0.5)
+    love.graphics.setColor(0.22, 0.32, 0.20, 0.5)
     love.graphics.rectangle("line", x, y, CELL_SIZE, CELL_SIZE, 6, 6)
 
     -- Skip if being dragged
@@ -331,11 +404,11 @@ local function drawGrid()
 
       if cell.state == "box" then
         -- Closed box
-        love.graphics.setColor(0.25, 0.2, 0.15, 0.9)
+        love.graphics.setColor(0.22, 0.28, 0.18, 0.9)
         love.graphics.rectangle("fill", draw_x + 4, draw_y + 4, draw_size - 8, draw_size - 8, 8, 8)
-        love.graphics.setColor(0.5, 0.4, 0.25, 0.7)
+        love.graphics.setColor(0.35, 0.45, 0.28, 0.7)
         love.graphics.rectangle("line", draw_x + 4, draw_y + 4, draw_size - 8, draw_size - 8, 8, 8)
-        love.graphics.setColor(0.6, 0.5, 0.3, 0.6)
+        love.graphics.setColor(0.42, 0.55, 0.32, 0.6)
         love.graphics.printf("?", draw_x, draw_y + draw_size / 2 - 14, draw_size, "center")
       elseif cell.state == "sealed" then
         drawCellItem(cell.chain_id, cell.level, draw_x, draw_y, draw_size, true, 1)
@@ -375,15 +448,15 @@ local function drawStash()
   local step = arena.getTutorialStep()
   if step ~= "done" and type(step) == "number" and step < 15 then return end
 
-  love.graphics.setColor(0.5, 0.5, 0.6, 0.5)
+  love.graphics.setColor(0.45, 0.55, 0.40, 0.5)
   love.graphics.printf("Storage", 0, STASH_Y - 22, VW, "center")
 
   for slot = 1, STASH_COUNT do
     local sx, sy = stashScreenPos(slot)
     -- Background
-    love.graphics.setColor(0.08, 0.08, 0.14, 0.85)
+    love.graphics.setColor(0.10, 0.14, 0.10, 0.85)
     love.graphics.rectangle("fill", sx, sy, STASH_SLOT_SIZE, STASH_SLOT_SIZE, 6, 6)
-    love.graphics.setColor(0.18, 0.18, 0.26, 0.5)
+    love.graphics.setColor(0.22, 0.32, 0.20, 0.5)
     love.graphics.rectangle("line", sx, sy, STASH_SLOT_SIZE, STASH_SLOT_SIZE, 6, 6)
 
     -- Item (skip if being dragged)
@@ -431,19 +504,19 @@ local function drawOrdersStrip()
     local can_complete = arena.canCompleteOrder(order.id)
 
     -- Card background
-    love.graphics.setColor(can_complete and {0.07, 0.22, 0.07, 0.92} or {0.08, 0.08, 0.15, 0.88})
+    love.graphics.setColor(can_complete and {0.10, 0.25, 0.12, 0.92} or {0.12, 0.16, 0.12, 0.88})
     love.graphics.rectangle("fill", ox, oy, ORDER_COMPACT_W, ORDER_COMPACT_H, 8, 8)
-    love.graphics.setColor(can_complete and {0.3, 0.8, 0.3, 0.7} or {0.2, 0.22, 0.32, 0.5})
+    love.graphics.setColor(can_complete and {0.35, 0.75, 0.40, 0.7} or {0.25, 0.35, 0.24, 0.5})
     love.graphics.setLineWidth(2)
     love.graphics.rectangle("line", ox, oy, ORDER_COMPACT_W, ORDER_COMPACT_H, 8, 8)
     love.graphics.setLineWidth(1)
 
     -- Character name (top)
-    love.graphics.setColor(0.65, 0.75, 0.9, 0.9)
+    love.graphics.setColor(0.72, 0.78, 0.65, 0.9)
     love.graphics.printf(order.character, ox + 6, oy + 5, ORDER_COMPACT_W - 12, "left")
 
     -- XP reward (top-right)
-    love.graphics.setColor(0.4, 0.75, 1.0, 0.85)
+    love.graphics.setColor(0.72, 0.78, 0.45, 0.85)
     love.graphics.printf("+" .. order.xp_reward .. "XP", ox + 4, oy + 5, ORDER_COMPACT_W - 8, "right")
 
     -- Item icons in a row (center area)
@@ -470,9 +543,9 @@ local function drawOrdersStrip()
     -- COMPLETE overlay button (shown when completable)
     if can_complete then
       local btn_y = oy + ORDER_COMPACT_H - 38
-      love.graphics.setColor(0.15, 0.6, 0.2, 0.95)
+      love.graphics.setColor(0.20, 0.55, 0.25, 0.95)
       love.graphics.rectangle("fill", ox + 6, btn_y, ORDER_COMPACT_W - 12, 32, 6, 6)
-      love.graphics.setColor(1, 1, 1)
+      love.graphics.setColor(0.92, 0.88, 0.78)
       love.graphics.printf("COMPLETE", ox + 6, btn_y + 6, ORDER_COMPACT_W - 12, "center")
     end
   end
@@ -711,7 +784,7 @@ function arena_screen.draw()
   love.graphics.setFont(font)
 
   -- Background
-  love.graphics.setColor(0.06, 0.06, 0.1)
+  love.graphics.setColor(0.18, 0.22, 0.16)
   love.graphics.rectangle("fill", 0, 0, VW, VH)
 
   drawResources()

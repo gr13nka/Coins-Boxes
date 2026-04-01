@@ -379,12 +379,12 @@ local function drawPowerupButtons()
   local sort_h = POWERUP_BTN_H * sort_s
 
   if sort_enabled then
-    love.graphics.setColor(0.2, 0.4, 0.6)
+    love.graphics.setColor(0.25, 0.48, 0.30)
   else
-    love.graphics.setColor(0.2, 0.2, 0.2)
+    love.graphics.setColor(0.18, 0.22, 0.16)
   end
   love.graphics.rectangle("fill", sort_cx - sort_w/2, sort_cy - sort_h/2, sort_w, sort_h, 10, 10)
-  love.graphics.setColor(1, 1, 1, sort_enabled and 1 or 0.4)
+  love.graphics.setColor(0.92, 0.88, 0.78, sort_enabled and 1 or 0.4)
   love.graphics.printf("Sort x" .. sort_count, SORT_BTN_X, POWERUP_Y + (POWERUP_BTN_H - layout.FONT_SIZE) / 2, POWERUP_BTN_W, "center")
 
   -- Hammer button
@@ -397,14 +397,14 @@ local function drawPowerupButtons()
   local hammer_h = POWERUP_BTN_H * hammer_s
 
   if hammer_mode then
-    love.graphics.setColor(0.7, 0.2, 0.2)
+    love.graphics.setColor(0.65, 0.32, 0.18)
   elseif hammer_enabled then
-    love.graphics.setColor(0.6, 0.3, 0.2)
+    love.graphics.setColor(0.55, 0.38, 0.22)
   else
-    love.graphics.setColor(0.2, 0.2, 0.2)
+    love.graphics.setColor(0.18, 0.22, 0.16)
   end
   love.graphics.rectangle("fill", hammer_cx - hammer_w/2, hammer_cy - hammer_h/2, hammer_w, hammer_h, 10, 10)
-  love.graphics.setColor(1, 1, 1, hammer_enabled and 1 or 0.4)
+  love.graphics.setColor(0.92, 0.88, 0.78, hammer_enabled and 1 or 0.4)
   love.graphics.printf("Hammer x" .. hammer_count, HAMMER_BTN_X, POWERUP_Y + (POWERUP_BTN_H - layout.FONT_SIZE) / 2, POWERUP_BTN_W, "center")
 end
 

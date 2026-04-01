@@ -35,11 +35,11 @@ function tab_bar.draw(active_tab)
   local tab_w = VW / #TABS
 
   -- Background
-  love.graphics.setColor(0.08, 0.08, 0.12, 0.95)
+  love.graphics.setColor(0.10, 0.14, 0.10, 0.95)
   love.graphics.rectangle("fill", 0, TAB_Y, VW, TAB_HEIGHT)
 
   -- Top border line
-  love.graphics.setColor(0.25, 0.25, 0.3)
+  love.graphics.setColor(0.25, 0.35, 0.22)
   love.graphics.setLineWidth(2)
   love.graphics.line(0, TAB_Y, VW, TAB_Y)
   love.graphics.setLineWidth(1)
@@ -52,18 +52,18 @@ function tab_bar.draw(active_tab)
 
     if is_active then
       -- Active tab highlight
-      love.graphics.setColor(0.2, 0.5, 0.8, 0.3)
+      love.graphics.setColor(0.20, 0.45, 0.25, 0.3)
       love.graphics.rectangle("fill", x, TAB_Y, tab_w, TAB_HEIGHT)
 
       -- Active indicator bar
-      love.graphics.setColor(0.3, 0.7, 1.0)
+      love.graphics.setColor(0.35, 0.75, 0.45)
       love.graphics.rectangle("fill", x + 20, TAB_Y, tab_w - 40, 3, 2, 2)
 
       -- Active text
-      love.graphics.setColor(1, 1, 1)
+      love.graphics.setColor(0.92, 0.88, 0.78)
     else
       -- Inactive text
-      love.graphics.setColor(0.5, 0.5, 0.55)
+      love.graphics.setColor(0.50, 0.55, 0.45)
     end
 
     love.graphics.printf(tab.label, x, TAB_Y + (TAB_HEIGHT - layout.FONT_SIZE) / 2, tab_w, "center")

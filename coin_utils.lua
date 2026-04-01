@@ -4,13 +4,13 @@
 
 local coin_utils = {}
 
--- 5 shard colors that cycle with coin number
+-- 5 shard colors that cycle with coin number (forest cave palette)
 local SHARD_RGB = {
-  {0.9, 0.2, 0.2},   -- red    (1, 6, 11...)
-  {0.2, 0.8, 0.3},   -- green  (2, 7, 12...)
-  {0.6, 0.2, 0.8},   -- purple (3, 8, 13...)
-  {0.2, 0.4, 0.9},   -- blue   (4, 9, 14...)
-  {0.9, 0.4, 0.7},   -- pink   (5, 10, 15...)
+  {0.35, 0.65, 0.25},  -- moss   (1, 6, 11...)
+  {0.55, 0.60, 0.50},  -- stone  (2, 7, 12...)
+  {0.60, 0.40, 0.22},  -- bark   (3, 8, 13...)
+  {0.25, 0.50, 0.40},  -- fern   (4, 9, 14...)
+  {0.72, 0.78, 0.55},  -- lichen (5, 10, 15...)
 }
 local SHARD_NAMES = {"red", "green", "purple", "blue", "pink"}
 
