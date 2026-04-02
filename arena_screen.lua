@@ -10,6 +10,9 @@ local tab_bar = require("tab_bar")
 local arena = require("arena")
 local arena_chains = require("arena_chains")
 local arena_orders = require("arena_orders")
+local drops = require("drops")
+
+local yandex = require("yandex")
 
 local arena_screen = {}
 
@@ -51,24 +54,73 @@ local GRID_TOP_Y = 260
 local STASH_Y = GRID_TOP_Y + GRID_HEIGHT + 12   -- 1420
 local STASH_SLOT_SIZE = 100
 local STASH_GAP = 6
-local STASH_COUNT = 8
-local STASH_WIDTH = STASH_COUNT * STASH_SLOT_SIZE + (STASH_COUNT - 1) * STASH_GAP
-local STASH_X = math.floor((VW - STASH_WIDTH) / 2)
+-- Dynamic stash count from skill tree
+local function getStashCount()
+  return require("arena").getStashSize()
+end
+local function getStashLayout()
+  local count = getStashCount()
+  local w = count * STASH_SLOT_SIZE + (count - 1) * STASH_GAP
+  local sx = math.floor((VW - w) / 2)
+  return count, w, sx
+end
 
 -- Drag state
 local drag = nil  -- {source, index, item, x, y, start_x, start_y}
 
 -- Tween animation for newly placed/revealed items
-local slot_tweens = {}  -- {[index] = {time, duration}}
-local TWEEN_DURATION = 0.3
+local slot_tweens = {}  -- {[index] = {time, duration, style}}
+local TWEEN_DURATION = 0.35
+local JELLY_DURATION = 0.2   -- simple scale tween on merge
 
--- Notification
-local notification = {text = "", timer = 0, color = {1, 1, 1}}
+-- Generator fly animation
+local gen_fly = nil  -- {src_x, src_y, dst_x, dst_y, item, time, duration, dst_idx}
+local GEN_FLY_DURATION = 0.25
+
+-- Discovered items (first-merge tracking)
+local discovered_items = {}  -- "chain_id:level" = true
+
+-- Notification queue (stackable)
+local notifications = {}  -- array of {text, timer, max_timer, color, slide}
+local NOTIF_DURATION = 2.5
+local NOTIF_SLIDE_IN = 0.2
+
+-- Fuel depletion overlay state
+-- Milestone banner
+
+local fuel_depleted_timer = 0    -- accumulates while fuel=0, overlay shows after 3s
+local fuel_overlay_shown = false -- true once overlay is visible
+local fuel_overlay_dismissed = false -- true after player dismisses overlay
+
+-- Rewarded ad state (watch ad for fuel)
+local AD_FUEL_REWARD = 5
+local waiting_for_ad_reward = false
+
+-- Easing: elastic out (bouncy pop)
+local function easeOutElastic(t)
+  if t <= 0 then return 0 end
+  if t >= 1 then return 1 end
+  local p = 0.35
+  return math.pow(2, -10 * t) * math.sin((t - p / 4) * (2 * math.pi) / p) + 1
+end
+
+-- Easing: smooth ease-out cubic
+local function easeOutCubic(t)
+  t = t - 1
+  return t * t * t + 1
+end
 
 local function showNotification(text, color)
-  notification.text = text
-  notification.timer = 2.0
-  notification.color = color or {1, 1, 1}
+  notifications[#notifications + 1] = {
+    text = text,
+    timer = NOTIF_DURATION,
+    max_timer = NOTIF_DURATION,
+    color = color or {1, 1, 1},
+    slide = 0,  -- 0 = offscreen right, 1 = fully in
+  }
+  if #notifications > 5 then
+    table.remove(notifications, 1)
+  end
 end
 
 -- === COORDINATE HELPERS ===
@@ -97,16 +149,18 @@ end
 
 local function stashSlotAt(x, y)
   if y < STASH_Y or y > STASH_Y + STASH_SLOT_SIZE then return nil end
-  if x < STASH_X then return nil end
-  local slot = math.floor((x - STASH_X) / (STASH_SLOT_SIZE + STASH_GAP)) + 1
-  if slot < 1 or slot > STASH_COUNT then return nil end
-  local sx = STASH_X + (slot - 1) * (STASH_SLOT_SIZE + STASH_GAP)
+  local count, _, stash_start_x = getStashLayout()
+  if x < stash_start_x then return nil end
+  local slot = math.floor((x - stash_start_x) / (STASH_SLOT_SIZE + STASH_GAP)) + 1
+  if slot < 1 or slot > count then return nil end
+  local sx = stash_start_x + (slot - 1) * (STASH_SLOT_SIZE + STASH_GAP)
   if x >= sx and x < sx + STASH_SLOT_SIZE then return slot end
   return nil
 end
 
 local function stashScreenPos(slot)
-  local x = STASH_X + (slot - 1) * (STASH_SLOT_SIZE + STASH_GAP)
+  local _, _, stash_start_x = getStashLayout()
+  local x = stash_start_x + (slot - 1) * (STASH_SLOT_SIZE + STASH_GAP)
   return x, STASH_Y
 end
 
@@ -235,6 +289,28 @@ local function drawGeneratorIcon(cx, cy, radius, alpha)
   )
 end
 
+local function drawChargeBar(x, y, size, charges, max_charges)
+  if not charges or not max_charges or max_charges <= 0 then return end
+  local bar_w = size * 0.7
+  local bar_h = 8
+  local bar_x = x + (size - bar_w) / 2
+  local bar_y = y + size - 20
+  -- Background
+  love.graphics.setColor(0.2, 0.2, 0.2, 0.7)
+  love.graphics.rectangle("fill", bar_x, bar_y, bar_w, bar_h, 3, 3)
+  -- Fill
+  local fill = charges / max_charges
+  if fill > 0 then
+    local r, g, b = 1, 0.9, 0.1
+    if fill < 0.3 then r, g, b = 1, 0.4, 0.2 end
+    love.graphics.setColor(r, g, b, 0.9)
+    love.graphics.rectangle("fill", bar_x, bar_y, bar_w * fill, bar_h, 3, 3)
+  end
+  -- Border
+  love.graphics.setColor(0.5, 0.5, 0.4, 0.6)
+  love.graphics.rectangle("line", bar_x, bar_y, bar_w, bar_h, 3, 3)
+end
+
 local function drawCellItem(chain_id, level, x, y, size, sealed, alpha)
   alpha = alpha or 1
   local cx = x + size / 2
@@ -269,7 +345,7 @@ end
 
 -- === MAIN DRAWING FUNCTIONS ===
 
--- Draw the three resources (Fuel, Metal, Components) as a horizontal pill row
+-- Draw the resources (Fuel, Stars, Bags) as a horizontal pill row
 local function drawResources()
   love.graphics.setFont(font)
   local pill_w = 300
@@ -279,10 +355,26 @@ local function drawResources()
   local start_x = math.floor((VW - total_w) / 2)
   local py = math.floor((RESOURCES_H - pill_h) / 2)
 
+  -- Fuel color: orange <10, red pulsing <5, normal otherwise
+  local fuel = resources.getFuel()
+  local fuel_color = {1, 0.75, 0.15}
+  if fuel < 5 then
+    local pulse = 0.6 + 0.4 * math.sin(love.timer.getTime() * 6)
+    fuel_color = {1, 0.2 * pulse, 0.1 * pulse}
+  elseif fuel < 10 then
+    fuel_color = {1, 0.5, 0.15}
+  end
+
+  local fuel_text = fuel .. "/" .. resources.getFuelCap()
+  local tokens = drops.getGenTokens()
+  if tokens > 0 then
+    fuel_text = fuel_text .. " +" .. tokens .. "T"
+  end
+
   local entries = {
-    {label = "Fuel",       value = resources.getFuel() .. "/" .. resources.getFuelCap(), color = {1, 0.75, 0.15}},
-    {label = "Metal",      value = tostring(resources.getMetal()),                       color = {0.55, 0.75, 0.9}},
-    {label = "Components", value = tostring(resources.getComponents()),                  color = {0.4, 0.9, 0.55}},
+    {label = "Fuel",  value = fuel_text, color = fuel_color},
+    {label = "Stars", value = tostring(resources.getStars()),                       color = {0.95, 0.85, 0.25}},
+    {label = "Bags",  value = tostring(bags.getTotalAvailable()),                   color = {0.8, 0.6, 0.3}},
   }
 
   for i, entry in ipairs(entries) do
@@ -326,7 +418,18 @@ local function drawDispenser()
     local item_size = DISP_SIZE * 0.72
     local ix = cx - item_size / 2
     local iy = cy - item_size / 2
-    drawCellItem(item.chain_id, item.level, ix, iy, item_size, false, 1)
+    if item.state == "chest" then
+      -- Chest in dispenser, colored by chain type
+      local chest_color = arena_chains.getColor(item.chain_id or "Ch")
+      love.graphics.setColor(chest_color[1], chest_color[2], chest_color[3], 0.95)
+      love.graphics.rectangle("fill", ix + 4, iy + 4, item_size - 8, item_size - 8, 8, 8)
+      love.graphics.setColor(chest_color[1] + 0.25, chest_color[2] + 0.25, chest_color[3] + 0.25, 0.9)
+      love.graphics.rectangle("line", ix + 4, iy + 4, item_size - 8, item_size - 8, 8, 8)
+      love.graphics.setColor(1, 1, 1, 0.9)
+      love.graphics.printf(item.chain_id or "?", ix, iy + item_size * 0.3, item_size, "center")
+    else
+      drawCellItem(item.chain_id, item.level, ix, iy, item_size, false, 1)
+    end
   else
     love.graphics.setColor(0.4, 0.4, 0.55, 0.7)
     love.graphics.printf("--", DISP_X, cy - 14, DISP_SIZE, "center")
@@ -387,20 +490,41 @@ local function drawGrid()
     love.graphics.setColor(0.22, 0.32, 0.20, 0.5)
     love.graphics.rectangle("line", x, y, CELL_SIZE, CELL_SIZE, 6, 6)
 
-    -- Skip if being dragged
+    -- Skip if being dragged or fly-animated
     if drag and drag.source == "grid" and drag.index == i then
       -- Don't draw, it's being dragged
+    elseif gen_fly and gen_fly.dst_idx == i then
+      -- Don't draw, item is flying to this cell
     elseif cell then
-      -- Apply pop-in tween
+      -- Apply pop-in tween (elastic bounce or jelly squeeze)
       local tw = slot_tweens[i]
       local draw_x, draw_y, draw_size = x, y, CELL_SIZE
+      local draw_w, draw_h = CELL_SIZE, CELL_SIZE
+      local tween_alpha = 1
       if tw then
-        local t = tw.time / tw.duration
-        local scale = t < 0.6 and (t / 0.6 * 1.15) or (1.15 - (t - 0.6) / 0.4 * 0.15)
-        draw_size = CELL_SIZE * scale
-        draw_x = x + (CELL_SIZE - draw_size) / 2
-        draw_y = y + (CELL_SIZE - draw_size) / 2
+        local t = math.min(tw.time / tw.duration, 1)
+        if tw.style == "jelly" then
+          -- Simple ease-out scale from 0.7 to 1.0
+          local ease = 1 - (1 - t) * (1 - t)
+          local s = 0.7 + 0.3 * ease
+          draw_w = CELL_SIZE * s
+          draw_h = CELL_SIZE * s
+          draw_size = draw_w
+          draw_x = x + (CELL_SIZE - draw_w) / 2
+          draw_y = y + (CELL_SIZE - draw_h) / 2
+          tween_alpha = 1
+        else
+          local scale = easeOutElastic(t)
+          draw_w = CELL_SIZE * scale
+          draw_h = draw_w
+          draw_size = draw_w
+          draw_x = x + (CELL_SIZE - draw_w) / 2
+          draw_y = y + (CELL_SIZE - draw_h) / 2
+          tween_alpha = easeOutCubic(math.min(t * 3, 1))
+        end
       end
+      -- Normalize: use draw_w for item sizing
+      if not draw_size then draw_size = math.min(draw_w, draw_h) end
 
       if cell.state == "box" then
         -- Closed box
@@ -410,17 +534,67 @@ local function drawGrid()
         love.graphics.rectangle("line", draw_x + 4, draw_y + 4, draw_size - 8, draw_size - 8, 8, 8)
         love.graphics.setColor(0.42, 0.55, 0.32, 0.6)
         love.graphics.printf("?", draw_x, draw_y + draw_size / 2 - 14, draw_size, "center")
+      elseif cell.state == "chest" then
+        -- Tappable chest, colored by generator chain type
+        local chest_color = arena_chains.getColor(cell.chain_id or "Ch")
+        local pulse = 0.85 + 0.15 * math.sin(love.timer.getTime() * 3)
+        love.graphics.setColor(chest_color[1] * pulse, chest_color[2] * pulse, chest_color[3] * pulse, 0.95)
+        love.graphics.rectangle("fill", draw_x + 4, draw_y + 4, draw_size - 8, draw_size - 8, 10, 10)
+        love.graphics.setColor(chest_color[1] + 0.25, chest_color[2] + 0.25, chest_color[3] + 0.25, 0.9)
+        love.graphics.setLineWidth(2)
+        love.graphics.rectangle("line", draw_x + 4, draw_y + 4, draw_size - 8, draw_size - 8, 10, 10)
+        love.graphics.setLineWidth(1)
+        -- Chain abbreviation + charges
+        love.graphics.setColor(1, 1, 1, 0.95)
+        love.graphics.printf(cell.chain_id or "?", draw_x, draw_y + draw_size * 0.25, draw_size, "center")
+        love.graphics.setColor(1, 1, 1, 0.8)
+        love.graphics.printf("x" .. (cell.charges or 0), draw_x, draw_y + draw_size * 0.55, draw_size, "center")
       elseif cell.state == "sealed" then
-        drawCellItem(cell.chain_id, cell.level, draw_x, draw_y, draw_size, true, 1)
+        drawCellItem(cell.chain_id, cell.level, draw_x, draw_y, draw_size, true, tween_alpha)
       else
         -- Normal item (or generator)
-        drawCellItem(cell.chain_id, cell.level, draw_x, draw_y, draw_size, false, 1)
+        drawCellItem(cell.chain_id, cell.level, draw_x, draw_y, draw_size, false, tween_alpha)
         -- Green border if needed for an order
         if highlighted[i] then
           love.graphics.setColor(0.2, 0.9, 0.2, 0.35)
           love.graphics.setLineWidth(3)
           love.graphics.rectangle("line", draw_x + 2, draw_y + 2, draw_size - 4, draw_size - 4, 6, 6)
           love.graphics.setLineWidth(1)
+        end
+        -- Generator overlays: locked, charge bar, depleted
+        if arena.isGeneratorCell(i) then
+          if arena.isGeneratorLocked(i) then
+            -- Locked generator overlay
+            love.graphics.setColor(0.1, 0.1, 0.1, 0.55)
+            love.graphics.rectangle("fill", draw_x, draw_y, draw_size, draw_size, 6, 6)
+            -- Lock icon
+            local lx, ly = draw_x + draw_size / 2, draw_y + draw_size / 2
+            local ls = draw_size * 0.15
+            love.graphics.setColor(0.7, 0.7, 0.7, 0.8)
+            love.graphics.rectangle("fill", lx - ls, ly, ls * 2, ls * 1.5, 3, 3)
+            love.graphics.setLineWidth(2)
+            love.graphics.arc("line", "open", lx, ly, ls * 0.8, math.pi, 0)
+            love.graphics.setLineWidth(1)
+          else
+            local ch, max_ch = arena.getGeneratorCharges(i)
+            if ch and max_ch then
+              drawChargeBar(draw_x, draw_y, draw_size, ch, max_ch)
+              if ch <= 0 then
+                -- Dimmed overlay
+                love.graphics.setColor(0.15, 0.15, 0.15, 0.45)
+                love.graphics.rectangle("fill", draw_x, draw_y, draw_size, draw_size, 6, 6)
+                -- Recharge countdown
+                local timer, total = arena.getRechargeProgress(i)
+                if timer and total then
+                  local remaining = math.ceil(total - timer)
+                  local mins = math.floor(remaining / 60)
+                  local secs = remaining % 60
+                  love.graphics.setColor(0.9, 0.9, 0.9, 0.8)
+                  love.graphics.printf(string.format("%d:%02d", mins, secs), draw_x, draw_y + draw_size / 2 - 12, draw_size, "center")
+                end
+              end
+            end
+          end
         end
       end
     end
@@ -451,7 +625,7 @@ local function drawStash()
   love.graphics.setColor(0.45, 0.55, 0.40, 0.5)
   love.graphics.printf("Storage", 0, STASH_Y - 22, VW, "center")
 
-  for slot = 1, STASH_COUNT do
+  for slot = 1, getStashCount() do
     local sx, sy = stashScreenPos(slot)
     -- Background
     love.graphics.setColor(0.10, 0.14, 0.10, 0.85)
@@ -582,6 +756,67 @@ local TUTORIAL_TOOLTIPS = {
   [17] = "",
   [18] = "",
 }
+
+local function drawFuelDepletionOverlay()
+  if not fuel_overlay_shown then return end
+
+  -- Dimmed background
+  love.graphics.setColor(0, 0, 0, 0.7)
+  love.graphics.rectangle("fill", 0, 0, VW, VH)
+
+  -- Panel
+  local pw, ph = 700, 400
+  local px = (VW - pw) / 2
+  local py = (VH - ph) / 2
+
+  love.graphics.setColor(0.12, 0.16, 0.12, 0.95)
+  love.graphics.rectangle("fill", px, py, pw, ph, 16, 16)
+  love.graphics.setColor(1, 0.4, 0.2, 0.8)
+  love.graphics.setLineWidth(3)
+  love.graphics.rectangle("line", px, py, pw, ph, 16, 16)
+  love.graphics.setLineWidth(1)
+
+  -- Title
+  love.graphics.setColor(1, 0.4, 0.2, 1)
+  love.graphics.printf("Out of Fuel!", px, py + 40, pw, "center")
+
+  -- Message
+  love.graphics.setColor(0.85, 0.85, 0.85, 0.9)
+  love.graphics.printf("Merge coins to power your generators", px, py + 100, pw, "center")
+
+  -- Stats
+  love.graphics.setColor(0.95, 0.85, 0.25, 0.9)
+  love.graphics.printf("Stars: " .. resources.getStars(), px, py + 160, pw, "center")
+  love.graphics.setColor(0.8, 0.6, 0.3, 0.9)
+  love.graphics.printf("Bags: " .. bags.getTotalAvailable(), px, py + 200, pw, "center")
+
+  -- Watch Ad for Fuel button (only when Yandex SDK available)
+  local bw, bh = 400, 70
+  local ad_btn_y = py + 250
+  if yandex.isReady() and not waiting_for_ad_reward then
+    local bx = px + (pw - bw) / 2
+    love.graphics.setColor(0.6, 0.2, 0.7, 0.9)
+    love.graphics.rectangle("fill", bx, ad_btn_y, bw, bh, 12, 12)
+    love.graphics.setColor(0.8, 0.4, 0.9, 0.8)
+    love.graphics.rectangle("line", bx, ad_btn_y, bw, bh, 12, 12)
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.printf("Watch Ad for +" .. AD_FUEL_REWARD .. " Fuel", bx, ad_btn_y + 18, bw, "center")
+  end
+
+  -- Go to Coin Sort button
+  local bx = px + (pw - bw) / 2
+  local by = py + ph - 110
+  love.graphics.setColor(0.2, 0.6, 0.3, 0.9)
+  love.graphics.rectangle("fill", bx, by, bw, bh, 12, 12)
+  love.graphics.setColor(0.3, 0.8, 0.4, 0.8)
+  love.graphics.rectangle("line", bx, by, bw, bh, 12, 12)
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.printf("Go to Coin Sort", bx, by + 18, bw, "center")
+
+  -- Dismiss hint
+  love.graphics.setColor(0.6, 0.6, 0.6, 0.5)
+  love.graphics.printf("(tap to dismiss)", px, py + ph - 30, pw, "center")
+end
 
 local function drawTutorial()
   local step = arena.getTutorialStep()
@@ -741,6 +976,33 @@ end
 function arena_screen.enter()
   drag = nil
   slot_tweens = {}
+  gen_fly = nil
+  fuel_depleted_timer = 0
+  fuel_overlay_shown = false
+  fuel_overlay_dismissed = false
+
+  -- Build discovered items from existing grid + stash (avoid false "New" notifications)
+  discovered_items = {}
+  local grid_data = arena.getGrid()
+  for i = 1, arena.getGridSize() do
+    local cell = grid_data[i]
+    if cell and cell.chain_id and cell.level then
+      discovered_items[cell.chain_id .. ":" .. cell.level] = true
+    end
+  end
+  for slot = 1, arena.getStashSize() do
+    local item = arena.getStashSlot(slot)
+    if item then
+      discovered_items[item.chain_id .. ":" .. item.level] = true
+    end
+  end
+
+  -- Transfer shelf items from Coin Sort to dispenser
+  local shelf_items = drops.transferShelf()
+  if #shelf_items > 0 then
+    arena.pushDispenserMultiple(shelf_items)
+    showNotification(#shelf_items .. " item(s) from Coin Sort!", {0.3, 0.9, 0.5})
+  end
 
   -- On first enter with tutorial step 1, seed dispenser with first Ch1
   local step = arena.getTutorialStep()
@@ -756,8 +1018,16 @@ function arena_screen.update(dt)
   bags.update(dt)
   arena.update(dt)
 
-  if notification.timer > 0 then
-    notification.timer = notification.timer - dt
+  -- Update notification queue
+  local ni = 1
+  while ni <= #notifications do
+    notifications[ni].timer = notifications[ni].timer - dt
+    notifications[ni].slide = (notifications[ni].slide or 0) + dt
+    if notifications[ni].timer <= 0 then
+      table.remove(notifications, ni)
+    else
+      ni = ni + 1
+    end
   end
 
   -- Update slot tweens
@@ -768,7 +1038,44 @@ function arena_screen.update(dt)
     end
   end
 
+  -- Update generator fly animation
+  if gen_fly then
+    gen_fly.time = gen_fly.time + dt
+    if gen_fly.time >= gen_fly.duration then
+      -- Fly complete, item is now in cell (no pop-in)
+      gen_fly = nil
+    end
+  end
+
   -- Update drag position from mouse (desktop)
+  -- Fuel depletion overlay timer
+  if resources.getFuel() < 1 and arena.isTutorialDone() then
+    fuel_depleted_timer = fuel_depleted_timer + dt
+    if fuel_depleted_timer >= 3 and not fuel_overlay_dismissed then
+      fuel_overlay_shown = true
+    end
+  else
+    fuel_depleted_timer = 0
+    fuel_overlay_shown = false
+    fuel_overlay_dismissed = false
+  end
+
+  -- Poll rewarded ad result
+  if waiting_for_ad_reward then
+    local r = yandex.getRewardedResult()
+    if r == "closed_rewarded" then
+      resources.addFuel(AD_FUEL_REWARD)
+      showNotification("+" .. AD_FUEL_REWARD .. " Fuel from ad!", {0.6, 0.2, 0.7})
+      fuel_overlay_shown = false
+      fuel_overlay_dismissed = true
+      yandex.resetRewardedResult()
+      waiting_for_ad_reward = false
+    elseif r == "closed_no_reward" or r == "error" then
+      yandex.resetRewardedResult()
+      waiting_for_ad_reward = false
+    end
+  end
+
   if drag and love.mouse.isDown(1) then
     local mx, my = love.mouse.getPosition()
     local ww, wh = love.graphics.getDimensions()
@@ -791,18 +1098,48 @@ function arena_screen.draw()
   drawDispenser()
   drawOrdersStrip()
   drawGrid()
+  -- Generator fly animation (drawn above grid)
+  if gen_fly then
+    local t = math.min(gen_fly.time / gen_fly.duration, 1)
+    local fx = gen_fly.src_x + (gen_fly.dst_x - gen_fly.src_x) * t
+    local fy = gen_fly.src_y + (gen_fly.dst_y - gen_fly.src_y) * t
+    -- Arc: jump up then land (parabola peaking at t=0.3 for a pop-out feel)
+    local arc = -4 * 80 * t * (1 - t)  -- peaks at ~80px upward at midpoint
+    fy = fy + arc
+    drawCellItem(gen_fly.item.chain_id, gen_fly.item.level, fx, fy, CELL_SIZE, false, 1)
+  end
   drawStash()
   drawDragged()
   drawTutorial()
 
-  -- Notification
-  if notification.timer > 0 then
-    local alpha = math.min(notification.timer, 1)
-    love.graphics.setColor(0, 0, 0, alpha * 0.6)
-    love.graphics.rectangle("fill", 40, GRID_TOP_Y - 35, VW - 80, 30, 6, 6)
-    love.graphics.setColor(notification.color[1], notification.color[2], notification.color[3], alpha)
-    love.graphics.printf(notification.text, 0, GRID_TOP_Y - 32, VW, "center")
+  -- Notification stack (newest at bottom, oldest at top) with slide + fade
+  for ni, notif in ipairs(notifications) do
+    -- Slide in from right
+    local slide_t = math.min(notif.slide / NOTIF_SLIDE_IN, 1)
+    local slide_ease = easeOutCubic(slide_t)
+    local offset_x = (1 - slide_ease) * 400  -- slides 400px from right
+
+    -- Fade out in last 0.5s
+    local alpha = notif.timer < 0.5 and (notif.timer / 0.5) or 1
+    -- Scale pop on entry
+    local scale_y = slide_t < 1 and (0.6 + 0.4 * easeOutElastic(slide_t)) or 1
+
+    local ny = GRID_TOP_Y - 35 - (#notifications - ni) * 38
+    local bar_h = 32 * scale_y
+    local bar_y = ny + (32 - bar_h) / 2
+
+    love.graphics.setColor(0, 0, 0, alpha * 0.65)
+    love.graphics.rectangle("fill", 40 + offset_x, bar_y, VW - 80, bar_h, 8, 8)
+    -- Colored accent line on left
+    love.graphics.setColor(notif.color[1], notif.color[2], notif.color[3], alpha * 0.8)
+    love.graphics.rectangle("fill", 40 + offset_x, bar_y, 4, bar_h, 2, 2)
+    -- Text
+    love.graphics.setColor(notif.color[1], notif.color[2], notif.color[3], alpha)
+    love.graphics.printf(notif.text, offset_x, ny + 5, VW, "center")
   end
+
+  -- Fuel depletion overlay (drawn above everything except tab bar)
+  drawFuelDepletionOverlay()
 
   -- Tab bar
   tab_bar.draw("arena")
@@ -810,6 +1147,33 @@ end
 
 function arena_screen.mousepressed(x, y, button)
   if button ~= 1 then return end
+
+  -- Fuel depletion overlay intercepts clicks
+  if fuel_overlay_shown then
+    local pw, ph = 700, 400
+    local px = (VW - pw) / 2
+    local py = (VH - ph) / 2
+    local bw, bh = 400, 70
+    local bx = px + (pw - bw) / 2
+    -- "Watch Ad for Fuel" button
+    local ad_btn_y = py + 250
+    if yandex.isReady() and not waiting_for_ad_reward
+       and x >= bx and x <= bx + bw and y >= ad_btn_y and y <= ad_btn_y + bh then
+      yandex.showRewarded()
+      waiting_for_ad_reward = true
+      return
+    end
+    -- "Go to Coin Sort" button
+    local by = py + ph - 110
+    if x >= bx and x <= bx + bw and y >= by and y <= by + bh then
+      screens.switch("coin_sort")
+      return
+    end
+    -- Dismiss on any click
+    fuel_overlay_shown = false
+    fuel_overlay_dismissed = true
+    return
+  end
 
   -- Tab bar
   local tab = tab_bar.mousepressed(x, y)
@@ -831,11 +1195,45 @@ function arena_screen.mousepressed(x, y, button)
         if x >= ox + 6 and x <= ox + ORDER_COMPACT_W - 6 and y >= btn_y and y <= btn_y + 32 then
           local reward = arena.completeOrder(order.id)
           if reward then
-            showNotification("Order complete! +" .. (reward.xp_reward or 0) .. " XP", {0.3, 0.95, 0.3})
+            -- Show rewards summary
+            local parts = {"Order complete!"}
+            if reward.bag_reward and reward.bag_reward > 0 then
+              parts[#parts + 1] = "+" .. reward.bag_reward .. " Bags"
+            end
+            if reward.star_reward and reward.star_reward > 0 then
+              parts[#parts + 1] = "+" .. reward.star_reward .. " Stars"
+            end
+            showNotification(table.concat(parts, "  "), {0.3, 0.95, 0.3})
+            -- Show drop notifications
+            if reward.drops then
+              for _, d in ipairs(reward.drops) do
+                if d.type == "hammer" then
+                  showNotification("+1 Hammer charge!", {0.9, 0.5, 0.2})
+                elseif d.type == "auto_sort" then
+                  showNotification("+1 Auto Sort charge!", {0.2, 0.7, 0.9})
+                elseif d.type == "bag_bundle" then
+                  showNotification("+" .. d.amount .. " Bags!", {0.8, 0.6, 0.3})
+                elseif d.type == "double_merge" then
+                  showNotification("+1 Double Merge!", {0.9, 0.3, 0.9})
+                elseif d.type == "star_burst" then
+                  showNotification("+" .. d.amount .. " bonus Stars!", {0.95, 0.85, 0.25})
+                end
+              end
+            end
             advanceTutorial("complete_order", nil)
             local level_result = arena.checkLevelComplete()
             if level_result then
               showNotification("Level " .. level_result.new_level .. " unlocked!", {0.4, 0.8, 1.0})
+              if level_result.level_drop then
+                local ld = level_result.level_drop
+                if ld.type == "hammer" then
+                  showNotification("Level bonus: +1 Hammer!", {0.9, 0.5, 0.2})
+                elseif ld.type == "auto_sort" then
+                  showNotification("Level bonus: +1 Auto Sort!", {0.2, 0.7, 0.9})
+                elseif ld.type == "bag_bundle" then
+                  showNotification("Level bonus: +" .. (ld.amount or 1) .. " Bags!", {0.8, 0.6, 0.3})
+                end
+              end
             end
           end
           return
@@ -858,12 +1256,12 @@ function arena_screen.mousepressed(x, y, button)
   local cell_idx = gridCellAt(x, y)
   if cell_idx then
     local cell = arena.getCell(cell_idx)
-    if cell and not cell.state then
-      -- Normal item or generator - start drag
+    if cell and (not cell.state or cell.state == "chest") then
+      -- Normal item, generator, or chest - start drag (chest only for tap detection)
       drag = {
         source = "grid",
         index = cell_idx,
-        item = {chain_id = cell.chain_id, level = cell.level},
+        item = cell.state == "chest" and {state = "chest"} or {chain_id = cell.chain_id, level = cell.level},
         x = x, y = y,
         start_x = x, start_y = y,
       }
@@ -901,15 +1299,48 @@ function arena_screen.mousereleased(x, y, button)
   local moved_dist = math.abs(x - drag.start_x) + math.abs(y - drag.start_y)
   local was_tap = moved_dist < 20
 
+  -- Chest tap (free, no fuel)
+  if was_tap and drag.source == "grid" and arena.isChestCell(drag.index) then
+    local result = arena.tapChest(drag.index)
+    if result then
+      slot_tweens[result.drop_index] = {time = 0, duration = TWEEN_DURATION}
+      local item_name = arena_chains.getItemName(result.drop_chain_id, result.drop_level) or "item"
+      if result.charges_remaining > 0 then
+        showNotification("Chest: " .. item_name .. "! (" .. result.charges_remaining .. " left)", {1, 0.85, 0.3})
+      else
+        showNotification("Chest: " .. item_name .. "! (chest empty)", {1, 0.85, 0.3})
+      end
+    else
+      if arena.countEmpty() == 0 then
+        showNotification("No empty space!", {1, 0.5, 0.2})
+      end
+    end
+    drag = nil
+    return
+  end
+
   -- Generator tap
   if was_tap and drag.source == "grid" and arena.isGeneratorCell(drag.index) then
     local result = arena.tapGenerator(drag.index)
     if result then
-      slot_tweens[result.drop_index] = {time = 0, duration = TWEEN_DURATION}
-      showNotification("Produced " .. (arena_chains.getItemName(result.drop_chain_id, result.drop_level) or "item") .. "!", {0.3, 0.8, 1.0})
+      -- Start fly animation from generator to drop cell
+      local sx, sy = cellScreenPos(drag.index)
+      local dx, dy = cellScreenPos(result.drop_index)
+      gen_fly = {
+        src_x = sx, src_y = sy,
+        dst_x = dx, dst_y = dy,
+        item = {chain_id = result.drop_chain_id, level = result.drop_level},
+        time = 0, duration = GEN_FLY_DURATION,
+        dst_idx = result.drop_index,
+      }
+      -- Pop-in tween starts after fly completes (handled in update)
       advanceTutorial("tap_generator", result)
     else
-      if resources.getFuel() < 1 then
+      if arena.isGeneratorLocked(drag.index) then
+        showNotification("Locked! Unlock in the Skill Tree", {0.6, 0.6, 0.7})
+      elseif arena.isGeneratorDepleted(drag.index) then
+        showNotification("Generator depleted! Wait or merge to recharge", {0.7, 0.7, 0.3})
+      elseif resources.getFuel() < 1 then
         showNotification("Not enough fuel!", {1, 0.3, 0.3})
       elseif arena.countEmpty() == 0 then
         showNotification("No empty space!", {1, 0.5, 0.2})
@@ -928,17 +1359,25 @@ function arena_screen.mousereleased(x, y, button)
       elseif arena.canMerge(drag.index, target_cell) then
         local result = arena.executeMerge(drag.index, target_cell)
         if result then
-          slot_tweens[result.index] = {time = 0, duration = TWEEN_DURATION}
+          slot_tweens[result.index] = {time = 0, duration = JELLY_DURATION, style = "jelly"}
           for _, rev_idx in ipairs(result.revealed) do
             slot_tweens[rev_idx] = {time = 0, duration = TWEEN_DURATION}
           end
-          local name = arena_chains.getItemName(result.chain_id, result.level) or "item"
-          if result.is_generator then
-            showNotification("Created " .. name .. "!", {0.3, 1.0, 0.5})
-          elseif result.was_sealed then
-            showNotification("Unsealed! " .. name, {0.3, 0.95, 0.3})
-          else
-            showNotification("Merged: " .. name, {0.3, 0.95, 0.3})
+          -- Only notify on first discovery of this item type
+          local key = result.chain_id .. ":" .. result.level
+          if not discovered_items[key] then
+            discovered_items[key] = true
+            local name = arena_chains.getItemName(result.chain_id, result.level) or "item"
+            if result.is_generator then
+              showNotification("New: " .. name .. "!", {0.3, 1.0, 0.5})
+            else
+              showNotification("New: " .. name .. "!", {0.3, 0.95, 0.3})
+            end
+          end
+          -- Still notify locked generators (important info)
+          if result.is_generator and result.is_locked then
+            local name = arena_chains.getItemName(result.chain_id, result.level) or "item"
+            showNotification(name .. " locked! Unlock in Skill Tree", {0.6, 0.6, 0.7})
           end
           advanceTutorial("merge", result)
         end

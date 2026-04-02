@@ -25,7 +25,7 @@ local CHAIN_DATA = {
 
   Ch = {
     name = "Chill",
-    color = {0.45, 0.80, 0.60},
+    color = {0.30, 0.95, 0.70},
     generator_threshold = 4,
     generator_name = "Fridge",
     items = {
@@ -34,15 +34,15 @@ local CHAIN_DATA = {
       "Fridge V", "Fridge VI", "Fridge VII",
     },
     produces = {
-      {chain_id = "Me", max_level = 3, weight = 3},
-      {chain_id = "Da", max_level = 3, weight = 3},
+      {chain_id = "Me", max_level = 3, weight = 7},
+      {chain_id = "Da", max_level = 3, weight = 7},
       {chain_id = "Ch", max_level = 1, weight = 1},
     },
   },
 
   Cu = {
     name = "Cupboard",
-    color = {0.62, 0.45, 0.28},
+    color = {0.85, 0.55, 0.20},
     generator_threshold = 4,
     generator_name = "Cupboard",
     items = {
@@ -51,8 +51,8 @@ local CHAIN_DATA = {
       "Cupboard IV", "Cupboard V", "Cupboard VI",
     },
     produces = {
-      {chain_id = "Ta", max_level = 2, weight = 2},
-      {chain_id = "Ki", max_level = 2, weight = 2},
+      {chain_id = "Ta", max_level = 2, weight = 7},
+      {chain_id = "Ki", max_level = 2, weight = 7},
       {chain_id = "Bl", max_level = 1, weight = 1},
       {chain_id = "He", max_level = 1, weight = 1},
     },
@@ -60,7 +60,7 @@ local CHAIN_DATA = {
 
   He = {
     name = "Heating",
-    color = {0.80, 0.38, 0.22},
+    color = {1.00, 0.35, 0.15},
     generator_threshold = 4,
     generator_name = "Toaster",
     items = {
@@ -75,7 +75,7 @@ local CHAIN_DATA = {
 
   Bl = {
     name = "Blending",
-    color = {0.52, 0.32, 0.65},
+    color = {0.70, 0.30, 0.95},
     generator_threshold = 4,
     generator_name = "Blender",
     items = {
@@ -90,7 +90,7 @@ local CHAIN_DATA = {
 
   Ki = {
     name = "Kitchenware",
-    color = {0.28, 0.65, 0.30},
+    color = {0.20, 0.90, 0.25},
     generator_threshold = 7,
     generator_name = "Pot",
     items = {
@@ -104,7 +104,7 @@ local CHAIN_DATA = {
 
   Ta = {
     name = "Tableware",
-    color = {0.35, 0.52, 0.68},
+    color = {0.30, 0.55, 0.95},
     generator_threshold = 7,
     generator_name = "Carafe",
     items = {
@@ -120,7 +120,7 @@ local CHAIN_DATA = {
 
   Me = {
     name = "Meat",
-    color = {0.68, 0.28, 0.22},
+    color = {0.90, 0.20, 0.15},
     items = {
       "Smoked Meat", "Sausage", "Meatballs", "BBQ Wings", "Nuggets",
       "Drum Stick", "Steak", "Schnitzel", "Schweinhaxe", "Ham",
@@ -130,7 +130,7 @@ local CHAIN_DATA = {
 
   Da = {
     name = "Dairy",
-    color = {0.82, 0.73, 0.38},
+    color = {1.00, 0.85, 0.25},
     items = {
       "Egg", "Sunny Side Up", "Scrambled Eggs", "Glass of Milk", "Milk Bottle",
       "Farmer's Can", "Sour Cream", "Soft Cheese", "Mozzarella", "Braided Cheese",
@@ -140,7 +140,7 @@ local CHAIN_DATA = {
 
   Ba = {
     name = "Bakery",
-    color = {0.75, 0.60, 0.32},
+    color = {0.92, 0.68, 0.22},
     items = {
       "Wheat Flour", "Flour Bag", "Bread Slice", "Pretzel", "Croissant",
       "Bagel", "Loaf of Bread", "Ciabatta", "Challah", "Mouse Loaf",
@@ -149,7 +149,7 @@ local CHAIN_DATA = {
 
   De = {
     name = "Desert",
-    color = {0.78, 0.48, 0.60},
+    color = {0.95, 0.40, 0.65},
     items = {
       "Brown Sugar", "Sugar Cubes", "Chocolate", "Truffles", "Doughnut",
       "Eclair", "Strudel", "Cupcake", "Pie", "Devil Cake Piece",
@@ -159,7 +159,7 @@ local CHAIN_DATA = {
 
   So = {
     name = "Soups",
-    color = {0.42, 0.60, 0.22},
+    color = {0.55, 0.85, 0.15},
     items = {
       "Noodle Soup", "Clam Chowder", "Gumbo", "Onion Soup", "Chili",
       "Strawberry Soup",
@@ -168,7 +168,7 @@ local CHAIN_DATA = {
 
   Be = {
     name = "Beverages",
-    color = {0.25, 0.60, 0.55},
+    color = {0.15, 0.85, 0.80},
     items = {
       "Glass of Water", "Cup of Tea", "Coffee", "Orange Juice", "Lemonade",
       "Merge Cola",
@@ -221,6 +221,12 @@ function chains.isGenerator(chain_id, level)
   return level >= chain.generator_threshold
 end
 
+function chains.getGeneratorThreshold(chain_id)
+  local chain = CHAIN_DATA[chain_id]
+  if not chain then return nil end
+  return chain.generator_threshold
+end
+
 function chains.getGeneratorName(chain_id)
   local chain = CHAIN_DATA[chain_id]
   return chain and chain.generator_name
@@ -230,6 +236,12 @@ function chains.getProduces(chain_id)
   local chain = CHAIN_DATA[chain_id]
   return chain and chain.produces
 end
+
+-- Quality bonus: chance to level up drops based on max_coin_reached in Coin Sort
+local QUALITY_BONUS = {
+  [0] = 0, [1] = 0, [2] = 0,
+  [3] = 0.05, [4] = 0.10, [5] = 0.20, [6] = 0.30, [7] = 0.40,
+}
 
 -- Roll a drop from a generator. Returns {chain_id, level} or nil.
 function chains.rollDrop(chain_id, gen_level)
@@ -268,6 +280,14 @@ function chains.rollDrop(chain_id, gen_level)
       drop_level = entry[1]
       break
     end
+  end
+
+  -- Quality bonus: chance to level up based on max_coin_reached
+  local upgrades = require("upgrades")
+  local mcr = upgrades.getMaxCoinReached()
+  local bonus_chance = QUALITY_BONUS[mcr] or QUALITY_BONUS[7]
+  if bonus_chance > 0 and math.random() < bonus_chance then
+    drop_level = drop_level + 1
   end
 
   -- Cap at max_level for the chosen produce chain

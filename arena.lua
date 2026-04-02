@@ -6,6 +6,8 @@ local progression = require("progression")
 local arena_chains = require("arena_chains")
 local resources = require("resources")
 local arena_orders = require("arena_orders")
+local bags = require("bags")
+local drops = require("drops")
 
 local arena = {}
 
@@ -32,6 +34,38 @@ local tutorial_gen_index = 0
 
 -- Shuffle bag: contains items needed for current level's orders, given in random order
 local shuffle_bag = {}  -- array of {chain_id, level}, consumed from front
+
+function arena.isGeneratorUnlocked(chain_id)
+  local st = require("skill_tree")
+  return st.isGeneratorUnlocked(chain_id)
+end
+
+function arena.getGeneratorUnlockNode(chain_id)
+  local st = require("skill_tree")
+  return st.getGeneratorUnlockNode(chain_id)
+end
+
+-- Generator charge system: generators have limited charges, recharge over time
+local GEN_CHARGE_TABLE = {
+  [0] = 10,  -- at generator threshold (e.g., Ch4, Ki7)
+  [1] = 11,
+  [2] = 12,
+  [3] = 13,
+  [4] = 13,
+  [5] = 14,
+  [6] = 14,
+}
+local GEN_RECHARGE_TIME = 600  -- 10 minutes for full recharge (all charges at once)
+
+local function getMaxCharges(chain_id, level)
+  local threshold = arena_chains.getGeneratorThreshold(chain_id)
+  if not threshold then return 0 end
+  local offset = level - threshold
+  if offset < 0 then return 0 end
+  local base = GEN_CHARGE_TABLE[offset] or GEN_CHARGE_TABLE[6]
+  local st = require("skill_tree")
+  return base + st.getGenChargeBonus()
+end
 
 -- Cell states:
 --   nil                                     = empty
@@ -127,6 +161,28 @@ function arena.isGeneratorCell(index)
   return arena_chains.isGenerator(cell.chain_id, cell.level)
 end
 
+function arena.getGeneratorCharges(index)
+  local cell = grid[index]
+  if not cell or cell.state then return nil, nil end
+  if not arena_chains.isGenerator(cell.chain_id, cell.level) then return nil, nil end
+  local max_ch = getMaxCharges(cell.chain_id, cell.level)
+  local ch = cell.charges
+  if ch == nil then ch = max_ch end
+  return ch, max_ch
+end
+
+function arena.isGeneratorDepleted(index)
+  local ch = arena.getGeneratorCharges(index)
+  return ch ~= nil and ch <= 0
+end
+
+function arena.getRechargeProgress(index)
+  local cell = grid[index]
+  if not cell or not cell.recharge_timer then return nil, nil end
+  local st = require("skill_tree")
+  return cell.recharge_timer, st.getGenRechargeTime()
+end
+
 -- Find nearest empty cell via BFS from a starting index
 function arena.findNearestEmpty(from_index)
   local visited = {[from_index] = true}
@@ -212,17 +268,26 @@ function arena.executeMerge(from_index, to_index)
   local chain_id = source.chain_id
 
   grid[from_index] = nil
-  grid[to_index] = {chain_id = chain_id, level = new_level}
+  local new_cell = {chain_id = chain_id, level = new_level}
+  local is_gen = arena_chains.isGenerator(chain_id, new_level)
+  if is_gen then
+    new_cell.charges = getMaxCharges(chain_id, new_level)
+  end
+  grid[to_index] = new_cell
 
   local revealed = arena.revealAdjacentBoxes(to_index)
   arena.save()
 
+  local is_locked = is_gen and not arena.isGeneratorUnlocked(chain_id)
   return {
     index = to_index,
     chain_id = chain_id,
     level = new_level,
     was_sealed = was_sealed,
-    is_generator = arena_chains.isGenerator(chain_id, new_level),
+    is_generator = is_gen,
+    is_locked = is_locked,
+    charges = new_cell.charges,
+    max_charges = new_cell.charges,
     revealed = revealed,
   }
 end
@@ -241,10 +306,21 @@ end
 
 -- === GENERATOR MECHANICS ===
 
+function arena.isGeneratorLocked(index)
+  local cell = grid[index]
+  if not cell or cell.state then return false end
+  if not arena_chains.isGenerator(cell.chain_id, cell.level) then return false end
+  return not arena.isGeneratorUnlocked(cell.chain_id)
+end
+
 function arena.canTapGenerator(index)
   if not arena.isGeneratorCell(index) then return false end
-  if resources.getFuel() < 1 then return false end
+  if arena.isGeneratorLocked(index) then return false end
+  local has_fuel = resources.getFuel() >= 1
+  local has_token = drops.getGenTokens() > 0
+  if not has_fuel and not has_token then return false end
   if arena.countEmpty() == 0 then return false end
+  if arena.isGeneratorDepleted(index) then return false end
   return true
 end
 
@@ -252,7 +328,31 @@ function arena.tapGenerator(index)
   if not arena.canTapGenerator(index) then return nil end
 
   local cell = grid[index]
-  resources.spendFuel(1)
+  -- Use gen token first, then check free tap chance, otherwise spend fuel
+  local used_token = false
+  local free_tap = false
+  if drops.getGenTokens() > 0 then
+    drops.useGenToken()
+    used_token = true
+  else
+    local st = require("skill_tree")
+    local free_chance = st.getFreeFuelTapChance()
+    if free_chance > 0 and math.random() < free_chance then
+      free_tap = true
+    else
+      resources.spendFuelNoSave(1)
+    end
+  end
+
+  -- Decrement generator charges
+  local max_ch = getMaxCharges(cell.chain_id, cell.level)
+  if cell.charges == nil then
+    cell.charges = max_ch
+  end
+  cell.charges = cell.charges - 1
+  if cell.charges <= 0 and not cell.recharge_timer then
+    cell.recharge_timer = 0
+  end
 
   -- Pick drop: hardcoded during tutorial, shuffle bag after
   local drop
@@ -274,6 +374,82 @@ function arena.tapGenerator(index)
     drop_index = empty,
     drop_chain_id = drop.chain_id,
     drop_level = drop.level,
+    charges = cell.charges,
+    max_charges = max_ch,
+    used_token = used_token,
+    free_tap = free_tap,
+  }
+end
+
+-- === CHEST MECHANICS ===
+
+function arena.isChestCell(index)
+  local cell = grid[index]
+  return cell ~= nil and cell.state == "chest"
+end
+
+function arena.getChestCharges(index)
+  local cell = grid[index]
+  if not cell or cell.state ~= "chest" then return nil end
+  return cell.charges or 0
+end
+
+function arena.canTapChest(index)
+  if not arena.isChestCell(index) then return false end
+  if arena.countEmpty() == 0 then return false end
+  return true
+end
+
+-- Roll a chest drop based on the chest's generator chain type.
+-- 70% own chain items (L1-2), 30% food items produced by that chain (L1-2).
+-- Food sub-chains: Ch→Me/Da, He→Ba, Bl→De, Ki→So, Ta→Be, Cu→(none).
+local CHEST_FOOD_MAP = {
+  Ch = {"Me", "Da"},
+  He = {"Ba"},
+  Bl = {"De"},
+  Ki = {"So"},
+  Ta = {"Be"},
+  Cu = {},  -- Cupboard has no food sub-chains
+}
+
+local function rollChestDrop(chest_chain_id)
+  local food_chains = CHEST_FOOD_MAP[chest_chain_id] or {}
+
+  local chain_id
+  if math.random() < 0.70 or #food_chains == 0 then
+    chain_id = chest_chain_id
+  else
+    chain_id = food_chains[math.random(#food_chains)]
+  end
+
+  local level = math.random(1, 2)
+  return {chain_id = chain_id, level = level}
+end
+
+function arena.tapChest(index)
+  if not arena.canTapChest(index) then return nil end
+
+  local cell = grid[index]
+  local drop = rollChestDrop(cell.chain_id)
+
+  local empty = arena.findNearestEmpty(index)
+  if not empty then return nil end
+
+  grid[empty] = {chain_id = drop.chain_id, level = drop.level}
+
+  cell.charges = cell.charges - 1
+  local remaining = cell.charges
+  if remaining <= 0 then
+    grid[index] = nil  -- chest disappears
+  end
+
+  arena.save()
+
+  return {
+    drop_index = empty,
+    drop_chain_id = drop.chain_id,
+    drop_level = drop.level,
+    charges_remaining = remaining,
   }
 end
 
@@ -333,7 +509,12 @@ end
 
 function arena.pushDispenserMultiple(items)
   for _, item in ipairs(items) do
-    dispenser_queue[#dispenser_queue + 1] = {chain_id = item.chain_id, level = item.level}
+    if item.state == "chest" then
+      -- Chest items go directly as chest cells (with chain type)
+      dispenser_queue[#dispenser_queue + 1] = {state = "chest", charges = item.charges or 3, chain_id = item.chain_id or "Ch"}
+    else
+      dispenser_queue[#dispenser_queue + 1] = {chain_id = item.chain_id, level = item.level}
+    end
   end
 end
 
@@ -358,6 +539,11 @@ function arena.popDispenserToGrid()
   local empty = arena.findNearestEmpty(center)
   if not empty then return nil end
   local item = table.remove(dispenser_queue, 1)
+  if item.state == "chest" then
+    grid[empty] = {state = "chest", charges = item.charges or 3, chain_id = item.chain_id or "Ch"}
+    arena.save()
+    return {index = empty, is_chest = true, chest_chain_id = item.chain_id}
+  end
   grid[empty] = {chain_id = item.chain_id, level = item.level}
   arena.save()
   return {index = empty, chain_id = item.chain_id, level = item.level}
@@ -370,14 +556,16 @@ function arena.getStash()
 end
 
 function arena.getStashSlot(slot)
-  if slot < 1 or slot > STASH_SIZE then return nil end
+  local sz = arena.getStashSize()
+  if slot < 1 or slot > sz then return nil end
   return stash[slot]
 end
 
 function arena.moveToStash(grid_index, stash_slot)
   local cell = grid[grid_index]
   if not cell or cell.state then return false end
-  if stash_slot < 1 or stash_slot > STASH_SIZE then return false end
+  local sz = arena.getStashSize()
+  if stash_slot < 1 or stash_slot > sz then return false end
   if stash[stash_slot] then return false end
   stash[stash_slot] = {chain_id = cell.chain_id, level = cell.level}
   grid[grid_index] = nil
@@ -386,7 +574,8 @@ function arena.moveToStash(grid_index, stash_slot)
 end
 
 function arena.moveFromStash(stash_slot, grid_index)
-  if stash_slot < 1 or stash_slot > STASH_SIZE then return false end
+  local sz = arena.getStashSize()
+  if stash_slot < 1 or stash_slot > sz then return false end
   local item = stash[stash_slot]
   if not item then return false end
   if grid_index < 1 or grid_index > GRID_SIZE then return false end
@@ -398,8 +587,9 @@ function arena.moveFromStash(stash_slot, grid_index)
 end
 
 function arena.moveStashToStash(from_slot, to_slot)
-  if from_slot < 1 or from_slot > STASH_SIZE then return false end
-  if to_slot < 1 or to_slot > STASH_SIZE then return false end
+  local sz = arena.getStashSize()
+  if from_slot < 1 or from_slot > sz then return false end
+  if to_slot < 1 or to_slot > sz then return false end
   if not stash[from_slot] then return false end
   if stash[to_slot] then return false end
   stash[to_slot] = stash[from_slot]
@@ -452,8 +642,23 @@ function arena.completeOrder(order_id)
   if reward and reward.xp_reward then
     xp = xp + reward.xp_reward
   end
+  if reward and reward.bag_reward then
+    bags.addBagsNoSave(reward.bag_reward)
+  end
+  if reward and reward.star_reward then
+    resources.addStarsNoSave(reward.star_reward)
+  end
+
+  -- Roll variable drops based on order difficulty
+  local order_drops = nil
+  if reward and reward.difficulty then
+    order_drops = drops.rollOrderDrops(reward.difficulty)
+  end
 
   arena.save()
+  if reward then
+    reward.drops = order_drops
+  end
   return reward
 end
 
@@ -469,6 +674,15 @@ function arena.checkLevelComplete()
   if result.xp then
     xp = xp + result.xp
   end
+  if result.bag_reward then
+    bags.addBagsNoSave(result.bag_reward)
+  end
+  if result.star_reward then
+    resources.addStarsNoSave(result.star_reward)
+  end
+
+  -- Level completion always drops 1 random powerup
+  local level_drop = drops.rollLevelCompletionDrop()
 
   -- Clear shuffle bag so it refills for the new level
   shuffle_bag = {}
@@ -478,6 +692,7 @@ function arena.checkLevelComplete()
     new_level = arena_orders.getCurrentLevel(),
     reward_items = result.items,
     reward_xp = result.xp,
+    level_drop = level_drop,
   }
 end
 
@@ -497,7 +712,10 @@ function arena.isTutorialDone() return tutorial_step == "done" end
 function arena.getGrid() return grid end
 function arena.getGridSize() return GRID_SIZE end
 function arena.getGridDimensions() return GRID_COLS, GRID_ROWS end
-function arena.getStashSize() return STASH_SIZE end
+function arena.getStashSize()
+  local st = require("skill_tree")
+  return st.getStashSize()
+end
 
 -- === INITIAL BOARD SETUP ===
 
@@ -524,7 +742,8 @@ function arena.setupInitialBoard()
     end
   end
 
-  for i = 1, STASH_SIZE do
+  local sz = arena.getStashSize()
+  for i = 1, sz do
     stash[i] = nil
   end
 
@@ -540,7 +759,8 @@ function arena.save()
   end
 
   local stash_save = {}
-  for i = 1, STASH_SIZE do
+  local sz = arena.getStashSize()
+  for i = 1, sz do
     if stash[i] then stash_save[i] = stash[i] end
   end
 
@@ -557,6 +777,9 @@ function arena.save()
   }
 
   progression.setArenaData(data)
+  bags.sync()
+  resources.sync()
+  drops.sync()
   progression.save()
 end
 
@@ -577,7 +800,8 @@ function arena.init()
         grid[i] = data.grid[i] or nil
       end
       stash = {}
-      for i = 1, STASH_SIZE do
+      local sz = arena.getStashSize()
+      for i = 1, sz do
         stash[i] = (data.stash and data.stash[i]) or nil
       end
       dispenser_queue = data.dispenser_queue or {}
@@ -603,7 +827,27 @@ function arena.isInitialized()
 end
 
 function arena.update(dt)
-  -- Generators are fuel-gated only (no cooldowns)
+  -- Generator recharge: fully depleted generators recharge all charges after recharge time
+  local st = require("skill_tree")
+  local recharge_time = st.getGenRechargeTime()
+  local dirty = false
+  for i = 1, GRID_SIZE do
+    local cell = grid[i]
+    if cell and not cell.state and cell.recharge_timer then
+      local max_ch = getMaxCharges(cell.chain_id, cell.level)
+      if cell.charges and cell.charges < max_ch then
+        cell.recharge_timer = cell.recharge_timer + dt
+        if cell.recharge_timer >= recharge_time then
+          cell.charges = max_ch
+          cell.recharge_timer = nil
+          dirty = true
+        end
+      else
+        cell.recharge_timer = nil
+      end
+    end
+  end
+  if dirty then arena.save() end
 end
 
 return arena

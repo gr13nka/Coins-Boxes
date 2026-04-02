@@ -11,6 +11,105 @@
 
         <!-- Load custom style sheet -->
         <link rel="stylesheet" type="text/css" href="theme/love.css">
+
+        <!-- Yandex Games SDK -->
+        <script src="https://yandex.ru/games/sdk/v2"></script>
+        <script>
+            window.yandexBridge = {
+                sdkReady: false,
+                interstitialResult: 'none',
+                rewardedAdResult: 'none',
+
+                init: function() {
+                    if (typeof YaGames === 'undefined') return;
+                    YaGames.init().then(function(ysdk) {
+                        window.ysdk = ysdk;
+                        window.yandexBridge.sdkReady = true;
+                        if (ysdk.features && ysdk.features.LoadingAPI) {
+                            ysdk.features.LoadingAPI.ready();
+                        }
+                    }).catch(function(e) {
+                        console.warn('Yandex SDK init failed:', e);
+                    });
+                },
+
+                showInterstitial: function() {
+                    if (!window.ysdk) return;
+                    window.yandexBridge.interstitialResult = 'showing';
+                    window.ysdk.adv.showFullscreenAdv({
+                        callbacks: {
+                            onOpen: function() {
+                                window.yandexBridge.interstitialResult = 'open';
+                                if (typeof Module._love_setFocus === 'function') {
+                                    Module._love_setFocus(false);
+                                }
+                            },
+                            onClose: function(wasShown) {
+                                window.yandexBridge.interstitialResult = wasShown ? 'closed_shown' : 'closed_not_shown';
+                                if (typeof Module._love_setFocus === 'function') {
+                                    Module._love_setFocus(true);
+                                }
+                            },
+                            onError: function(e) {
+                                window.yandexBridge.interstitialResult = 'error';
+                                if (typeof Module._love_setFocus === 'function') {
+                                    Module._love_setFocus(true);
+                                }
+                            },
+                            onOffline: function() {
+                                window.yandexBridge.interstitialResult = 'error';
+                            }
+                        }
+                    });
+                },
+
+                showRewarded: function() {
+                    if (!window.ysdk) return;
+                    window.yandexBridge.rewardedAdResult = 'watching';
+                    window.ysdk.adv.showRewardedVideo({
+                        callbacks: {
+                            onOpen: function() {
+                                window.yandexBridge.rewardedAdResult = 'open';
+                                if (typeof Module._love_setFocus === 'function') {
+                                    Module._love_setFocus(false);
+                                }
+                            },
+                            onRewarded: function() {
+                                window.yandexBridge.rewardedAdResult = 'rewarded';
+                            },
+                            onClose: function() {
+                                if (window.yandexBridge.rewardedAdResult === 'rewarded') {
+                                    window.yandexBridge.rewardedAdResult = 'closed_rewarded';
+                                } else {
+                                    window.yandexBridge.rewardedAdResult = 'closed_no_reward';
+                                }
+                                if (typeof Module._love_setFocus === 'function') {
+                                    Module._love_setFocus(true);
+                                }
+                            },
+                            onError: function(e) {
+                                window.yandexBridge.rewardedAdResult = 'error';
+                                if (typeof Module._love_setFocus === 'function') {
+                                    Module._love_setFocus(true);
+                                }
+                            }
+                        }
+                    });
+                },
+
+                showBanner: function() {
+                    if (!window.ysdk) return;
+                    window.ysdk.adv.showBannerAdv();
+                },
+
+                hideBanner: function() {
+                    if (!window.ysdk) return;
+                    window.ysdk.adv.hideBannerAdv();
+                }
+            };
+
+            window.yandexBridge.init();
+        </script>
     </head>
     <body>
         <div id="container" class="love-desktop-frame">

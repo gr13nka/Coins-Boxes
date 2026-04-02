@@ -79,7 +79,7 @@ function layout.computeBoxGrid()
     -- Coin sizing: big relative to box width (coins nearly fill the box)
     -- Use the smaller of width-based and row-based limits
     local r_from_width = math.floor(layout.BOX_W * 0.56)
-    local r_from_rows = math.floor(layout.ROW_STEP * 0.62)
+    local r_from_rows = math.floor(layout.ROW_STEP * 1.86)
     layout.COIN_R = math.min(r_from_width, r_from_rows)
 
     -- Column step: horizontal spacing between box centers

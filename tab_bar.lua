@@ -3,6 +3,7 @@
 -- Drawn by both coin_sort_screen and arena_screen.
 
 local layout = require("layout")
+local drops = require("drops")
 
 local tab_bar = {}
 
@@ -16,6 +17,7 @@ local font
 local TABS = {
   { id = "coin_sort", label = "Coin Sort" },
   { id = "arena",     label = "Arena" },
+  { id = "skill_tree", label = "Upgrades" },
 }
 
 function tab_bar.init(assets)
@@ -67,6 +69,25 @@ function tab_bar.draw(active_tab)
     end
 
     love.graphics.printf(tab.label, x, TAB_Y + (TAB_HEIGHT - layout.FONT_SIZE) / 2, tab_w, "center")
+
+    -- Badge: show pending rewards from the other mode
+    if not is_active then
+      local badge_count = 0
+      if tab.id == "arena" then
+        badge_count = drops.getPendingArenaCount()
+      elseif tab.id == "coin_sort" then
+        badge_count = drops.getPendingCSCount()
+      end
+      if badge_count > 0 then
+        local badge_r = 18
+        local bx = x + tab_w - 40
+        local by = TAB_Y + 16
+        love.graphics.setColor(0.85, 0.25, 0.2, 0.95)
+        love.graphics.circle("fill", bx, by, badge_r)
+        love.graphics.setColor(1, 1, 1, 0.95)
+        love.graphics.printf(tostring(badge_count), bx - badge_r, by - badge_r / 2, badge_r * 2, "center")
+      end
+    end
   end
 end
 

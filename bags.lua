@@ -3,6 +3,7 @@
 -- Bags are consumed in Coin Sort to deal coins. Free bags generate on a timer.
 
 local progression = require("progression")
+local resources = require("resources")
 
 local bags = {}
 
@@ -35,33 +36,44 @@ end
 -- Tick free bag timer. Call from update(dt) on any active screen.
 -- Returns true if a new free bag was generated.
 function bags.update(dt)
-  if free_bags_queued >= MAX_QUEUED_FREE then
+  local st = require("skill_tree")
+  local max_free = st.getMaxQueuedFree()
+  local interval = st.getFreeBagInterval()
+
+  if free_bags_queued >= max_free then
     return false
   end
 
   free_bag_timer = free_bag_timer + dt
-  if free_bag_timer >= FREE_BAG_INTERVAL then
-    free_bag_timer = free_bag_timer - FREE_BAG_INTERVAL
-    free_bags_queued = math.min(free_bags_queued + 1, MAX_QUEUED_FREE)
+  if free_bag_timer >= interval then
+    free_bag_timer = free_bag_timer - interval
+    free_bags_queued = math.min(free_bags_queued + 1, max_free)
     bags.save()
     return true
   end
   return false
 end
 
+-- Bag power: coins per bag from skill tree upgrades + deal bonus
+function bags.getBagCoins()
+  local st = require("skill_tree")
+  return st.getBagCoins() + st.getExtraDealCoins()
+end
+
 -- Use a bag: returns coin count if available, nil if no bags
 function bags.useBag()
+  local coins = bags.getBagCoins()
   -- Prioritize queued free bags
   if free_bags_queued > 0 then
     free_bags_queued = free_bags_queued - 1
     bags.save()
-    return FREE_BAG_COINS
+    return coins
   end
 
   if bags_count > 0 then
     bags_count = bags_count - 1
     bags.save()
-    return FREE_BAG_COINS
+    return coins
   end
 
   return nil
@@ -73,12 +85,29 @@ function bags.addBags(n)
   bags.save()
 end
 
+-- Add bags without saving (caller handles save via bags.sync + progression.save)
+function bags.addBagsNoSave(n)
+  bags_count = bags_count + n
+end
+
+-- Push bags state to progression without writing to disk
+function bags.sync()
+  progression.setBagsData({
+    bags = bags_count,
+    free_bag_timer = free_bag_timer,
+    free_bags_queued = free_bags_queued,
+  })
+end
+
 -- Getters
 function bags.getBags() return bags_count end
 function bags.getFreeBagsQueued() return free_bags_queued end
 function bags.getTotalAvailable() return bags_count + free_bags_queued end
 function bags.getFreeTimer() return free_bag_timer end
-function bags.getFreeInterval() return FREE_BAG_INTERVAL end
+function bags.getFreeInterval()
+  local st = require("skill_tree")
+  return st.getFreeBagInterval()
+end
 function bags.getFreeBagCoins() return FREE_BAG_COINS end
 
 return bags

@@ -6,6 +6,8 @@ local coin_sort = {}
 local coin_utils = require("coin_utils")
 local resources = require("resources")
 local bags = require("bags")
+local commissions = require("commissions")
+local drops = require("drops")
 
 -- Timers
 local merge_timer = 0
@@ -242,6 +244,7 @@ function coin_sort.getState()
         max_spawn_number = max_spawn_number,
         MAX_NUMBER = MAX_NUMBER,
         max_coin_reached = max_coin_reached,
+        commissions = commissions.getActive(),
     }
 end
 
@@ -308,6 +311,22 @@ function coin_sort.init()
     local d = prog.getUpgradesData()
     max_coin_reached = d.max_coin_reached or 0
 
+    -- Try to restore saved game
+    local saved = prog.getCoinSortData()
+    if saved.game_active and saved.boxes then
+        boxes = saved.boxes
+        points = saved.points or 0
+        total_merges = saved.total_merges or 0
+        max_spawn_number = saved.max_spawn_number or 1
+        active_box_count = saved.active_box_count or 4
+        game_active = true
+        merge_timer = 0
+        error_timer = 0
+        error_message = ""
+        commissions.generate(max_coin_reached)
+        return
+    end
+
     -- Determine how many boxes to unlock based on progression
     -- Start at 4, unlock 1 per new coin nominal (coin 2 → 5 boxes, etc.)
     active_box_count = math.min(NUM_BOXES, 4 + math.max(0, max_coin_reached - 1))
@@ -337,6 +356,9 @@ function coin_sort.init()
     end
 
     game_active = true
+
+    -- Generate commissions for this CS session
+    commissions.generate(max_coin_reached)
 end
 
 -- Pick coins of the same number from the top of a box
@@ -558,8 +580,22 @@ function coin_sort.executeMergeOnBox(box_idx)
     -- Award points
     points = points + points_per_merge * new_number * coin_count
 
-    -- Award resources (Fuel/Metal/Components)
+    -- Award resources (Fuel/Stars)
     local gained = resources.onCoinMerge(new_number)
+
+    -- Track commission progress
+    commissions.onMerge(new_number, gained)
+
+    -- Refresh commissions if all completed
+    local commissions_refreshed = false
+    if commissions.allCompleted() then
+      commissions.collectRewards()
+      commissions.generate(max_coin_reached)
+      commissions_refreshed = true
+    end
+
+    -- Roll variable drops
+    local drop_results = drops.rollMergeDrops(new_number)
 
     -- Update progression
     total_merges = total_merges + 1
@@ -568,7 +604,7 @@ function coin_sort.executeMergeOnBox(box_idx)
     -- Show "Merged!" message
     merge_timer = 2
 
-    return true, gained
+    return true, gained, drop_results, commissions_refreshed
 end
 
 -- 2048-style merge: All coins in a full box become MERGE_OUTPUT coins of (number+1)
@@ -616,7 +652,19 @@ function coin_sort.merge()
                 points = points + points_per_merge * new_number * coin_count
 
                 -- Award resources
-                resources.onCoinMerge(new_number)
+                local gained = resources.onCoinMerge(new_number)
+
+                -- Track commission progress
+                commissions.onMerge(new_number, gained)
+
+                -- Refresh commissions if all completed
+                if commissions.allCompleted() then
+                  commissions.collectRewards()
+                  commissions.generate(max_coin_reached)
+                end
+
+                -- Roll variable drops
+                drops.rollMergeDrops(new_number)
 
                 -- Update progression
                 total_merges = total_merges + 1
@@ -772,6 +820,28 @@ end
 -- Returns how many boxes are currently active.
 function coin_sort.getActiveBoxCount()
     return active_box_count
+end
+
+function coin_sort.save()
+    local prog = require("progression")
+    prog.setCoinSortData({
+        boxes = boxes,
+        points = points,
+        total_merges = total_merges,
+        max_spawn_number = max_spawn_number,
+        max_coin_reached = max_coin_reached,
+        game_active = game_active,
+        active_box_count = active_box_count,
+    })
+    bags.sync()
+    resources.sync()
+    drops.sync()
+    prog.save()
+end
+
+function coin_sort.clearSave()
+    local prog = require("progression")
+    prog.setCoinSortData({})
 end
 
 return coin_sort

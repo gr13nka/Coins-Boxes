@@ -81,11 +81,10 @@ local function getDefaultData()
       dedicated_player = false,  -- Play 50 games
     },
 
-    -- Resources: Fuel/Metal/Components (replaces crystals for arena loop)
+    -- Resources: Fuel + Stars (Stars replace old Metal/Components)
     resources_data = {
-      fuel = 100,
-      metal = 0,
-      components = 0,
+      fuel = 50,
+      stars = 0,
     },
 
     -- Coin bags for Coin Sort dealing
@@ -93,6 +92,19 @@ local function getDefaultData()
       bags = 5,
       free_bag_timer = 0,
       free_bags_queued = 0,
+    },
+
+    -- Drops: cross-mode variable rewards
+    drops_data = {
+      shelf = {},
+      gen_tokens = 0,
+      pending_cs_drops = {hammer = 0, auto_sort = 0, bag_bundle = 0, double_merge = 0},
+    },
+
+    -- Skill tree: PoE-style upgrade web
+    skill_tree_data = {
+      unlocked = {start = true},
+      stars_spent = 0,
     },
 
     -- Merge Arena state (7x8 grid with boxes/sealed/items, dispenser, stash)
@@ -105,6 +117,9 @@ local function getDefaultData()
       xp = 0,
       tutorial_step = 1,
     },
+
+    -- Coin Sort game state (grid, points, progress)
+    coin_sort_data = {},
   }
 end
 
@@ -266,6 +281,7 @@ end
 function progression.mergeWithDefaults(loaded, defaults)
   local result = {}
 
+  -- Apply defaults first
   for k, v in pairs(defaults) do
     if type(v) == "table" then
       if type(loaded[k]) == "table" then
@@ -275,6 +291,13 @@ function progression.mergeWithDefaults(loaded, defaults)
       end
     else
       result[k] = loaded[k] ~= nil and loaded[k] or v
+    end
+  end
+
+  -- Preserve loaded keys not in defaults (e.g. coin_sort_data contents)
+  for k, v in pairs(loaded) do
+    if result[k] == nil then
+      result[k] = v
     end
   end
 
@@ -569,6 +592,30 @@ end
 
 function progression.setArenaData(d)
   data.arena_data = d
+end
+
+function progression.getDropsData()
+  return data.drops_data or {shelf = {}, gen_tokens = 0, pending_cs_drops = {hammer = 0, auto_sort = 0, bag_bundle = 0, double_merge = 0}}
+end
+
+function progression.setDropsData(d)
+  data.drops_data = d
+end
+
+function progression.getSkillTreeData()
+  return data.skill_tree_data or {unlocked = {start = true}, stars_spent = 0}
+end
+
+function progression.setSkillTreeData(d)
+  data.skill_tree_data = d
+end
+
+function progression.getCoinSortData()
+  return data.coin_sort_data or {}
+end
+
+function progression.setCoinSortData(d)
+  data.coin_sort_data = d
 end
 
 return progression

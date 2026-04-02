@@ -16,6 +16,8 @@ local resources = require("resources")
 local bags = require("bags")
 local powerups = require("powerups")
 local tab_bar = require("tab_bar")
+local drops = require("drops")
+local arena_chains = require("arena_chains")
 
 local coin_sort_screen = {}
 
@@ -31,6 +33,8 @@ local GRID_X_OFFSET = layout.GRID_LEFT_OFFSET
 local selection = nil
 local top_x, top_y = 0, 0  -- Bottom-right grid bounds (for hit testing)
 
+-- Milestone banner
+
 -- Shake animation for invalid placement
 local shakeState = {
   active = false,
@@ -42,7 +46,7 @@ local shakeState = {
 -- Button images and layout (will be set via init)
 local addButtonImage, addButtonPressedImage
 local mergeButtonImage, mergeButtonPressedImage
-local BUTTON_SCALE = 10
+local BUTTON_SCALE = 5
 local BUTTON_SPACING = 40
 local ADD_BUTTON_X, ADD_BUTTON_Y
 local MERGE_BUTTON_X, MERGE_BUTTON_Y
@@ -115,10 +119,20 @@ end
 
 -- Spawn floating resource popup from merge position
 local function spawnResourcePopup(from_x, from_y, gained)
+  -- Support custom text/color for drop notifications
+  if gained.text then
+    table.insert(resource_popups, {
+      text = gained.text,
+      x = from_x, y = from_y,
+      time = 0,
+      color = gained.color or {1, 1, 1},
+    })
+    return
+  end
+
   local parts = {}
   if gained.fuel > 0 then parts[#parts + 1] = "+" .. gained.fuel .. " Fuel" end
-  if gained.components > 0 then parts[#parts + 1] = "+" .. gained.components .. " Comp" end
-  if gained.metal > 0 then parts[#parts + 1] = "+1 Metal" end
+  if gained.stars and gained.stars > 0 then parts[#parts + 1] = "+" .. gained.stars .. " Stars" end
   if #parts == 0 then return end
 
   table.insert(resource_popups, {
@@ -507,7 +521,7 @@ local function drawProgressBar()
   love.graphics.printf("Best: " .. best .. " / " .. max_num, bar_x, bar_y - 2, bar_w, "center")
 end
 
--- Draw resource HUD at top (Fuel gauge, Metal, Components, Bags)
+-- Draw resource HUD at top (Fuel gauge, Stars, Bags)
 local function drawResourceHUD()
   love.graphics.setFont(font)
   local y = 35
@@ -539,22 +553,15 @@ local function drawResourceHUD()
   love.graphics.setColor(1, 1, 1, 0.9)
   love.graphics.printf(fuel .. "/" .. fuel_cap, fuel_bar_x, fuel_bar_y + 1, fuel_bar_w, "center")
 
-  -- Metal count
-  local metal_x = 420
-  love.graphics.setColor(0.6, 0.7, 0.8)
-  love.graphics.print("Metal", metal_x, y - 30)
+  -- Stars count
+  local stars_x = 420
+  love.graphics.setColor(0.95, 0.85, 0.25)
+  love.graphics.print("Stars", stars_x, y - 30)
   love.graphics.setColor(1, 1, 1, 0.9)
-  love.graphics.printf(tostring(resources.getMetal()), metal_x, y - 10, 100, "left")
-
-  -- Components count
-  local comp_x = 580
-  love.graphics.setColor(0.5, 0.8, 0.5)
-  love.graphics.print("Comp", comp_x, y - 30)
-  love.graphics.setColor(1, 1, 1, 0.9)
-  love.graphics.printf(tostring(resources.getComponents()), comp_x, y - 10, 100, "left")
+  love.graphics.printf(tostring(resources.getStars()), stars_x, y - 10, 100, "left")
 
   -- Bags count
-  local bags_x = 740
+  local bags_x = 600
   local total_bags = bags.getTotalAvailable()
   love.graphics.setColor(0.8, 0.6, 0.3)
   love.graphics.print("Bags", bags_x, y - 30)
@@ -571,7 +578,92 @@ local function drawResourceHUD()
   end
 end
 
--- (Quest tracker removed — replaced by resource HUD)
+-- Commission panel (drawn below resource HUD)
+local function drawCommissions()
+  local state = coin_sort.getState()
+  local coms = state.commissions
+  if not coms or #coms == 0 then return end
+
+  love.graphics.setFont(font)
+  local panel_x = 40
+  local panel_y = 75
+  local panel_w = VW - 80
+  local row_h = 36
+
+  -- Semi-transparent background
+  love.graphics.setColor(0.08, 0.12, 0.08, 0.75)
+  love.graphics.rectangle("fill", panel_x, panel_y, panel_w, 8 + #coms * row_h, 8, 8)
+  love.graphics.setColor(0.3, 0.5, 0.3, 0.4)
+  love.graphics.rectangle("line", panel_x, panel_y, panel_w, 8 + #coms * row_h, 8, 8)
+
+  for i, c in ipairs(coms) do
+    local y = panel_y + 4 + (i - 1) * row_h
+    -- Checkbox
+    if c.completed then
+      love.graphics.setColor(0.3, 0.9, 0.4, 0.9)
+      love.graphics.printf("✓", panel_x + 8, y + 4, 30, "center")
+    else
+      love.graphics.setColor(0.5, 0.5, 0.5, 0.6)
+      love.graphics.rectangle("line", panel_x + 14, y + 8, 18, 18, 3, 3)
+    end
+    -- Description + progress
+    local progress_text = ""
+    if not c.completed then
+      progress_text = " (" .. math.min(c.progress, c.target) .. "/" .. c.target .. ")"
+    end
+    love.graphics.setColor(c.completed and 0.6 or 0.85, c.completed and 0.6 or 0.85, c.completed and 0.6 or 0.85, c.completed and 0.5 or 0.9)
+    love.graphics.printf(c.desc .. progress_text, panel_x + 40, y + 6, panel_w - 50, "left")
+  end
+end
+
+-- Shelf display: arena items earned this session
+local function drawShelf()
+  local shelf = drops.getShelf()
+  if #shelf == 0 then return end
+
+  love.graphics.setFont(font)
+  local panel_x = 40
+  local panel_y = 155  -- below commissions
+  local item_size = 50
+  local gap = 6
+  local max_visible = math.min(#shelf, 14)
+  local panel_w = max_visible * (item_size + gap) + gap + 180
+  local panel_h = item_size + gap * 2
+
+  -- Background
+  love.graphics.setColor(0.08, 0.08, 0.12, 0.75)
+  love.graphics.rectangle("fill", panel_x, panel_y, panel_w, panel_h, 8, 8)
+  love.graphics.setColor(0.75, 0.55, 0.15, 0.4)
+  love.graphics.rectangle("line", panel_x, panel_y, panel_w, panel_h, 8, 8)
+
+  -- Label
+  love.graphics.setColor(1, 0.85, 0.3, 0.9)
+  love.graphics.printf("Arena Chests", panel_x + gap, panel_y + gap + 8, 120, "center")
+
+  -- Items (chests)
+  for i = 1, max_visible do
+    local item = shelf[i]
+    local ix = panel_x + 130 + (i - 1) * (item_size + gap)
+    local iy = panel_y + gap
+    -- Chest appearance, colored by generator chain type
+    local arena_chains_mod = require("arena_chains")
+    local chest_color = arena_chains_mod.getColor(item.chain_id or "Ch")
+    local pulse = 0.85 + 0.15 * math.sin(love.timer.getTime() * 2 + i)
+    love.graphics.setColor(chest_color[1] * pulse, chest_color[2] * pulse, chest_color[3] * pulse, 0.9)
+    love.graphics.rectangle("fill", ix, iy, item_size, item_size, 6, 6)
+    love.graphics.setColor(chest_color[1] + 0.25, chest_color[2] + 0.25, chest_color[3] + 0.25, 0.9)
+    love.graphics.rectangle("line", ix, iy, item_size, item_size, 6, 6)
+    love.graphics.setColor(1, 1, 1, 0.9)
+    love.graphics.printf(item.chain_id or "?", ix, iy + 4, item_size, "center")
+    love.graphics.printf("x" .. (item.charges or "?"), ix, iy + 24, item_size, "center")
+  end
+
+  -- Overflow indicator
+  if #shelf > max_visible then
+    love.graphics.setColor(0.7, 0.7, 0.7, 0.7)
+    love.graphics.printf("+" .. (#shelf - max_visible), panel_x + panel_w - 40, panel_y + gap + 8, 40, "center")
+  end
+end
 
 --------------------------------------------------------------------------------
 -- Screen lifecycle
@@ -598,6 +690,12 @@ function coin_sort_screen.enter()
     box_unlock_flashes = {}
     resetState.held = false
     resetState.time = 0
+
+    -- Apply pending drops from Arena
+    local applied = drops.applyPendingCSDrops()
+    if applied.hammer then
+      -- notification handled below
+    end
   end
 
   -- Compute fixed 3×5 grid layout
@@ -622,6 +720,10 @@ function coin_sort_screen.exit()
   -- Track game end
   local state = coin_sort.getState()
   progression.onGameEnd("coin_sort", state.points)
+  -- Persist coin sort state so it survives app restart
+  if coin_sort.isActive() then
+    coin_sort.save()
+  end
 end
 
 function coin_sort_screen.update(dt)
@@ -671,6 +773,8 @@ function coin_sort_screen.draw()
 
   graphics.drawBackground()
   drawResourceHUD()
+  drawCommissions()
+  drawShelf()
   drawProgressBar()
 
   -- Show merge message
@@ -735,8 +839,7 @@ function coin_sort_screen.keypressed(key, scancode, isrepeat)
   if key == "f3" then
     -- Debug: give resources and go to arena
     resources.addFuel(50)
-    resources.addMetal(5)
-    resources.addComponents(10)
+    resources.addStars(10)
     bags.addBags(5)
     screens.switch("arena")
   end
@@ -819,7 +922,10 @@ function coin_sort_screen.mousepressed(x, y, button)
         hammer_mode = false
         if coin_sort.isGameOver() then
           coin_sort.deactivate()
+          coin_sort.clearSave()
           screens.switch("game_over")
+        else
+          coin_sort.save()
         end
       end
     end
@@ -889,7 +995,10 @@ function coin_sort_screen.mousepressed(x, y, button)
         selection = nil
         if coin_sort.isGameOver() then
           coin_sort.deactivate()
+          coin_sort.clearSave()
           screens.switch("game_over")
+        else
+          coin_sort.save()
         end
       end,
       -- Per-coin callback: when each coin lands
@@ -924,12 +1033,15 @@ function coin_sort_screen.mousereleased(x, y, button)
           function()
             if coin_sort.isGameOver() then
               coin_sort.deactivate()
+              coin_sort.clearSave()
               screens.switch("game_over")
+            else
+              coin_sort.save()
             end
           end,
           -- Per-box callback: when each box finishes merging
           function(box_data)
-            local success, gained = coin_sort.executeMergeOnBox(box_data.box_idx)
+            local success, gained, drop_results, commissions_refreshed = coin_sort.executeMergeOnBox(box_data.box_idx)
             sound.playMerge()
             mobile.vibrateMerge()
             progression.onMerge("2048", 1)
@@ -938,6 +1050,24 @@ function coin_sort_screen.mousereleased(x, y, button)
               local from_x = box_data.slot_x[1]
               local from_y = box_data.slot_y[1]
               spawnResourcePopup(from_x, from_y, gained)
+            end
+            -- Commission refresh notification
+            if commissions_refreshed then
+              spawnResourcePopup(box_data.slot_x[1], box_data.slot_y[1] - 40, {text = "Commissions Complete! New goals!", color = {0.3, 0.95, 0.4}})
+            end
+            -- Show drop notifications
+            if drop_results then
+              for _, d in ipairs(drop_results) do
+                if d.type == "chest" then
+                  spawnResourcePopup(box_data.slot_x[1], box_data.slot_y[1], {text = (d.chain_id or "?") .. " Chest! (" .. d.charges .. " taps)", color = {1, 0.85, 0.3}})
+                elseif d.type == "fuel_surge" then
+                  spawnResourcePopup(box_data.slot_x[1], box_data.slot_y[1], {text = "+" .. d.amount .. " Fuel!", color = {1, 0.8, 0.2}})
+                elseif d.type == "star_burst" then
+                  spawnResourcePopup(box_data.slot_x[1], box_data.slot_y[1], {text = "+" .. d.amount .. " Stars!", color = {0.95, 0.85, 0.25}})
+                elseif d.type == "gen_token" then
+                  spawnResourcePopup(box_data.slot_x[1], box_data.slot_y[1], {text = "Free Generator Tap!", color = {1, 0.9, 0.1}})
+                end
+              end
             end
           end,
           -- Particles module reference
@@ -962,7 +1092,10 @@ function coin_sort_screen.mousereleased(x, y, button)
             function()
               if coin_sort.isGameOver() then
                 coin_sort.deactivate()
+                coin_sort.clearSave()
                 screens.switch("game_over")
+              else
+                coin_sort.save()
               end
             end,
             function(coin_data, box_idx, slot)
@@ -998,7 +1131,10 @@ function coin_sort_screen.mousereleased(x, y, button)
             function()
               if coin_sort.isGameOver() then
                 coin_sort.deactivate()
+                coin_sort.clearSave()
                 screens.switch("game_over")
+              else
+                coin_sort.save()
               end
             end,
             function(coin_data, box_idx, slot)

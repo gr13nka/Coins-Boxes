@@ -7,6 +7,8 @@ local resources = require("resources")
 local bags = require("bags")
 local coin_sort = require("coin_sort")
 local progression = require("progression")
+local commissions = require("commissions")
+local yandex = require("yandex")
 
 local game_over_screen = {}
 
@@ -16,9 +18,9 @@ local font
 -- Cached state from the run (snapshot on enter)
 local final_score = 0
 local snap_fuel = 0
-local snap_metal = 0
-local snap_components = 0
+local snap_stars = 0
 local snap_bags = 0
+local commission_rewards = nil
 
 -- Continue button
 local BTN_W, BTN_H = 400, 120
@@ -33,13 +35,21 @@ function game_over_screen.enter()
   local state = coin_sort.getState()
   final_score = state.points
 
-  -- Snapshot resources
+  -- Collect commission rewards before snapshot
+  commission_rewards = commissions.collectRewards()
+  commissions.clear()
+
+  -- Snapshot resources (after commission rewards applied)
   snap_fuel = resources.getFuel()
-  snap_metal = resources.getMetal()
-  snap_components = resources.getComponents()
+  snap_stars = resources.getStars()
   snap_bags = bags.getTotalAvailable()
 
   progression.onGameEnd("2048", final_score)
+
+  -- Show interstitial ad on game over (natural break point)
+  if yandex.isReady() then
+    yandex.showInterstitial()
+  end
 end
 
 function game_over_screen.exit()
@@ -47,6 +57,12 @@ end
 
 function game_over_screen.update(dt)
   bags.update(dt)
+
+  -- Poll interstitial ad result
+  local r = yandex.getInterstitialResult()
+  if r == "closed_shown" or r == "closed_not_shown" or r == "error" then
+    yandex.resetInterstitialResult()
+  end
 end
 
 function game_over_screen.draw()
@@ -73,23 +89,34 @@ function game_over_screen.draw()
   love.graphics.setColor(0.92, 0.88, 0.78)
   love.graphics.printf(snap_fuel .. " / " .. resources.getFuelCap(), 500, row_y, 300, "left")
 
-  -- Metal
-  love.graphics.setColor(0.50, 0.60, 0.55)
-  love.graphics.printf("Metal", 200, row_y + row_h, 200, "left")
+  -- Stars
+  love.graphics.setColor(0.95, 0.85, 0.25)
+  love.graphics.printf("Stars", 200, row_y + row_h, 200, "left")
   love.graphics.setColor(0.92, 0.88, 0.78)
-  love.graphics.printf(tostring(snap_metal), 500, row_y + row_h, 300, "left")
-
-  -- Components
-  love.graphics.setColor(0.42, 0.62, 0.40)
-  love.graphics.printf("Components", 200, row_y + row_h * 2, 200, "left")
-  love.graphics.setColor(0.92, 0.88, 0.78)
-  love.graphics.printf(tostring(snap_components), 500, row_y + row_h * 2, 300, "left")
+  love.graphics.printf(tostring(snap_stars), 500, row_y + row_h, 300, "left")
 
   -- Bags
   love.graphics.setColor(0.68, 0.55, 0.32)
-  love.graphics.printf("Bags", 200, row_y + row_h * 3, 200, "left")
+  love.graphics.printf("Bags", 200, row_y + row_h * 2, 200, "left")
   love.graphics.setColor(0.92, 0.88, 0.78)
-  love.graphics.printf(tostring(snap_bags), 500, row_y + row_h * 3, 300, "left")
+  love.graphics.printf(tostring(snap_bags), 500, row_y + row_h * 2, 300, "left")
+
+  -- Commission rewards
+  if commission_rewards and (commission_rewards.bags > 0 or commission_rewards.stars > 0) then
+    local cr_y = row_y + row_h * 3 + 20
+    love.graphics.setColor(0.65, 0.68, 0.58)
+    love.graphics.printf("Commission Rewards", 0, cr_y, VW, "center")
+    cr_y = cr_y + 70
+    if commission_rewards.bags > 0 then
+      love.graphics.setColor(0.68, 0.55, 0.32)
+      love.graphics.printf("+" .. commission_rewards.bags .. " Bags", 0, cr_y, VW, "center")
+      cr_y = cr_y + row_h
+    end
+    if commission_rewards.stars > 0 then
+      love.graphics.setColor(0.95, 0.85, 0.25)
+      love.graphics.printf("+" .. commission_rewards.stars .. " Stars", 0, cr_y, VW, "center")
+    end
+  end
 
   -- Continue button
   love.graphics.setColor(0.25, 0.65, 0.35)

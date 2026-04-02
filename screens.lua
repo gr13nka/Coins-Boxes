@@ -67,6 +67,12 @@ function screens.keypressed(key, scancode, isrepeat)
     end
 end
 
+function screens.mousemoved(x, y)
+    if current_screen and current_screen.mousemoved then
+        current_screen.mousemoved(x, y)
+    end
+end
+
 -- Touch input delegation (for mobile)
 function screens.touchpressed(id, x, y, pressure)
     if current_screen and current_screen.touchpressed then

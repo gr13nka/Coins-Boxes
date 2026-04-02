@@ -48,4 +48,20 @@ function powerups.useHammer()
   return true
 end
 
+-- No-save variants (caller handles persistence)
+function powerups.addHammerNoSave(n)
+  hammer_count = hammer_count + n
+end
+
+function powerups.addAutoSortNoSave(n)
+  auto_sort_count = auto_sort_count + n
+end
+
+function powerups.sync()
+  progression.setPowerupsData({
+    auto_sort = auto_sort_count,
+    hammer = hammer_count,
+  })
+end
+
 return powerups

@@ -13,7 +13,10 @@ local mobile = require("mobile")
 local resources = require("resources")
 local bags = require("bags")
 local powerups = require("powerups")
+local drops = require("drops")
+local skill_tree = require("skill_tree")
 local tab_bar = require("tab_bar")
+local yandex = require("yandex")
 
 -- Debugger is initialized in conf.lua (must run before love.load)
 
@@ -70,9 +73,12 @@ function love.load()
   resources.init()
   bags.init()
   powerups.init()
+  drops.init()
+  skill_tree.init()
   local arena = require("arena")
   arena.init()
   sound.init()
+  yandex.init()
   windowSetup()
 
   -- FPS counter font (virtual canvas coordinates)
@@ -102,9 +108,13 @@ function love.load()
   -- Initialize tab bar
   tab_bar.init({font = font})
 
+  -- Small font for skill tree labels
+  local font_small = love.graphics.newFont("comic shanns.otf", math.floor(layout.FONT_SIZE * 0.7))
+
   -- Prepare assets bundle for screens
   local assets = {
     font = font,
+    font_small = font_small,
     coinNumberFont = coinNumberFont,
     addButtonImage = addButtonImage,
     addButtonPressedImage = addButtonPressedImage,
@@ -116,17 +126,23 @@ function love.load()
   local coin_sort_screen = require("coin_sort_screen")
   local game_over_screen = require("game_over_screen")
   local arena_screen = require("arena_screen")
+  local skill_tree_screen = require("skill_tree_screen")
 
   coin_sort_screen.init(assets)
   game_over_screen.init(assets)
   arena_screen.init(assets)
+  skill_tree_screen.init(assets)
 
   screens.register("coin_sort", coin_sort_screen)
   screens.register("game_over", game_over_screen)
   screens.register("arena", arena_screen)
+  screens.register("skill_tree", skill_tree_screen)
 
   -- Start directly in Coin Sort mode
   screens.switch("coin_sort")
+
+  -- Show sticky banner ad (passive revenue, web only)
+  yandex.showBanner()
 end
 
 function love.resize(w, h)
@@ -166,6 +182,8 @@ function love.keypressed(key, scancode, isrepeat)
     resources.init()
     bags.init()
     powerups.init()
+    drops.init()
+    skill_tree.init()
     local arena = require("arena")
     arena.init()
     screens.switch("coin_sort")
@@ -196,6 +214,36 @@ function love.mousereleased(x, y, button, istouch)
   end
   local gx, gy = input.toGameCoords(x, y, ox, oy, scale)
   screens.mousereleased(gx, gy, button)
+end
+
+function love.mousemoved(x, y, dx, dy, istouch)
+  local gx, gy = input.toGameCoords(x, y, ox, oy, scale)
+  screens.mousemoved(gx, gy)
+end
+
+function love.focus(focused)
+  if not focused then
+    -- Save all state when window loses focus (covers tab switch, alt-tab, closing)
+    local coin_sort = require("coin_sort")
+    if coin_sort.isActive() then
+      coin_sort.save()
+    end
+    local arena = require("arena")
+    if arena.isInitialized() then
+      arena.save()
+    end
+  end
+end
+
+function love.quit()
+  local coin_sort = require("coin_sort")
+  if coin_sort.isActive() then
+    coin_sort.save()
+  end
+  local arena = require("arena")
+  if arena.isInitialized() then
+    arena.save()
+  end
 end
 
 -- NOTE: love.touchpressed / love.touchreleased are intentionally NOT defined.

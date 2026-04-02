@@ -9,7 +9,7 @@ local particles = {}
 
 -- Mobile-aware configuration (fewer particles on mobile for performance)
 local IS_MOBILE = mobile.isLowPerformance()
-local MAX_PARTICLES = IS_MOBILE and 150 or 300
+local MAX_PARTICLES = IS_MOBILE and 75 or 150
 local GRAVITY = 1800
 local BOUNCE_DAMPING = 0.6      -- Velocity retained after bounce
 local GROUND_Y = layout.VH - 100 -- Where particles bounce
@@ -18,7 +18,7 @@ local GROUND_Y = layout.VH - 100 -- Where particles bounce
 local SIZES = {6, 10, 14, 18}   -- Varied chunk sizes
 
 -- Spawn settings
-local SPAWN_COUNT = IS_MOBILE and 10 or 20
+local SPAWN_COUNT = IS_MOBILE and 5 or 10
 local SPAWN_SPEED_MIN = 400
 local SPAWN_SPEED_MAX = 900
 local SPAWN_ANGLE_SPREAD = 2.2  -- ~126 degrees upward
@@ -26,7 +26,7 @@ local LIFETIME = IS_MOBILE and 0.8 or 1.2
 local MAX_BOUNCES = IS_MOBILE and 2 or 3
 
 -- Merge explosion settings
-local MERGE_SPAWN_COUNT = IS_MOBILE and 18 or 35
+local MERGE_SPAWN_COUNT = IS_MOBILE and 9 or 18
 local MERGE_SPEED_MIN = 500
 local MERGE_SPEED_MAX = 1100
 local MERGE_LIFETIME = IS_MOBILE and 1.0 or 1.5

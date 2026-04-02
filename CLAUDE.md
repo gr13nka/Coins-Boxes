@@ -24,16 +24,21 @@ Keep your visuals and logic separate.
 | `graphics.lua` | Game rendering: coins, boxes, background (NOT UI buttons) |
 | `input.lua` | Hit testing and coordinate conversion |
 | `layout.lua` | Centralized layout: 1080x2400 virtual canvas, scaling, grid metrics |
-| `resources.lua` | Fuel/Metal/Components resource system (data only, no drawing) |
+| `resources.lua` | Fuel/Stars resource system (data only, no drawing) |
 | `bags.lua` | Coin bag inventory + free bag timer (data only, no drawing) |
-| `tab_bar.lua` | Bottom tab bar UI component for screen switching |
+| `tab_bar.lua` | Bottom tab bar UI component for screen switching, badge counts |
+| `commissions.lua` | Commission system for Coin Sort: Forge/Harvest goals with Bag+Star rewards |
+| `drops.lua` | Variable drop system: cross-mode rewards (Chest, FuelSurge, StarBurst, GenToken, Hammer, AutoSort, BagBundle, DoubleMerge) |
 | `powerups.lua` | Consumable power-ups: Auto Sort, Hammer (data only) |
 | `progression.lua` | Unlock/achievement system with file persistence (`progression.dat`) |
 | `coin_utils.lua` | Coin Sort helpers: 5-color cycling, shard mapping |
 | `sound.lua` | Sound loading, playback, toggle state |
 | `utils.lua` | `each_coin()` iterator and debugger setup |
 | `conf.lua` | LOVE window config (resizable, HiDPI) |
+| `skill_tree.lua` | PoE2-style skill tree: 30 nodes, query API, migration (data only, no drawing) |
+| `skill_tree_screen.lua` | Skill tree full-screen UI: pannable node graph, detail panel, unlock interaction |
 | `tutorial.lua` | Placeholder for future tutorial |
+| `yandex.lua` | Yandex Games SDK bridge: ads (interstitial, rewarded, banner) via Emscripten FFI, no-ops on non-web |
 
 ## Key Patterns
 
@@ -51,7 +56,7 @@ Keep your visuals and logic separate.
 
 Each screen is a table with optional methods: `enter()`, `exit()`, `update(dt)`, `draw()`, `mousepressed(x, y, button)`, `keypressed(key, scancode, isrepeat)`.
 
-**Active Screens:** `coin_sort` (Coin Sort, default start), `arena` (Merge Arena), `game_over`
+**Active Screens:** `coin_sort` (Coin Sort, default start), `arena` (Merge Arena), `game_over`, `skill_tree` (Skill Tree)
 **Dormant Screens:** `mode_select` — kept in code but not registered.
 
 **Adding a new screen:**
@@ -74,12 +79,12 @@ Each screen is a table with optional methods: `enter()`, `exit()`, `update(dt)`,
 ```
 
 1. `coin_sort_screen.enter()` uses fixed 3×5 grid (15 boxes, 10 slots each), inits game
-2. Deal coins from bags (limited). Merge coins to earn Fuel/Metal/Components.
+2. Deal coins from bags (limited). Merge coins to earn Fuel/Stars.
 3. Switch to Arena via tab bar. Generators cost 1 Fuel per tap to produce items.
 4. Completing arena orders rewards XP + items (to dispenser queue).
 5. Game over (all boxes full, no merges) → resource summary → Continue to Arena.
 
-**Resource flow:** Coin Sort merges → Fuel → Arena generators → items → orders → XP + more items
+**Resource flow:** Coin Sort merges → Fuel + Stars → Arena generators → items → orders → XP + Bags + Stars + more items
 
 **Tab bar** (tab_bar.lua) is drawn by both coin_sort_screen and arena_screen at bottom of canvas. Handles its own hit testing.
 
@@ -155,6 +160,8 @@ Coins are `{number=N}`, 5 cycling colors via `coin_utils.numberToColor()`. Place
 
 **Game over:** only when ALL boxes full AND no merges possible.
 
+**Save/Load:** `coin_sort.save()` persists full game state (boxes, points, total_merges, max_spawn_number, active_box_count) via `progression.setCoinSortData()`. Saved after merges, deals, placements, hammer use, and screen exit. `coin_sort.clearSave()` clears saved state on game over so next init starts fresh. `coin_sort.init()` restores from save if `saved.game_active and saved.boxes`, otherwise starts fresh game.
+
 ## Merge Arena (arena.lua + arena_chains.lua + arena_orders.lua)
 
 **7×8 grid** (56 cells). Linear index: `(row-1)*7 + col` (1-indexed). Cell states: empty (`nil`), box (`{state="box", chain_id, level}`), sealed (`{state="sealed", chain_id, level}`), normal item (`{chain_id, level}`). Generators are normal items at/above chain's `generator_threshold`.
@@ -186,18 +193,25 @@ Coins are `{number=N}`, 5 cycling colors via `coin_utils.numberToColor()`. Place
 - After merge: adjacent boxes (4-directional) reveal as sealed items.
 
 ### Generator Mechanics
-- Tap = spend 1 Fuel → pull from shuffle bag (or hardcoded during tutorial) → place in nearest empty cell (BFS).
-- Cannot tap if Fuel < 1 or grid full.
+- Tap = spend 1 Fuel + 1 charge → pull from shuffle bag (or hardcoded during tutorial) → place in nearest empty cell (BFS).
+- Cannot tap if Fuel < 1, grid full, or generator depleted (charges = 0).
+- **Charge system:** Each generator has ~10-14 charges (scales with level offset from threshold via `GEN_CHARGE_TABLE`, plus `skill_tree.getGenChargeBonus()`). When fully depleted, recharges ALL charges after `skill_tree.getGenRechargeTime()` seconds (base 600). Merging two generators into a higher level gives full charges instantly. `fbon` node gives 20% chance to skip fuel cost.
+- Charge state stored on cell: `{chain_id, level, charges, recharge_timer}`. Timer ticks in `arena.update(dt)`.
+- Dispenser taps do NOT cost fuel (free reward placement).
 
 ### Dispenser, Stash, Drag Rules
 - **Dispenser:** FIFO queue above grid, shows 1 item. Fed by: tutorial, order rewards, level rewards. **Tap to pop** — tapping dispenser places item in nearest empty grid cell (not draggable).
-- **Stash:** 8 slots below grid. Storage only, no merging. Grid↔stash movement allowed.
+- **Stash:** Dynamic slots (base 8, increased by skill tree nodes `stas`/`stash2`) below grid. Storage only, no merging. Grid↔stash movement allowed.
 - **Drag sources → valid targets:** grid→grid(empty/merge/sealed-merge), grid→stash(empty), stash→grid(empty), stash→stash(rearrange). Tap on generator = activate.
 
 ### Orders
-10 levels of static orders (Season 1). Characters: Meryl, Murray, Marcus, Mike, Midori. Up to 3 visible at a time from current level. Complete order → items removed from grid, XP + item rewards to dispenser. All level orders done → level rewards (items + XP) → next level. Orders hidden during tutorial until step 13.
+10 levels of static orders (Season 1). Characters: Meryl, Murray, Marcus, Mike, Midori. Up to 3 visible at a time from current level. Complete order → items removed from grid, XP + bags + stars rewarded (no item rewards). All level orders done → level rewards (items + XP) → next level. Orders hidden during tutorial until step 13.
+
+**Order gating:** Orders requiring items from chains whose parent generator is locked are hidden. Level completion only requires PRODUCIBLE orders. Shuffle bag also skips locked orders. `CHAIN_PRODUCER` maps sub-chains to parent generators (Me/Da→Ch, Ba→He, De→Bl, So→Ki, Be→Ta). Uses lazy `require("arena")` to avoid circular dependency.
 
 **Order item highlighting:** Grid items that match any visible order requirement are highlighted with a green border (visual only, not locked — player can still merge/move them). Count-aware: if an order needs 2× Me5, only 2 Me5 items get highlighted.
+
+**Generator quality scaling:** After rolling base drop level, `rollDrop()` applies a quality bonus (level+1 chance) based on `max_coin_reached` from Coin Sort: mcr3→5%, mcr4→10%, mcr5→20%, mcr6→30%, mcr7+→40%. Capped at chain max_level.
 
 ### Arena Screen Layout (1080×1920 virtual canvas)
 - Fuel bar: Y 0-40
@@ -228,16 +242,25 @@ Initially sealed (visible): row4 cols 3-5 (Cu1,Da1,Bl2), row5 cols 2,3,6 (He2,Ta
 
 ## Resources (resources.lua)
 
-Three resources earned from Coin Sort merges:
-- **Fuel** (cap 100): powers arena generators (1 Fuel per generator tap)
-- **Metal** (uncapped): reserved for future use
-- **Components** (uncapped): reserved for future use
+Two resources form the core game loop:
+- **Fuel** (base cap 50, dynamic via `skill_tree.getFuelCap()`): powers arena generators (1 Fuel per tap). Earned from Coin Sort merges.
+- **Stars** (uncapped): spendable progression currency for skill tree nodes. Earned from both Coin Sort merges (L4+) and Arena order/level completion. `addStars()` applies `skill_tree.getStarMultiplier()`.
 
-Merge reward table (by resulting coin level): L2→+1fuel, L4→+1fuel+1comp, L5→+2fuel+1comp+5%metal, L6→+3fuel+2comp+25%metal, L7→+4fuel+3comp+50%metal
+Merge reward table (by resulting coin level): L2→+1fuel, L4→+1fuel+1star, L5→+2fuel+2stars, L6→+3fuel+3stars, L7→+4fuel+5stars
+
+**Merge bonus fuel:** Controlled by skill tree nodes `mbon5` (L5+) and `mbon4` (L4+). Delegated to `skill_tree.getMergeBonusFuel()`.
+
+Order completion rewards bags (easy:1, medium:2, hard:3 based on xp) + stars (1-3) + XP (no item rewards). Level completion rewards bags (3-5) + stars (5-10) + items.
+
+**Fuel depletion alert:** When fuel=0 in Arena for 3+ seconds, an overlay appears offering to switch to Coin Sort. Fuel bar turns orange <10, pulses red <5.
+
+**Save batching:** `arena.save()` calls `bags.sync()` + `resources.sync()` before single `progression.save()`. Order completion and generator taps use NoSave variants to avoid redundant disk writes.
 
 ## Bags (bags.lua)
 
-Coin bags consumed in Coin Sort to deal coins. Free bags generate on timer (12 min, max 2 queued). Order rewards add bags. Fresh save starts with 5 bags. Timer ticks on all screens.
+Coin bags consumed in Coin Sort to deal coins. Free bags generate on timer (dynamic via `skill_tree.getFreeBagInterval()`, base 720s). Max queued free bags dynamic via `skill_tree.getMaxQueuedFree()` (base 2). Order rewards add bags. Fresh save starts with 5 bags. Timer ticks on all screens.
+
+**Bag power scaling (skill tree):** base 18 coins/bag, increased by nodes `bp20`(→20), `bp22`(→22), `bp24`(→24). Extra deal coins from `cspc` node (+2). Via `bags.getBagCoins()`.
 
 ## Power-ups (powerups.lua)
 
@@ -245,6 +268,46 @@ Coin bags consumed in Coin Sort to deal coins. Free bags generate on timer (12 m
 - **Hammer** — clears an entire column. Activates targeting mode (red overlay, click column to clear, Escape to cancel).
 
 Both start at 100 charges (dev/testing). `coin_sort.autoSort()` returns dealing animation data. `coin_sort.clearColumn(col_idx)` returns removed coins.
+
+## Drops (drops.lua)
+
+Variable cross-mode reward system. Drops are rolled probabilistically on merges and order completions.
+
+**CS merge drops → Arena:** Chest (arena item → shelf → dispenser on mode switch), Fuel Surge (+3-5 fuel), Star Burst (+2-3 stars, L4+), Generator Token (free gen tap, L5+). Chances scale with merge level.
+
+**Arena order drops → CS:** Hammer charge, AutoSort charge, Bag Bundle (+1-2 bags), Double Merge (hard orders only), Star Burst (+2-3 stars). Chances scale with order difficulty (easy/medium/hard). Level completion always drops 1 random powerup.
+
+**Chest system:** CS merges can drop typed Chests (one per generator chain) — the main driver of arena progression. Each chest is assigned a random unlocked generator chain (Ch/Cu/He/Bl/Ki/Ta) and visually colored to match. Drop rates are high (L3:15%, L4:20%, L5:30%, L6:40%, L7:50%). Chests appear on a shelf during CS, transfer to arena dispenser on mode switch. On the arena grid, chests can be tapped for free (no fuel cost) to produce items: 70% own chain items (L1-2), 30% food sub-chain items (L1-2). Food sub-chains: Ch→Me/Da, He→Ba, Bl→De, Ki→So, Ta→Be, Cu→none. Each tap decrements charges; chest disappears when empty. Charges scale with merge level (L3→2, L4→3, L5→4, L6→5, L7→6). Grid cell: `{state = "chest", charges = N, chain_id = "Ch"}`.
+
+**Shelf:** Chests earned during CS session, displayed as a row on CS screen. Auto-transferred to Arena dispenser on mode switch. Infinite capacity.
+
+**Generator Tokens:** Free generator taps stored in drops state. Used automatically before fuel on tap. Shown as "+NT" next to fuel display.
+
+**Tab bar badges:** Red circle on inactive tab showing pending reward count from other mode.
+
+Persistence via `progression.getDropsData()`/`setDropsData()`. Synced via `drops.sync()` in `arena.save()`.
+
+## Commissions (commissions.lua)
+
+2 active commissions per CS session, refreshed on game init. Two types: Forge (create specific merge results) and Harvest (accumulate resources/merges). Rewards: Bags + Stars (no Fuel). Collected on game over via `commissions.collectRewards()`.
+
+## Skill Tree (skill_tree.lua + skill_tree_screen.lua)
+
+PoE2-style upgrade tree replacing the old linear milestone system. Stars are **spent** (not thresholds) to unlock interconnected nodes. Player paths outward from a central `start` node through adjacent connections.
+
+**30 nodes** in 3 tiers: Small (2-3★), Notable (5-10★), Keystone (15-25★). Total cost ~192★.
+
+**Key upgrades:** Generator unlocks (He→`heat`, Cu→`cup`, Bl→`blnd`, Ki→`kitc`, Ta→`tblw`), fuel cap (`ffuel`), bag power (`bp20`/`bp22`/`bp24`), stash size (`stas`/`stash2`), merge fuel bonuses (`mbon5`/`mbon4`), generator charges (`gch1`/`gch2`), recharge time (`fbag1`/`fbag2`), star multiplier (`surge`), and future poison coins (`poison` — "Coming Soon").
+
+**Query API** (used by resources, bags, arena, drops, arena_orders): `isGeneratorUnlocked()`, `getBagCoins()`, `getFuelCap()`, `getStashSize()`, `getMergeBonusFuel()`, `getGenChargeBonus()`, `getGenRechargeTime()`, `getStarMultiplier()`, etc.
+
+**Circular dependency:** `skill_tree` ↔ `resources` solved via lazy `require()` inside functions.
+
+**Migration:** When tree is empty but player has stars > 0, maps old milestone thresholds to tree nodes, BFS-paths for connectivity, deducts cost from current stars.
+
+**Screen:** Full-screen pannable node graph. Accessed via tappable "Stars >" pill on both CS and Arena screens. Node detail panel slides up on tap with unlock button. Back button returns to previous screen.
+
+**Persistence:** `progression.skill_tree_data = {unlocked = {start = true}, stars_spent = 0}`.
 
 ## Coin Sort Gameplay Screen (coin_sort_screen.lua)
 
@@ -278,10 +341,3 @@ Both start at 100 charges (dev/testing). `coin_sort.autoSort()` returns dealing 
 - **Particles**: `particles.lua` uses active-list pool (O(1) alloc, update skips dead) + SpriteBatch (1 draw call for all particles). `mobile.isLowPerformance()` halves particle counts (150 max, 10 per burst, 18 per merge), reduces lifetime/bounces, and skips the per-particle highlight.
 - **Graphics caching**: `graphics.lua` caches `getDimensions()` for the ball image, and `font:getWidth()`/`font:getHeight()` per font. Two-layer rendering uses step-2 iteration (no modulo per coin).
 - **Canvas**: `{dpiscale = 1}` prevents oversized textures on HiDPI mobile GPUs.
-
-## FPS Counter
-
-Drawn inside the virtual canvas (bottom-left corner) in `main.lua`'s `love.draw()`, using a 24px font. Always visible on all screens.
-
-## Keyboard Shortcuts
-- `\` — quit, `Escape` — upgrades screen (from game)

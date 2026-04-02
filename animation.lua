@@ -33,20 +33,19 @@ local flight_start_coins = {} -- Frozen positions at flight start
 local HOVER_LIFT_DURATION = 0.05 -- seconds to lift coins (quick snap)
 local HOVER_LIFT_HEIGHT = 15     -- pixels upward offset when lifted
 local HOVER_SPREAD = 90          -- pixels between coin centers (COIN_R * 1.5)
-local FLIGHT_DURATION = 0.35     -- seconds per coin
+local FLIGHT_DURATION = 0.09     -- seconds per coin (4x faster)
 local FLIGHT_ARC_HEIGHT = 150    -- pixels above trajectory
-local DROP_DELAY = 0.15          -- delay between each coin starting to drop
+local DROP_DELAY = 0.075         -- delay between each coin starting to drop
 
 -- Merge animation configuration
 local MERGE_SLIDE_DURATION = 0.15     -- time for one coin to slide into another
 local MERGE_IMPACT_PAUSE = 0.05       -- brief pause on impact
-local MERGE_POP_DURATION = 0.2        -- new coin pops after final merge
+local MERGE_POP_DURATION = 0.12        -- new coin pops after final merge
 local MERGE_BOX_DELAY = 0.2           -- delay between sequential boxes
-local MERGE_POP_OVERSHOOT = 1.3       -- scale overshoot on pop
 
 -- Screen shake
-local SHAKE_INTENSITY = 12            -- max shake pixels
-local SHAKE_DURATION = 0.15           -- shake duration per impact
+local SHAKE_INTENSITY = 5             -- max shake pixels
+local SHAKE_DURATION = 0.08           -- shake duration per impact
 local screen_shake_time = 0
 local screen_shake_intensity = 0
 
@@ -487,9 +486,10 @@ function animation.update(dt)
 
                 -- Pop phase: new coin appears with bounce
                 elseif box_data.phase == "pop" then
-                    local t = box_data.phase_time / MERGE_POP_DURATION
-                    -- Elastic overshoot
-                    box_data.merged_scale = 1 + (MERGE_POP_OVERSHOOT - 1) * math.sin(t * math.pi) * (1 - t * 0.5)
+                    local t = math.min(box_data.phase_time / MERGE_POP_DURATION, 1)
+                    -- Simple ease-out: scale from 0.5 to 1.0
+                    local ease = 1 - (1 - t) * (1 - t)
+                    box_data.merged_scale = 0.5 + 0.5 * ease
 
                     if box_data.phase_time >= MERGE_POP_DURATION then
                         box_data.phase = "done"
@@ -590,8 +590,9 @@ function animation.update(dt)
                         coin_data.scale = 1.0
                         coin_data.rotation = 0
                     else
-                        -- Elastic overshoot
-                        coin_data.scale = 1 + (DEALING_BOUNCE_OVERSHOOT - 1) * math.sin(t * math.pi) * (1 - t * 0.5)
+                        -- Simple ease-out settle
+                        local ease = 1 - (1 - t) * (1 - t)
+                        coin_data.scale = 0.8 + 0.2 * ease
                         coin_data.rotation = 0
                     end
                 end
