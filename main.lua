@@ -105,6 +105,10 @@ function love.load()
   -- Initialize particle system
   particles.init()
 
+  -- Initialize effects system (fly-to-bar, flash, burst)
+  local effects = require("effects")
+  effects.init()
+
   -- Initialize tab bar
   tab_bar.init({font = font})
 

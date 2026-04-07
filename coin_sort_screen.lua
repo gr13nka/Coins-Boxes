@@ -18,6 +18,7 @@ local powerups = require("powerups")
 local tab_bar = require("tab_bar")
 local drops = require("drops")
 local arena_chains = require("arena_chains")
+local effects = require("effects")
 
 local coin_sort_screen = {}
 
@@ -54,11 +55,33 @@ local BUTTON_WIDTH, BUTTON_HEIGHT
 
 -- Button animation state
 local buttonState = {
-  add = { pressed = false, scale = 1.0, targetScale = 1.0 },
-  merge = { pressed = false, scale = 1.0, targetScale = 1.0 }
+  add = { pressed = false, scale = 1.0, targetScale = 1.0, did_overshoot = false },
+  merge = { pressed = false, scale = 1.0, targetScale = 1.0, did_overshoot = false }
 }
-local BUTTON_PRESS_SCALE = 0.85
+local BUTTON_PRESS_SCALE = 0.95  -- D-07: shrink to ~95% on press
 local BUTTON_ANIM_SPEED = 12
+local BUTTON_OVERSHOOT = 1.06    -- D-07: bounce past 1.0 then settle
+
+-- Level-scaled merge celebration config (per D-02)
+-- [resulting_level] = { particle_mult, shake_mult, flash_duration }
+local MERGE_CELEBRATION = {
+    [2] = { particle_mult = 0.5, shake_mult = 0.5, flash = 0 },
+    [3] = { particle_mult = 0.7, shake_mult = 0.7, flash = 0 },
+    [4] = { particle_mult = 1.0, shake_mult = 1.0, flash = 0.05 },
+    [5] = { particle_mult = 1.3, shake_mult = 1.3, flash = 0.08 },
+    [6] = { particle_mult = 1.6, shake_mult = 1.5, flash = 0.12 },
+    [7] = { particle_mult = 2.0, shake_mult = 2.0, flash = 0.15 },
+}
+
+-- Coin fly-up on merge (per FX-03)
+local MAX_FLY_UPS = 5
+local fly_ups = {}
+local FLY_UP_HEIGHT = 40    -- pixels above merge point
+local FLY_UP_DURATION = 0.25  -- seconds for arc up and back
+
+for i = 1, MAX_FLY_UPS do
+    fly_ups[i] = { active = false, x = 0, y = 0, base_y = 0, time = 0, r = 1, g = 1, b = 1, number = 0 }
+end
 
 -- Power-up button layout
 local POWERUP_Y = layout.BUTTON_AREA_Y + 180
@@ -80,8 +103,8 @@ local resetState = {
 
 -- Power-up button animation state
 local powerupButtonState = {
-  sort = { pressed = false, scale = 1.0, targetScale = 1.0 },
-  hammer = { pressed = false, scale = 1.0, targetScale = 1.0 },
+  sort = { pressed = false, scale = 1.0, targetScale = 1.0, did_overshoot = false },
+  hammer = { pressed = false, scale = 1.0, targetScale = 1.0, did_overshoot = false },
 }
 
 -- Fonts (set via init)
@@ -173,6 +196,80 @@ local function drawResourcePopups()
   end
 end
 
+-- Trigger level-scaled merge celebration (per D-01, D-02, D-03, FX-03)
+local function triggerMergeCelebration(x, y, color, level)
+    local c = MERGE_CELEBRATION[level] or MERGE_CELEBRATION[2]
+
+    -- Extra particles scaled by level (on top of what animation.lua already spawns)
+    if c.particle_mult > 1.0 then
+        local extra = math.floor((c.particle_mult - 1.0) * 10)
+        for i = 1, extra do
+            particles.spawn(x, y, color)
+        end
+    end
+
+    -- Enhanced screen shake (amplify the base shake from animation system)
+    if c.shake_mult > 1.0 then
+        local base_shake = animation.getShakeIntensity()
+        animation.triggerShake(base_shake * c.shake_mult, 0.12)
+    end
+
+    -- Brief white flash for L4+ merges
+    if c.flash > 0 then
+        effects.spawnFlash(c.flash)
+    end
+
+    -- Coin fly-up: find a free fly-up slot and start arc animation
+    for i = 1, MAX_FLY_UPS do
+        if not fly_ups[i].active then
+            fly_ups[i].active = true
+            fly_ups[i].x = x
+            fly_ups[i].y = y
+            fly_ups[i].base_y = y
+            fly_ups[i].time = 0
+            fly_ups[i].r = color[1] or 1
+            fly_ups[i].g = color[2] or 1
+            fly_ups[i].b = color[3] or 1
+            fly_ups[i].number = level
+            break
+        end
+    end
+end
+
+local function updateFlyUps(dt)
+    for i = 1, MAX_FLY_UPS do
+        local fu = fly_ups[i]
+        if fu.active then
+            fu.time = fu.time + dt
+            if fu.time >= FLY_UP_DURATION then
+                fu.active = false
+            else
+                -- Parabolic arc: rises then falls back
+                local t = fu.time / FLY_UP_DURATION
+                local arc = math.sin(t * math.pi)  -- 0 -> 1 -> 0
+                fu.y = fu.base_y - FLY_UP_HEIGHT * arc
+            end
+        end
+    end
+end
+
+local function drawFlyUps()
+    for i = 1, MAX_FLY_UPS do
+        local fu = fly_ups[i]
+        if fu.active then
+            local t = fu.time / FLY_UP_DURATION
+            local alpha = 1 - t * 0.5  -- fade slightly
+            love.graphics.setColor(fu.r, fu.g, fu.b, alpha)
+            -- Draw as a small tinted circle (like a coin)
+            local r = COIN_R * 0.6
+            love.graphics.circle("fill", fu.x, fu.y, r)
+            -- Number on the coin
+            love.graphics.setColor(1, 1, 1, alpha)
+            love.graphics.printf(tostring(fu.number), fu.x - 20, fu.y - 10, 40, "center")
+        end
+    end
+end
+
 --------------------------------------------------------------------------------
 -- Initialization
 --------------------------------------------------------------------------------
@@ -245,23 +342,30 @@ local function draw_add_coins_button()
 end
 
 local function updateButtonAnimations(dt)
-  for _, state in pairs(buttonState) do
+  -- Shared overshoot logic for button bounce (D-07)
+  local function updateButtonScale(state)
     if state.scale ~= state.targetScale then
       local diff = state.targetScale - state.scale
-      state.scale = state.scale + diff * BUTTON_ANIM_SPEED * dt
-      if math.abs(diff) < 0.01 then
+      state.scale = state.scale + diff * math.min(1, BUTTON_ANIM_SPEED * dt)
+
+      -- Overshoot on release: when heading to 1.0 and crossing threshold, bounce past
+      if state.targetScale == 1.0 and not state.did_overshoot and state.scale > 0.98 then
+        state.scale = BUTTON_OVERSHOOT
+        state.did_overshoot = true
+      end
+
+      if math.abs(state.scale - state.targetScale) < 0.005 then
         state.scale = state.targetScale
+        state.did_overshoot = false
       end
     end
   end
+
+  for _, state in pairs(buttonState) do
+    updateButtonScale(state)
+  end
   for _, state in pairs(powerupButtonState) do
-    if state.scale ~= state.targetScale then
-      local diff = state.targetScale - state.scale
-      state.scale = state.scale + diff * BUTTON_ANIM_SPEED * dt
-      if math.abs(diff) < 0.01 then
-        state.scale = state.targetScale
-      end
-    end
+    updateButtonScale(state)
   end
 end
 
@@ -717,6 +821,13 @@ function coin_sort_screen.enter()
   -- Recreate coin number font to match new COIN_R
   local fontScale = 0.6
   coinNumberFont = love.graphics.newFont("comic shanns.otf", math.floor(layout.COIN_R * fontScale))
+
+  -- Resource bar targets for fly-to-bar (per D-05)
+  -- Match drawResourceHUD() layout: fuel center at (200, 35), stars at (470, 35)
+  local fuel_center_x = 60 + 280 / 2   -- fuel_bar_x + fuel_bar_w / 2 = 200
+  local resource_y = 35
+  local stars_center_x = 420 + 50       -- stars_x + half of text area = 470
+  effects.setResourceBarTargets(fuel_center_x, resource_y, stars_center_x, resource_y)
 end
 
 function coin_sort_screen.exit()
@@ -746,6 +857,8 @@ function coin_sort_screen.update(dt)
 
   updateResourcePopups(dt)
   updateBoxUnlockFlashes(dt)
+  effects.update(dt)
+  updateFlyUps(dt)
 
   -- Double merge flash countdown
   if double_merge_flash > 0 then
@@ -817,6 +930,7 @@ function coin_sort_screen.draw()
 
   particles.draw()
   drawResourcePopups()
+  drawFlyUps()
 
   draw_merge_button()
   draw_add_coins_button()
@@ -848,6 +962,10 @@ function coin_sort_screen.draw()
   if shake_x ~= 0 or shake_y ~= 0 then
     love.graphics.pop()
   end
+
+  -- Effects drawn outside shake transform so fly icons don't jitter (per RESEARCH.md Pitfall 3)
+  effects.drawFlash()
+  effects.draw()
 
   -- Tab bar (drawn outside shake transform)
   tab_bar.draw("coin_sort")
@@ -1073,6 +1191,25 @@ function coin_sort_screen.mousereleased(x, y, button)
             sound.playMerge()
             mobile.vibrateMerge()
             progression.onMerge("2048", 1)
+            -- Level-scaled celebration (per D-01, D-02, FX-03)
+            local merge_level = box_data.new_number
+            local merge_color = box_data.new_color or coin_utils.numberToColor(merge_level, 50)
+            triggerMergeCelebration(box_data.slot_x[1], box_data.slot_y[1], merge_color, merge_level)
+            -- Fly-to-bar for resource gains (per D-05)
+            if gained then
+                if gained.fuel and gained.fuel > 0 then
+                    local fuel_icons = math.min(gained.fuel, 3)
+                    for fi = 1, fuel_icons do
+                        effects.spawnResourceFly(box_data.slot_x[1], box_data.slot_y[1] - fi * 15, "fuel")
+                    end
+                end
+                if gained.stars and gained.stars > 0 then
+                    local star_icons = math.min(gained.stars, 3)
+                    for si = 1, star_icons do
+                        effects.spawnResourceFly(box_data.slot_x[1] + 20, box_data.slot_y[1] - si * 15, "star")
+                    end
+                end
+            end
             -- Double merge flash feedback
             if used_double then
               double_merge_flash = 1.5

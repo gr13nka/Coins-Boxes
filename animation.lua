@@ -777,6 +777,24 @@ function animation.getScreenShake()
     return 0, 0
 end
 
+-- Trigger additional screen shake (for celebration effects)
+-- If a shake is already active, takes the max intensity
+function animation.triggerShake(intensity, duration)
+    duration = duration or SHAKE_DURATION
+    if intensity > screen_shake_intensity then
+        screen_shake_intensity = intensity
+    end
+    if duration > screen_shake_time then
+        screen_shake_time = duration
+    end
+end
+
+-- Returns the base SHAKE_INTENSITY constant so external code can compute
+-- multiplied values without hardcoding the base value
+function animation.getShakeIntensity()
+    return SHAKE_INTENSITY
+end
+
 -- Query functions
 function animation.isAnimating()
     return pick_state ~= STATE.IDLE or bg_state ~= STATE.IDLE

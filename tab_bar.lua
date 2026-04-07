@@ -20,6 +20,12 @@ local TABS = {
   { id = "skill_tree", label = "Upgrades" },
 }
 
+-- Sliding highlight state (D-08)
+local highlight_x = 0        -- current animated x position of highlight bar
+local highlight_target = 0   -- target x for active tab
+local highlight_initialized = false
+local HIGHLIGHT_SPEED = 12   -- lerp speed (higher = snappier)
+
 function tab_bar.init(assets)
   font = assets.font
 end
@@ -46,6 +52,28 @@ function tab_bar.draw(active_tab)
   love.graphics.line(0, TAB_Y, VW, TAB_Y)
   love.graphics.setLineWidth(1)
 
+  -- Sliding highlight bar (D-08)
+  -- Calculate target position for active tab
+  for i, tab in ipairs(TABS) do
+    if tab.id == active_tab then
+      highlight_target = (i - 1) * tab_w
+    end
+  end
+
+  -- Initialize to target on first frame (no slide from 0,0)
+  if not highlight_initialized then
+    highlight_x = highlight_target
+    highlight_initialized = true
+  end
+
+  -- Smooth lerp toward target
+  local dt = love.timer.getDelta()
+  highlight_x = highlight_x + (highlight_target - highlight_x) * math.min(1, HIGHLIGHT_SPEED * dt)
+
+  -- Draw sliding indicator bar
+  love.graphics.setColor(0.35, 0.75, 0.45)
+  love.graphics.rectangle("fill", highlight_x + 20, TAB_Y, tab_w - 40, 3, 2, 2)
+
   love.graphics.setFont(font)
 
   for i, tab in ipairs(TABS) do
@@ -53,13 +81,9 @@ function tab_bar.draw(active_tab)
     local is_active = tab.id == active_tab
 
     if is_active then
-      -- Active tab highlight
+      -- Active tab background highlight (static, subtle)
       love.graphics.setColor(0.20, 0.45, 0.25, 0.3)
       love.graphics.rectangle("fill", x, TAB_Y, tab_w, TAB_HEIGHT)
-
-      -- Active indicator bar
-      love.graphics.setColor(0.35, 0.75, 0.45)
-      love.graphics.rectangle("fill", x + 20, TAB_Y, tab_w - 40, 3, 2, 2)
 
       -- Active text
       love.graphics.setColor(0.92, 0.88, 0.78)

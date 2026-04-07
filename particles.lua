@@ -7,9 +7,43 @@ local mobile = require("mobile")
 
 local particles = {}
 
--- Mobile-aware configuration (fewer particles on mobile for performance)
-local IS_MOBILE = mobile.isLowPerformance()
-local MAX_PARTICLES = IS_MOBILE and 75 or 150
+-- Three-tier performance configuration (HIGH=desktop, MED=web, LOW=mobile)
+local TIER_CONFIG = {
+    HIGH = {
+        max_particles = 200,
+        spawn_count = 12,
+        merge_spawn_count = 20,
+        squeeze_count = 8,
+        lifetime = 1.2,
+        merge_lifetime = 1.5,
+        max_bounces = 3,
+        highlight = true,
+    },
+    MED = {
+        max_particles = 100,
+        spawn_count = 7,
+        merge_spawn_count = 12,
+        squeeze_count = 5,
+        lifetime = 1.0,
+        merge_lifetime = 1.2,
+        max_bounces = 2,
+        highlight = false,
+    },
+    LOW = {
+        max_particles = 50,
+        spawn_count = 4,
+        merge_spawn_count = 6,
+        squeeze_count = 3,
+        lifetime = 0.7,
+        merge_lifetime = 0.9,
+        max_bounces = 1,
+        highlight = false,
+    },
+}
+
+-- Active tier config (set during init)
+local config = nil
+
 local GRAVITY = 1800
 local BOUNCE_DAMPING = 0.6      -- Velocity retained after bounce
 local GROUND_Y = layout.VH - 100 -- Where particles bounce
@@ -17,19 +51,14 @@ local GROUND_Y = layout.VH - 100 -- Where particles bounce
 -- Fragment sizes (chunky pixel look)
 local SIZES = {6, 10, 14, 18}   -- Varied chunk sizes
 
--- Spawn settings
-local SPAWN_COUNT = IS_MOBILE and 5 or 10
+-- Spawn settings (speed/angle are tier-independent)
 local SPAWN_SPEED_MIN = 400
 local SPAWN_SPEED_MAX = 900
 local SPAWN_ANGLE_SPREAD = 2.2  -- ~126 degrees upward
-local LIFETIME = IS_MOBILE and 0.8 or 1.2
-local MAX_BOUNCES = IS_MOBILE and 2 or 3
 
--- Merge explosion settings
-local MERGE_SPAWN_COUNT = IS_MOBILE and 9 or 18
+-- Merge explosion settings (speed is tier-independent)
 local MERGE_SPEED_MIN = 500
 local MERGE_SPEED_MAX = 1100
-local MERGE_LIFETIME = IS_MOBILE and 1.0 or 1.5
 
 -- Particle pool (flat array, indexed by active list)
 local pool = {}
@@ -45,24 +74,28 @@ local poolToActive = {} -- pool index -> position in active[] (for swap-remove)
 local pixelImage  -- 1x1 white pixel image
 local batch       -- SpriteBatch
 
--- Initialize empty pool + SpriteBatch
+-- Initialize empty pool + SpriteBatch with tier-aware sizing
 function particles.init()
+    -- Set tier config
+    local tier = mobile.getPerformanceTier()
+    config = TIER_CONFIG[tier]
+
     -- Create 1x1 white pixel image procedurally
     local imgData = love.image.newImageData(1, 1)
     imgData:setPixel(0, 0, 1, 1, 1, 1)
     pixelImage = love.graphics.newImage(imgData)
 
     -- Create sprite batch (main quad + optional highlight per particle)
-    batch = love.graphics.newSpriteBatch(pixelImage, MAX_PARTICLES * 2, "stream")
+    batch = love.graphics.newSpriteBatch(pixelImage, config.max_particles * 2, "stream")
 
     pool = {}
     active = {}
     activeCount = 0
     freeStack = {}
-    freeCount = MAX_PARTICLES
+    freeCount = config.max_particles
     poolToActive = {}
 
-    for i = 1, MAX_PARTICLES do
+    for i = 1, config.max_particles do
         pool[i] = {
             x = 0, y = 0,
             vx = 0, vy = 0,
@@ -140,23 +173,23 @@ end
 
 -- Spawn burst of coin fragments
 function particles.spawn(x, y, color)
-    for i = 1, SPAWN_COUNT do
-        spawnFragment(x, y, color, SPAWN_SPEED_MIN, SPAWN_SPEED_MAX, LIFETIME)
+    for i = 1, config.spawn_count do
+        spawnFragment(x, y, color, SPAWN_SPEED_MIN, SPAWN_SPEED_MAX, config.lifetime)
     end
 end
 
 -- Spawn merge explosion (more fragments, faster)
 function particles.spawnMergeExplosion(x, y, color)
-    for i = 1, MERGE_SPAWN_COUNT do
-        spawnFragment(x, y, color, MERGE_SPEED_MIN, MERGE_SPEED_MAX, MERGE_LIFETIME)
+    for i = 1, config.merge_spawn_count do
+        spawnFragment(x, y, color, MERGE_SPEED_MIN, MERGE_SPEED_MAX, config.merge_lifetime)
     end
 end
 
 -- Smaller squeeze particles
 function particles.spawnSqueezeParticles(x, y, color, count)
-    count = count or 8
+    count = count or config.squeeze_count
     for i = 1, count do
-        spawnFragment(x, y, color, SPAWN_SPEED_MIN * 0.6, SPAWN_SPEED_MAX * 0.6, LIFETIME * 0.7)
+        spawnFragment(x, y, color, SPAWN_SPEED_MIN * 0.6, SPAWN_SPEED_MAX * 0.6, config.lifetime * 0.7)
     end
 end
 
@@ -187,7 +220,7 @@ function particles.update(dt)
             p.rotationSpeed = p.rotationSpeed * 0.5
 
             -- Stop bouncing after max bounces
-            if p.bounces >= MAX_BOUNCES then
+            if p.bounces >= config.max_bounces then
                 p.vy = 0
                 p.vx = p.vx * 0.3
             end
@@ -245,8 +278,8 @@ function particles.draw()
         batch:setColor(p.r, p.g, p.b, alpha)
         batch:add(p.x, p.y, p.rotation, size, size, 0.5, 0.5)
 
-        -- Highlight on top-left for depth (desktop only, large fragments)
-        if not IS_MOBILE and size > 8 then
+        -- Highlight on top-left for depth (high-tier only, large fragments)
+        if config.highlight and size > 8 then
             local hs = size * 0.4
             batch:setColor(1, 1, 1, alpha * 0.3)
             -- Approximate top-left offset (skip trig, imperceptible on moving fragments)
@@ -261,6 +294,11 @@ end
 -- Get active particle count (for debugging)
 function particles.getActiveCount()
     return activeCount
+end
+
+-- Get current tier config (for debugging/verification)
+function particles.getConfig()
+    return config
 end
 
 return particles

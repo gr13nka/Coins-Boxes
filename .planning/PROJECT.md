@@ -39,8 +39,8 @@ The satisfying merge loop: picking, placing, and merging coins/items with immedi
 
 <!-- Current scope. Building toward these for v1.0. -->
 
-- [ ] Redesigned effects/particle system optimized for web
-- [ ] New visual effects (merges, chest opens, star gains, buttons)
+- [x] Redesigned effects/particle system optimized for web — Validated in Phase 2: Effects System Redesign
+- [x] New visual effects (merges, chest opens, star gains, buttons) — Validated in Phase 2: Effects System Redesign
 - [ ] Coin Sort spotlight tutorial (pick, place, merge, deal)
 - [ ] Arena spotlight tutorial rebuild
 - [ ] Persistent cross-session commissions
@@ -63,6 +63,7 @@ The satisfying merge loop: picking, placing, and merging coins/items with immedi
 - **Performance:** Current particle system causes lag on web during Coin Sort. Effects redesign must stay within web perf budget.
 - **Status:** In development, pre-release. Save compatibility with v0.9 not required.
 - **Dead code:** Cleaned in Phase 1 — 6 classic-mode files removed, save schema versioned.
+- **Effects system:** Rebuilt in Phase 2 — 3-tier perf detection, tiered particles, effects.lua pools, mode-specific celebrations.
 - **Known bugs:** Tutorial step 8/9 duplicate handlers, drag position stutter on web.
 
 ## Constraints
@@ -79,7 +80,7 @@ The satisfying merge loop: picking, placing, and merging coins/items with immedi
 | Web-first (Yandex Games) | Primary distribution platform | — Pending |
 | Spotlight tutorial style | Ensures players learn mechanics, no way to skip or get lost | — Pending |
 | Persistent commissions | Per-session model loses progress on exit, frustrating | — Pending |
-| Effects system redesign (not patch) | Current system lags on web, adding more effects on top would make it worse | — Pending |
+| Effects system redesign (not patch) | Current system lags on web, adding more effects on top would make it worse | ✓ Phase 2 |
 
 ## Evolution
 
@@ -99,4 +100,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-05 after Phase 1 (Cleanup and Prep) completion*
+*Last updated: 2026-04-05 after Phase 2 (Effects System Redesign) completion*

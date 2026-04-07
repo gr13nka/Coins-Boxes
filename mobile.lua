@@ -78,4 +78,25 @@ function mobile.applyMobileSettings()
   end
 end
 
+-- Three-tier performance detection
+-- Returns "HIGH" (desktop), "MED" (web), "LOW" (native mobile)
+local tier_cache = nil
+
+function mobile.getPerformanceTier()
+  if tier_cache then return tier_cache end
+  if mobile.isMobile() then
+    tier_cache = "LOW"
+  elseif mobile.isWeb() then
+    tier_cache = "MED"
+  else
+    tier_cache = "HIGH"
+  end
+  return tier_cache
+end
+
+-- Override performance tier (for future settings menu)
+function mobile.setPerformanceTier(tier)
+  tier_cache = tier
+end
+
 return mobile

@@ -44,7 +44,14 @@ Plans:
   3. Arena merges, chest opens, and resource gains have corresponding visual effects (particles, fly-ups, animations)
   4. Buttons and UI elements respond to interaction with visible feedback (press, hover/glow, tab transitions)
   5. Effect quality automatically scales based on platform capability (HIGH/MED/LOW tiers)
-**Plans**: TBD
+**Plans**: 5 plans
+
+Plans:
+- [x] 02-01-PLAN.md — Foundation: 3-tier performance system, particles.lua tiered redesign, effects.lua module
+- [x] 02-02-PLAN.md — CS merge celebrations: level-scaled particles, enhanced shake, flash effects
+- [x] 02-03-PLAN.md — Arena effects: merge glow/dissolve, chest open sequence, fly-to-bar icons, big reward flash
+- [x] 02-04-PLAN.md — UI polish: tab bar sliding highlight, button bounce, generator pulse, order glow
+- [x] 02-05-PLAN.md — Web performance verification: build + FPS testing checkpoint
 
 ### Phase 3: Popups and Commission Persistence
 **Goal**: Players see rewarding popups for big moments and commissions survive across sessions
@@ -78,6 +85,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Cleanup and Prep | 0/2 | Planned | - |
-| 2. Effects System Redesign | 0/0 | Not started | - |
+| 2. Effects System Redesign | 0/5 | Planned | - |
 | 3. Popups and Commission Persistence | 0/0 | Not started | - |
 | 4. Spotlight Tutorials | 0/0 | Not started | - |

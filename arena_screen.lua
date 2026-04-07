@@ -11,6 +11,8 @@ local arena = require("arena")
 local arena_chains = require("arena_chains")
 local arena_orders = require("arena_orders")
 local drops = require("drops")
+local effects = require("effects")
+local particles = require("particles")
 
 local yandex = require("yandex")
 
@@ -29,6 +31,11 @@ local GRID_X = math.floor((VW - GRID_WIDTH) / 2)
 
 -- Resources bar (top)
 local RESOURCES_H = 90
+
+-- Resource pill geometry (shared between drawResources and fly-to-bar targeting)
+local PILL_W, PILL_H, PILL_GAP = 300, 56, 30
+local PILL_START_X = math.floor((VW - (3 * PILL_W + 2 * PILL_GAP)) / 2)
+local PILL_Y = math.floor((RESOURCES_H - PILL_H) / 2)
 
 -- Header row: dispenser circle (left) + compact orders strip (right)
 local HEADER_Y = 95
@@ -73,26 +80,19 @@ local slot_tweens = {}  -- {[index] = {time, duration, style}}
 local TWEEN_DURATION = 0.35
 local JELLY_DURATION = 0.2   -- simple scale tween on merge
 
--- Generator fly animation
+-- Chest open shake animation (D-04)
+local chest_shakes = {}  -- {[idx] = {time, duration, chain_id}}
+
+local dissolve_ghosts = {}  -- D-03: source cell ghost for dissolve draw
 local gen_fly = nil  -- {src_x, src_y, dst_x, dst_y, item, time, duration, dst_idx}
 local GEN_FLY_DURATION = 0.25
-
--- Discovered items (first-merge tracking)
 local discovered_items = {}  -- "chain_id:level" = true
-
--- Notification queue (stackable)
 local notifications = {}  -- array of {text, timer, max_timer, color, slide}
 local NOTIF_DURATION = 2.5
 local NOTIF_SLIDE_IN = 0.2
-
--- Fuel depletion overlay state
--- Milestone banner
-
 local fuel_depleted_timer = 0    -- accumulates while fuel=0, overlay shows after 3s
 local fuel_overlay_shown = false -- true once overlay is visible
 local fuel_overlay_dismissed = false -- true after player dismisses overlay
-
--- Rewarded ad state (watch ad for fuel)
 local AD_FUEL_REWARD = 5
 local waiting_for_ad_reward = false
 
@@ -131,6 +131,11 @@ local function cellScreenPos(index)
   local x = GRID_X + (col - 1) * (CELL_SIZE + CELL_GAP)
   local y = GRID_TOP_Y + (row - 1) * (CELL_SIZE + CELL_GAP)
   return x, y
+end
+
+local function cellCenterPos(index)
+  local x, y = cellScreenPos(index)
+  return x + CELL_SIZE / 2, y + CELL_SIZE / 2
 end
 
 local function gridCellAt(x, y)
@@ -212,36 +217,26 @@ local function makeStar(cx, cy, r, r_inner, n_points, start_angle)
   return v
 end
 
--- Draw the geometric shape for a given chain
+-- Shape dispatch table: shape_name -> {type, sides, start_angle [, inner_ratio]}
+local HP = -math.pi / 2
+local SHAPE_DEFS = {
+  hexagon = {"ngon", 6, HP}, square = {"ngon", 4, -math.pi * 0.75},
+  diamond = {"ngon", 4, HP}, triangle_up = {"ngon", 3, HP},
+  triangle_down = {"ngon", 3, math.pi / 2}, pentagon = {"ngon", 5, HP},
+  heptagon = {"ngon", 7, HP}, octagon = {"ngon", 8, HP},
+  star_5 = {"star", 5, HP, 0.42}, star_6 = {"star", 6, HP, 0.48},
+  star_4 = {"star", 4, HP, 0.38},
+}
+
 local function drawShape(shape, cx, cy, r, mode)
   mode = mode or "fill"
-  local hp = -math.pi / 2  -- half-pi, points first vertex upward
-  if shape == "circle" then
+  local def = SHAPE_DEFS[shape]
+  if not def then
     love.graphics.circle(mode, cx, cy, r)
-  elseif shape == "hexagon" then
-    love.graphics.polygon(mode, makeNGon(cx, cy, r, 6, hp))
-  elseif shape == "square" then
-    love.graphics.polygon(mode, makeNGon(cx, cy, r, 4, -math.pi * 0.75))
-  elseif shape == "diamond" then
-    love.graphics.polygon(mode, makeNGon(cx, cy, r, 4, hp))
-  elseif shape == "triangle_up" then
-    love.graphics.polygon(mode, makeNGon(cx, cy, r, 3, hp))
-  elseif shape == "triangle_down" then
-    love.graphics.polygon(mode, makeNGon(cx, cy, r, 3, math.pi / 2))
-  elseif shape == "pentagon" then
-    love.graphics.polygon(mode, makeNGon(cx, cy, r, 5, hp))
-  elseif shape == "heptagon" then
-    love.graphics.polygon(mode, makeNGon(cx, cy, r, 7, hp))
-  elseif shape == "octagon" then
-    love.graphics.polygon(mode, makeNGon(cx, cy, r, 8, hp))
-  elseif shape == "star_5" then
-    love.graphics.polygon(mode, makeStar(cx, cy, r, r * 0.42, 5, hp))
-  elseif shape == "star_6" then
-    love.graphics.polygon(mode, makeStar(cx, cy, r, r * 0.48, 6, hp))
-  elseif shape == "star_4" then
-    love.graphics.polygon(mode, makeStar(cx, cy, r, r * 0.38, 4, hp))
-  else
-    love.graphics.circle(mode, cx, cy, r)
+  elseif def[1] == "ngon" then
+    love.graphics.polygon(mode, makeNGon(cx, cy, r, def[2], def[3]))
+  else -- star
+    love.graphics.polygon(mode, makeStar(cx, cy, r, r * def[4], def[2], def[3]))
   end
 end
 
@@ -291,14 +286,10 @@ end
 
 local function drawChargeBar(x, y, size, charges, max_charges)
   if not charges or not max_charges or max_charges <= 0 then return end
-  local bar_w = size * 0.7
-  local bar_h = 8
-  local bar_x = x + (size - bar_w) / 2
-  local bar_y = y + size - 20
-  -- Background
+  local bar_w, bar_h = size * 0.7, 8
+  local bar_x, bar_y = x + (size - bar_w) / 2, y + size - 20
   love.graphics.setColor(0.2, 0.2, 0.2, 0.7)
   love.graphics.rectangle("fill", bar_x, bar_y, bar_w, bar_h, 3, 3)
-  -- Fill
   local fill = charges / max_charges
   if fill > 0 then
     local r, g, b = 1, 0.9, 0.1
@@ -306,7 +297,6 @@ local function drawChargeBar(x, y, size, charges, max_charges)
     love.graphics.setColor(r, g, b, 0.9)
     love.graphics.rectangle("fill", bar_x, bar_y, bar_w * fill, bar_h, 3, 3)
   end
-  -- Border
   love.graphics.setColor(0.5, 0.5, 0.4, 0.6)
   love.graphics.rectangle("line", bar_x, bar_y, bar_w, bar_h, 3, 3)
 end
@@ -348,12 +338,6 @@ end
 -- Draw the resources (Fuel, Stars, Bags) as a horizontal pill row
 local function drawResources()
   love.graphics.setFont(font)
-  local pill_w = 300
-  local pill_h = 56
-  local gap = 30
-  local total_w = 3 * pill_w + 2 * gap
-  local start_x = math.floor((VW - total_w) / 2)
-  local py = math.floor((RESOURCES_H - pill_h) / 2)
 
   -- Fuel color: orange <10, red pulsing <5, normal otherwise
   local fuel = resources.getFuel()
@@ -378,18 +362,18 @@ local function drawResources()
   }
 
   for i, entry in ipairs(entries) do
-    local px = start_x + (i - 1) * (pill_w + gap)
+    local px = PILL_START_X + (i - 1) * (PILL_W + PILL_GAP)
     -- Pill background
     love.graphics.setColor(0.12, 0.16, 0.11, 0.9)
-    love.graphics.rectangle("fill", px, py, pill_w, pill_h, 10, 10)
+    love.graphics.rectangle("fill", px, PILL_Y, PILL_W, PILL_H, 10, 10)
     love.graphics.setColor(entry.color[1], entry.color[2], entry.color[3], 0.5)
-    love.graphics.rectangle("line", px, py, pill_w, pill_h, 10, 10)
+    love.graphics.rectangle("line", px, PILL_Y, PILL_W, PILL_H, 10, 10)
     -- Label
     love.graphics.setColor(entry.color[1], entry.color[2], entry.color[3], 0.8)
-    love.graphics.printf(entry.label, px + 8, py + 6, pill_w / 2 - 8, "left")
+    love.graphics.printf(entry.label, px + 8, PILL_Y + 6, PILL_W / 2 - 8, "left")
     -- Value
     love.graphics.setColor(1, 1, 1, 0.95)
-    love.graphics.printf(entry.value, px + pill_w / 2, py + 6, pill_w / 2 - 8, "right")
+    love.graphics.printf(entry.value, px + PILL_W / 2, PILL_Y + 6, PILL_W / 2 - 8, "right")
   end
 
   -- Level info (top-right corner)
@@ -397,24 +381,16 @@ local function drawResources()
   love.graphics.printf("Lv " .. arena_orders.getCurrentLevel(), VW - 110, 8, 100, "right")
 end
 
--- Draw the dispenser as a circle on the left side of the header row
 local function drawDispenser()
-  local cx = DISP_X + DISP_SIZE / 2
-  local cy = DISP_Y + DISP_SIZE / 2
-  local r = DISP_SIZE / 2
-
-  -- Outer ring
+  local cx, cy, r = DISP_X + DISP_SIZE / 2, DISP_Y + DISP_SIZE / 2, DISP_SIZE / 2
   love.graphics.setColor(0.18, 0.30, 0.20, 0.9)
   love.graphics.circle("fill", cx, cy, r)
   love.graphics.setColor(0.30, 0.50, 0.30, 0.7)
   love.graphics.setLineWidth(3)
   love.graphics.circle("line", cx, cy, r)
   love.graphics.setLineWidth(1)
-
-  -- Item inside circle
   local item = arena.getDispenserItem()
   if item then
-    -- Draw item centered in circle
     local item_size = DISP_SIZE * 0.72
     local ix = cx - item_size / 2
     local iy = cy - item_size / 2
@@ -490,6 +466,18 @@ local function drawGrid()
     love.graphics.setColor(0.22, 0.32, 0.20, 0.5)
     love.graphics.rectangle("line", x, y, CELL_SIZE, CELL_SIZE, 6, 6)
 
+    -- Dissolve ghost: draw fading item on empty cell (D-03)
+    local ghost = dissolve_ghosts[i]
+    if ghost and slot_tweens[i] and slot_tweens[i].style == "dissolve_out" then
+      local tw = slot_tweens[i]
+      local t = math.min(tw.time / tw.duration, 1)
+      local ease = t * t
+      local g_alpha = 1 - ease
+      local g_mult = 1 + ease * 0.5
+      -- Temporarily brighten via drawCellItem alpha (glow approximated by passing high alpha)
+      drawCellItem(ghost.chain_id, ghost.level, x, y, CELL_SIZE, false, g_alpha)
+    end
+
     -- Skip if being dragged or fly-animated
     if drag and drag.source == "grid" and drag.index == i then
       -- Don't draw, it's being dragged
@@ -501,9 +489,15 @@ local function drawGrid()
       local draw_x, draw_y, draw_size = x, y, CELL_SIZE
       local draw_w, draw_h = CELL_SIZE, CELL_SIZE
       local tween_alpha = 1
+      local color_mult = 1
       if tw then
         local t = math.min(tw.time / tw.duration, 1)
-        if tw.style == "jelly" then
+        if tw.style == "dissolve_out" then
+          -- Glow + fade out (D-03: Arena items dissolve, don't explode)
+          local ease = t * t  -- accelerating fade
+          tween_alpha = 1 - ease
+          color_mult = 1 + ease * 0.5  -- brighten colors up to 50%
+        elseif tw.style == "jelly" then
           -- Simple ease-out scale from 0.7 to 1.0
           local ease = 1 - (1 - t) * (1 - t)
           local s = 0.7 + 0.3 * ease
@@ -522,6 +516,11 @@ local function drawGrid()
           draw_y = y + (CELL_SIZE - draw_h) / 2
           tween_alpha = easeOutCubic(math.min(t * 3, 1))
         end
+      end
+      -- Chest shake offset (D-04)
+      if chest_shakes[i] then
+        draw_x = draw_x + (math.random() * 6 - 3)
+        draw_y = draw_y + (math.random() * 6 - 3)
       end
       -- Normalize: use draw_w for item sizing
       if not draw_size then draw_size = math.min(draw_w, draw_h) end
@@ -552,6 +551,23 @@ local function drawGrid()
       elseif cell.state == "sealed" then
         drawCellItem(cell.chain_id, cell.level, draw_x, draw_y, draw_size, true, tween_alpha)
       else
+        -- Generator pulse: gentle scale + glow ring for charged generators (D-09)
+        local is_gen = arena.isGeneratorCell(i) and not arena.isGeneratorLocked(i)
+        if is_gen then
+          local ch = arena.getGeneratorCharges(i)
+          if ch and ch > 0 then
+            local pulse_t = math.sin(love.timer.getTime() * 2.5 + i * 0.3)
+            local gen_scale = 1.0 + pulse_t * 0.03
+            -- Glow ring behind item
+            local glow_a = 0.15 + 0.1 * pulse_t
+            local cc = arena_chains.getColor(cell.chain_id)
+            love.graphics.setColor(cc[1], cc[2], cc[3], glow_a)
+            love.graphics.rectangle("fill", draw_x - 3, draw_y - 3, draw_w + 6, draw_h + 6, 12, 12)
+            draw_size = draw_size * gen_scale
+            draw_x = x + (CELL_SIZE - draw_size) / 2
+            draw_y = y + (CELL_SIZE - draw_size) / 2
+          end
+        end
         -- Normal item (or generator)
         drawCellItem(cell.chain_id, cell.level, draw_x, draw_y, draw_size, false, tween_alpha)
         -- Green border if needed for an order
@@ -677,6 +693,16 @@ local function drawOrdersStrip()
     local oy = HEADER_Y + math.floor((HEADER_H - ORDER_COMPACT_H) / 2)
     local can_complete = arena.canCompleteOrder(order.id)
 
+    -- Pulsing glow behind completable orders (D-09)
+    if can_complete then
+      local glow_t = 0.5 + 0.5 * math.sin(love.timer.getTime() * 3)
+      love.graphics.setColor(0.3, 0.9, 0.4, 0.3 * glow_t)
+      love.graphics.rectangle("fill", ox - 3, oy - 3, ORDER_COMPACT_W + 6, ORDER_COMPACT_H + 6, 10, 10)
+      love.graphics.setColor(0.3, 0.9, 0.4, 0.6 * glow_t)
+      love.graphics.setLineWidth(2)
+      love.graphics.rectangle("line", ox - 3, oy - 3, ORDER_COMPACT_W + 6, ORDER_COMPACT_H + 6, 10, 10)
+      love.graphics.setLineWidth(1)
+    end
     -- Card background
     love.graphics.setColor(can_complete and {0.10, 0.25, 0.12, 0.92} or {0.12, 0.16, 0.12, 0.88})
     love.graphics.rectangle("fill", ox, oy, ORDER_COMPACT_W, ORDER_COMPACT_H, 8, 8)
@@ -907,23 +933,13 @@ local function advanceTutorial(event, data)
     if event == "merge" and data and data.chain_id == "Ch" and data.level == 3 then
       arena.setTutorialStep(6)
     end
-  elseif step == 6 then
+  elseif step == 6 or step == 7 then
     -- Prompt: drag Ch3 onto sealed Ch3
     if event == "merge" and data and data.chain_id == "Ch" and data.level == 4 and data.was_sealed then
       arena.setTutorialStep(8)
     end
-  elseif step == 7 then
-    -- Same as 6 (waiting for unseal)
-    if event == "merge" and data and data.chain_id == "Ch" and data.level == 4 and data.was_sealed then
-      arena.setTutorialStep(8)
-    end
-  elseif step == 8 then
+  elseif step == 8 or step == 9 then
     -- Prompt: tap generator
-    if event == "tap_generator" then
-      arena.pushDispenser("Da", 1)
-      arena.setTutorialStep(10)
-    end
-  elseif step == 9 then
     if event == "tap_generator" then
       arena.pushDispenser("Da", 1)
       arena.setTutorialStep(10)
@@ -943,11 +959,7 @@ local function advanceTutorial(event, data)
     if event == "merge" and data and data.chain_id == "Da" and data.level == 2 then
       arena.setTutorialStep(13)
     end
-  elseif step == 13 then
-    if event == "complete_order" then
-      arena.setTutorialStep(15)
-    end
-  elseif step == 14 then
+  elseif step == 13 or step == 14 then
     if event == "complete_order" then
       arena.setTutorialStep(15)
     end
@@ -956,11 +968,7 @@ local function advanceTutorial(event, data)
     if event == "any" then
       arena.setTutorialStep(16)
     end
-  elseif step == 16 then
-    if event == "tap_generator" then
-      arena.setTutorialStep("done")
-    end
-  elseif step == 17 then
+  elseif step == 16 or step == 17 then
     if event == "tap_generator" then
       arena.setTutorialStep("done")
     end
@@ -976,6 +984,8 @@ end
 function arena_screen.enter()
   drag = nil
   slot_tweens = {}
+  chest_shakes = {}
+  dissolve_ghosts = {}
   gen_fly = nil
   fuel_depleted_timer = 0
   fuel_overlay_shown = false
@@ -996,6 +1006,13 @@ function arena_screen.enter()
       discovered_items[item.chain_id .. ":" .. item.level] = true
     end
   end
+
+  -- Resource bar targets for fly-to-bar (D-05)
+  -- Derived from pill geometry constants, not hardcoded pixel values
+  local fuel_cx = PILL_START_X + PILL_W / 2
+  local stars_cx = PILL_START_X + (PILL_W + PILL_GAP) + PILL_W / 2
+  local pill_cy = PILL_Y + PILL_H / 2
+  effects.setResourceBarTargets(fuel_cx, pill_cy, stars_cx, pill_cy)
 
   -- Transfer shelf items from Coin Sort to dispenser
   local shelf_items = drops.transferShelf()
@@ -1035,8 +1052,35 @@ function arena_screen.update(dt)
     tw.time = tw.time + dt
     if tw.time >= tw.duration then
       slot_tweens[slot] = nil
+      dissolve_ghosts[slot] = nil  -- clean up dissolve ghost when tween expires
     end
   end
+
+  -- Update chest shakes (D-04)
+  for idx, cs in pairs(chest_shakes) do
+    cs.time = cs.time + dt
+    if cs.time >= cs.duration then
+      -- Shake done: spawn chain-colored particles and execute chest tap
+      local chain_color = arena_chains.getColor(cs.chain_id or "Ch")
+      local cx, cy = cellCenterPos(idx)
+      particles.spawnMergeExplosion(cx, cy, chain_color)
+      -- Execute deferred chest tap
+      local result = arena.tapChest(idx)
+      if result then
+        slot_tweens[result.drop_index] = {time = 0, duration = TWEEN_DURATION}
+        local item_name = arena_chains.getItemName(result.drop_chain_id, result.drop_level) or "item"
+        if result.charges_remaining > 0 then
+          showNotification("Chest: " .. item_name .. "! (" .. result.charges_remaining .. " left)", {1, 0.85, 0.3})
+        else
+          showNotification("Chest: " .. item_name .. "! (chest empty)", {1, 0.85, 0.3})
+        end
+      end
+      chest_shakes[idx] = nil
+    end
+  end
+
+  -- Update effects (fly-to-bar, flash, burst)
+  effects.update(dt)
 
   -- Update generator fly animation
   if gen_fly then
@@ -1111,6 +1155,7 @@ function arena_screen.draw()
   drawStash()
   drawDragged()
   drawTutorial()
+  effects.draw()  -- fly-to-bar icons + burst particles
 
   -- Notification stack (newest at bottom, oldest at top) with slide + fade
   for ni, notif in ipairs(notifications) do
@@ -1137,6 +1182,9 @@ function arena_screen.draw()
     love.graphics.setColor(notif.color[1], notif.color[2], notif.color[3], alpha)
     love.graphics.printf(notif.text, offset_x, ny + 5, VW, "center")
   end
+
+  -- Overlay flash (D-06: drawn above content, below tab bar)
+  effects.drawFlash()
 
   -- Fuel depletion overlay (drawn above everything except tab bar)
   drawFuelDepletionOverlay()
@@ -1204,6 +1252,15 @@ function arena_screen.mousepressed(x, y, button)
               parts[#parts + 1] = "+" .. reward.star_reward .. " Stars"
             end
             showNotification(table.concat(parts, "  "), {0.3, 0.95, 0.3})
+            -- Fly-to-bar for star gain (D-05)
+            if reward.star_reward and reward.star_reward > 0 then
+              local card_cx = ox + ORDER_COMPACT_W / 2
+              local card_cy = oy + ORDER_COMPACT_H / 2
+              local num_icons = math.min(reward.star_reward, 5)
+              for fi = 1, num_icons do
+                effects.spawnResourceFly(card_cx, card_cy + fi * 10, "star")
+              end
+            end
             -- Show drop notifications
             if reward.drops then
               for _, d in ipairs(reward.drops) do
@@ -1223,6 +1280,9 @@ function arena_screen.mousepressed(x, y, button)
             advanceTutorial("complete_order", nil)
             local level_result = arena.checkLevelComplete()
             if level_result then
+              -- Big reward celebration (D-06)
+              effects.spawnFlash(0.3, 1, 1, 1)
+              effects.spawnBurst(VW / 2, VH / 3, 16, {0.95, 0.85, 0.25})
               showNotification("Level " .. level_result.new_level .. " unlocked!", {0.4, 0.8, 1.0})
               if level_result.level_drop then
                 local ld = level_result.level_drop
@@ -1299,21 +1359,13 @@ function arena_screen.mousereleased(x, y, button)
   local moved_dist = math.abs(x - drag.start_x) + math.abs(y - drag.start_y)
   local was_tap = moved_dist < 20
 
-  -- Chest tap (free, no fuel)
+  -- Chest tap (free, no fuel) — shake then pop (D-04)
   if was_tap and drag.source == "grid" and arena.isChestCell(drag.index) then
-    local result = arena.tapChest(drag.index)
-    if result then
-      slot_tweens[result.drop_index] = {time = 0, duration = TWEEN_DURATION}
-      local item_name = arena_chains.getItemName(result.drop_chain_id, result.drop_level) or "item"
-      if result.charges_remaining > 0 then
-        showNotification("Chest: " .. item_name .. "! (" .. result.charges_remaining .. " left)", {1, 0.85, 0.3})
-      else
-        showNotification("Chest: " .. item_name .. "! (chest empty)", {1, 0.85, 0.3})
-      end
-    else
-      if arena.countEmpty() == 0 then
-        showNotification("No empty space!", {1, 0.5, 0.2})
-      end
+    if arena.countEmpty() == 0 then
+      showNotification("No empty space!", {1, 0.5, 0.2})
+    elseif not chest_shakes[drag.index] then
+      local cell = arena.getCell(drag.index)
+      chest_shakes[drag.index] = {time = 0, duration = 0.2, chain_id = cell and cell.chain_id or "Ch"}
     end
     drag = nil
     return
@@ -1357,12 +1409,23 @@ function arena_screen.mousereleased(x, y, button)
       if target_cell == drag.index then
         -- Dropped on self, cancel
       elseif arena.canMerge(drag.index, target_cell) then
+        -- Capture source item before merge clears it (for dissolve ghost D-03)
+        local src_chain = drag.item.chain_id
+        local src_level = drag.item.level
         local result = arena.executeMerge(drag.index, target_cell)
         if result then
+          -- Source dissolves out (D-03: Arena items glow/dissolve, don't explode)
+          dissolve_ghosts[drag.index] = {chain_id = src_chain, level = src_level}
+          slot_tweens[drag.index] = {time = 0, duration = 0.25, style = "dissolve_out"}
+          -- Result pops in with jelly
           slot_tweens[result.index] = {time = 0, duration = JELLY_DURATION, style = "jelly"}
           for _, rev_idx in ipairs(result.revealed) do
             slot_tweens[rev_idx] = {time = 0, duration = TWEEN_DURATION}
           end
+          -- Chain-colored burst at merge point (subtle, 6 particles)
+          local chain_color = arena_chains.getColor(result.chain_id or "Ch")
+          local cx, cy = cellCenterPos(result.index)
+          effects.spawnBurst(cx, cy, 6, chain_color)
           -- Only notify on first discovery of this item type
           local key = result.chain_id .. ":" .. result.level
           if not discovered_items[key] then

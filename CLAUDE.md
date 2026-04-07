@@ -37,6 +37,7 @@ Keep your visuals and logic separate.
 | `conf.lua` | LOVE window config (resizable, HiDPI) |
 | `skill_tree.lua` | PoE2-style skill tree: 30 nodes, query API, migration (data only, no drawing) |
 | `skill_tree_screen.lua` | Skill tree full-screen UI: pannable node graph, detail panel, unlock interaction |
+| `effects.lua` | Screen-level visual effects: fly-to-bar icons, overlay flash, celebration burst (pre-allocated pools) |
 | `tutorial.lua` | Placeholder for future tutorial |
 | `yandex.lua` | Yandex Games SDK bridge: ads (interstitial, rewarded, banner) via Emscripten FFI, no-ops on non-web |
 
