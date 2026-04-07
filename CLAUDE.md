@@ -27,7 +27,7 @@ Keep your visuals and logic separate.
 | `resources.lua` | Fuel/Stars resource system (data only, no drawing) |
 | `bags.lua` | Coin bag inventory + free bag timer (data only, no drawing) |
 | `tab_bar.lua` | Bottom tab bar UI component for screen switching, badge counts |
-| `commissions.lua` | Commission system for Coin Sort: Forge/Harvest goals with Bag+Star rewards |
+| `commissions.lua` | Commission system for Coin Sort: persistent Forge/Harvest goals with Bag+Star rewards, manual collect, batch refresh (data only) |
 | `drops.lua` | Variable drop system: cross-mode rewards (Chest, FuelSurge, StarBurst, GenToken, Hammer, AutoSort, BagBundle, DoubleMerge) |
 | `powerups.lua` | Consumable power-ups: Auto Sort, Hammer (data only) |
 | `progression.lua` | Unlock/achievement system with file persistence (`progression.dat`) |
@@ -38,6 +38,7 @@ Keep your visuals and logic separate.
 | `skill_tree.lua` | PoE2-style skill tree: 30 nodes, query API, migration (data only, no drawing) |
 | `skill_tree_screen.lua` | Skill tree full-screen UI: pannable node graph, detail panel, unlock interaction |
 | `effects.lua` | Screen-level visual effects: fly-to-bar icons, overlay flash, celebration burst (pre-allocated pools) |
+| `popups.lua` | Popup queue system: toast/card/celebration tiers, FIFO queue, rendering (UI overlay) |
 | `tutorial.lua` | Placeholder for future tutorial |
 | `yandex.lua` | Yandex Games SDK bridge: ads (interstitial, rewarded, banner) via Emscripten FFI, no-ops on non-web |
 
@@ -290,7 +291,7 @@ Persistence via `progression.getDropsData()`/`setDropsData()`. Synced via `drops
 
 ## Commissions (commissions.lua)
 
-2 active commissions per CS session, refreshed on game init. Two types: Forge (create specific merge results) and Harvest (accumulate resources/merges). Rewards: Bags + Stars (no Fuel). Collected on game over via `commissions.collectRewards()`.
+2 active commissions, persistent across sessions via `progression.dat`. Two types: Forge (create specific merge results) and Harvest (accumulate resources/merges). Rewards: Bags + Stars (no Fuel). Difficulty scales by lifetime commissions completed. Collected manually via "Collect" button in the quest panel UI (in `coin_sort_screen.lua`). Batch refresh: both must be collected before new commissions generate. Commission display in `coin_sort_screen.lua` uses `commissions.getActive()` directly (not via `coin_sort.getState().commissions`).
 
 ## Skill Tree (skill_tree.lua + skill_tree_screen.lua)
 

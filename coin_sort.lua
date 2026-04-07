@@ -323,7 +323,7 @@ function coin_sort.init()
         merge_timer = 0
         error_timer = 0
         error_message = ""
-        commissions.generate(max_coin_reached)
+        commissions.init()
         return
     end
 
@@ -357,8 +357,8 @@ function coin_sort.init()
 
     game_active = true
 
-    -- Generate commissions for this CS session
-    commissions.generate(max_coin_reached)
+    -- Load or generate commissions (persistent across sessions)
+    commissions.init()
 end
 
 -- Pick coins of the same number from the top of a box
@@ -593,14 +593,6 @@ function coin_sort.executeMergeOnBox(box_idx)
     -- Track commission progress
     commissions.onMerge(new_number, gained)
 
-    -- Refresh commissions if all completed
-    local commissions_refreshed = false
-    if commissions.allCompleted() then
-      commissions.collectRewards()
-      commissions.generate(max_coin_reached)
-      commissions_refreshed = true
-    end
-
     -- Roll variable drops
     local drop_results = drops.rollMergeDrops(new_number)
 
@@ -611,7 +603,7 @@ function coin_sort.executeMergeOnBox(box_idx)
     -- Show "Merged!" message
     merge_timer = 2
 
-    return true, gained, drop_results, commissions_refreshed, used_double
+    return true, gained, drop_results, used_double
 end
 
 -- Auto Sort: group coins by number, each column gets only one number type.
@@ -768,6 +760,7 @@ function coin_sort.save()
     bags.sync()
     resources.sync()
     drops.sync()
+    commissions.sync()
     prog.save()
 end
 

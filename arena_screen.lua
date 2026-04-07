@@ -13,6 +13,7 @@ local arena_orders = require("arena_orders")
 local drops = require("drops")
 local effects = require("effects")
 local particles = require("particles")
+local popups = require("popups")
 
 local yandex = require("yandex")
 
@@ -1189,12 +1190,25 @@ function arena_screen.draw()
   -- Fuel depletion overlay (drawn above everything except tab bar)
   drawFuelDepletionOverlay()
 
+  -- Popup overlays (above HUD, below tab bar per UI-SPEC z-order)
+  popups.drawToasts()
+  popups.drawModal()
+
   -- Tab bar
   tab_bar.draw("arena")
 end
 
 function arena_screen.mousepressed(x, y, button)
   if button ~= 1 then return end
+
+  -- Popup input priority (per UI-SPEC interaction contract)
+  if popups.isInputBlocked() then
+    popups.handleModalTap(x, y)
+    return
+  end
+  if popups.handleToastTap(x, y) then
+    return
+  end
 
   -- Fuel depletion overlay intercepts clicks
   if fuel_overlay_shown then
@@ -1243,16 +1257,21 @@ function arena_screen.mousepressed(x, y, button)
         if x >= ox + 6 and x <= ox + ORDER_COMPACT_W - 6 and y >= btn_y and y <= btn_y + 32 then
           local reward = arena.completeOrder(order.id)
           if reward then
-            -- Show rewards summary
-            local parts = {"Order complete!"}
+            -- Order completion toast (D-05)
+            local body_parts = {}
             if reward.bag_reward and reward.bag_reward > 0 then
-              parts[#parts + 1] = "+" .. reward.bag_reward .. " Bags"
+              table.insert(body_parts, "+" .. reward.bag_reward .. " Bags")
             end
             if reward.star_reward and reward.star_reward > 0 then
-              parts[#parts + 1] = "+" .. reward.star_reward .. " Stars"
+              table.insert(body_parts, "+" .. reward.star_reward .. " Stars")
             end
-            showNotification(table.concat(parts, "  "), {0.3, 0.95, 0.3})
-            -- Fly-to-bar for star gain (D-05)
+            popups.push({
+              tier = "toast",
+              title = "Order Delivered!",
+              body = table.concat(body_parts, " "),
+              rewards = {},
+            })
+            -- Fly-to-bar for star gain (D-04: resource gains use fly-to-bar only)
             if reward.star_reward and reward.star_reward > 0 then
               local card_cx = ox + ORDER_COMPACT_W / 2
               local card_cy = oy + ORDER_COMPACT_H / 2
@@ -1261,37 +1280,48 @@ function arena_screen.mousepressed(x, y, button)
                 effects.spawnResourceFly(card_cx, card_cy + fi * 10, "star")
               end
             end
-            -- Show drop notifications
+            -- Drop notifications as toast popups (D-05)
             if reward.drops then
               for _, d in ipairs(reward.drops) do
                 if d.type == "hammer" then
-                  showNotification("+1 Hammer charge!", {0.9, 0.5, 0.2})
+                  popups.push({tier = "toast", title = "Hammer!", body = "+1 Hammer charge", rewards = {}})
                 elseif d.type == "auto_sort" then
-                  showNotification("+1 Auto Sort charge!", {0.2, 0.7, 0.9})
+                  popups.push({tier = "toast", title = "Auto Sort!", body = "+1 Auto Sort charge", rewards = {}})
                 elseif d.type == "bag_bundle" then
-                  showNotification("+" .. d.amount .. " Bags!", {0.8, 0.6, 0.3})
+                  popups.push({tier = "toast", title = "+" .. (d.amount or 1) .. " Bags", body = "Bag Bundle!", rewards = {}})
                 elseif d.type == "double_merge" then
-                  showNotification("+1 Double Merge!", {0.9, 0.3, 0.9})
+                  popups.push({tier = "toast", title = "Double Merge!", body = "Next merge produces double coins", rewards = {}})
                 elseif d.type == "star_burst" then
-                  showNotification("+" .. d.amount .. " bonus Stars!", {0.95, 0.85, 0.25})
+                  popups.push({tier = "toast", title = "+" .. (d.amount or 2) .. " Stars", body = "Star Burst!", rewards = {}})
                 end
               end
             end
             advanceTutorial("complete_order", nil)
             local level_result = arena.checkLevelComplete()
             if level_result then
-              -- Big reward celebration (D-06)
-              effects.spawnFlash(0.3, 1, 1, 1)
-              effects.spawnBurst(VW / 2, VH / 3, 16, {0.95, 0.85, 0.25})
-              showNotification("Level " .. level_result.new_level .. " unlocked!", {0.4, 0.8, 1.0})
+              -- Level up celebration popup (D-07: celebration tier)
+              local reward_list = {}
+              if level_result.bag_reward and level_result.bag_reward > 0 then
+                table.insert(reward_list, {icon_type = "bag", amount = level_result.bag_reward})
+              end
+              if level_result.star_reward and level_result.star_reward > 0 then
+                table.insert(reward_list, {icon_type = "star", amount = level_result.star_reward})
+              end
+              popups.push({
+                tier = "celebration",
+                title = "Level Up!",
+                body = "Level " .. (level_result.new_level or "?"),
+                rewards = reward_list,
+              })
+              -- Level drop toast
               if level_result.level_drop then
                 local ld = level_result.level_drop
                 if ld.type == "hammer" then
-                  showNotification("Level bonus: +1 Hammer!", {0.9, 0.5, 0.2})
+                  popups.push({tier = "toast", title = "Level Bonus: Hammer!", body = "+1 charge", rewards = {}})
                 elseif ld.type == "auto_sort" then
-                  showNotification("Level bonus: +1 Auto Sort!", {0.2, 0.7, 0.9})
+                  popups.push({tier = "toast", title = "Level Bonus: Auto Sort!", body = "+1 charge", rewards = {}})
                 elseif ld.type == "bag_bundle" then
-                  showNotification("Level bonus: +" .. (ld.amount or 1) .. " Bags!", {0.8, 0.6, 0.3})
+                  popups.push({tier = "toast", title = "Level Bonus: +" .. (ld.amount or 1) .. " Bags", body = "Bag Bundle!", rewards = {}})
                 end
               end
             end

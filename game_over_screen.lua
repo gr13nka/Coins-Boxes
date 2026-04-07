@@ -7,7 +7,6 @@ local resources = require("resources")
 local bags = require("bags")
 local coin_sort = require("coin_sort")
 local progression = require("progression")
-local commissions = require("commissions")
 local yandex = require("yandex")
 
 local game_over_screen = {}
@@ -20,7 +19,6 @@ local final_score = 0
 local snap_fuel = 0
 local snap_stars = 0
 local snap_bags = 0
-local commission_rewards = nil
 
 -- Continue button
 local BTN_W, BTN_H = 400, 120
@@ -35,11 +33,7 @@ function game_over_screen.enter()
   local state = coin_sort.getState()
   final_score = state.points
 
-  -- Collect commission rewards before snapshot
-  commission_rewards = commissions.collectRewards()
-  commissions.clear()
-
-  -- Snapshot resources (after commission rewards applied)
+  -- Snapshot resources
   snap_fuel = resources.getFuel()
   snap_stars = resources.getStars()
   snap_bags = bags.getTotalAvailable()
@@ -100,23 +94,6 @@ function game_over_screen.draw()
   love.graphics.printf("Bags", 200, row_y + row_h * 2, 200, "left")
   love.graphics.setColor(0.92, 0.88, 0.78)
   love.graphics.printf(tostring(snap_bags), 500, row_y + row_h * 2, 300, "left")
-
-  -- Commission rewards
-  if commission_rewards and (commission_rewards.bags > 0 or commission_rewards.stars > 0) then
-    local cr_y = row_y + row_h * 3 + 20
-    love.graphics.setColor(0.65, 0.68, 0.58)
-    love.graphics.printf("Commission Rewards", 0, cr_y, VW, "center")
-    cr_y = cr_y + 70
-    if commission_rewards.bags > 0 then
-      love.graphics.setColor(0.68, 0.55, 0.32)
-      love.graphics.printf("+" .. commission_rewards.bags .. " Bags", 0, cr_y, VW, "center")
-      cr_y = cr_y + row_h
-    end
-    if commission_rewards.stars > 0 then
-      love.graphics.setColor(0.95, 0.85, 0.25)
-      love.graphics.printf("+" .. commission_rewards.stars .. " Stars", 0, cr_y, VW, "center")
-    end
-  end
 
   -- Continue button
   love.graphics.setColor(0.25, 0.65, 0.35)

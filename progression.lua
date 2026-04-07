@@ -4,7 +4,7 @@
 local progression = {}
 
 -- Schema versioning for save migration
-local CURRENT_SCHEMA_VERSION = 1
+local CURRENT_SCHEMA_VERSION = 2
 
 -- Migration functions: each migrates data from version N-1 to version N
 local MIGRATIONS = {
@@ -39,6 +39,20 @@ local MIGRATIONS = {
       data.stats.highest_score_2048 = nil
     end
 
+    return data
+  end,
+
+  -- Migration to version 2: add commissions persistence
+  [2] = function(data)
+    -- Add commissions_data slice. Old saves had no commissions_data.
+    -- mergeWithDefaults will fill the empty table, but we explicitly
+    -- set it here for clarity.
+    if not data.commissions_data then
+      data.commissions_data = {
+        active = {},
+        lifetime_completed = 0,
+      }
+    end
     return data
   end,
 }
@@ -136,6 +150,12 @@ local function getDefaultData()
 
     -- Coin Sort game state (grid, points, progress)
     coin_sort_data = {},
+
+    -- Commission system: persistent commissions with manual collect
+    commissions_data = {
+      active = {},
+      lifetime_completed = 0,
+    },
   }
 end
 
@@ -593,6 +613,14 @@ end
 
 function progression.setCoinSortData(d)
   data.coin_sort_data = d
+end
+
+function progression.getCommissionsData()
+  return data.commissions_data
+end
+
+function progression.setCommissionsData(d)
+  data.commissions_data = d
 end
 
 return progression

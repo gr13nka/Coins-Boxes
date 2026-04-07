@@ -17,6 +17,7 @@ local drops = require("drops")
 local skill_tree = require("skill_tree")
 local tab_bar = require("tab_bar")
 local yandex = require("yandex")
+local popups = require("popups")
 
 -- Debugger is initialized in conf.lua (must run before love.load)
 
@@ -102,6 +103,10 @@ function love.load()
   local fontScale = 1.2
   coinNumberFont = love.graphics.newFont("comic shanns.otf", math.floor(layout.COIN_R * fontScale))
 
+  -- Popup fonts (heading 48px, display 64px)
+  local font_heading = love.graphics.newFont("comic shanns.otf", 48)
+  local font_display = love.graphics.newFont("comic shanns.otf", 64)
+
   -- Initialize particle system
   particles.init()
 
@@ -115,10 +120,20 @@ function love.load()
   -- Small font for skill tree labels
   local font_small = love.graphics.newFont("comic shanns.otf", math.floor(layout.FONT_SIZE * 0.7))
 
+  -- Initialize popups with all 4 font references
+  popups.init({
+    heading = font_heading,
+    display = font_display,
+    body = font,
+    label = font_small,
+  })
+
   -- Prepare assets bundle for screens
   local assets = {
     font = font,
     font_small = font_small,
+    font_heading = font_heading,
+    font_display = font_display,
     coinNumberFont = coinNumberFont,
     addButtonImage = addButtonImage,
     addButtonPressedImage = addButtonPressedImage,
@@ -155,6 +170,7 @@ end
 
 function love.update(dt)
   screens.update(dt)
+  popups.update(dt)
 end
 
 function love.draw()

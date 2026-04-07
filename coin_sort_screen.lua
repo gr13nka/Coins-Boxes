@@ -19,6 +19,8 @@ local tab_bar = require("tab_bar")
 local drops = require("drops")
 local arena_chains = require("arena_chains")
 local effects = require("effects")
+local popups = require("popups")
+local commissions = require("commissions")
 
 local coin_sort_screen = {}
 
@@ -109,6 +111,7 @@ local powerupButtonState = {
 
 -- Fonts (set via init)
 local font
+local font_small
 local coinNumberFont
 
 -- Resource feedback animation (floating text on merge)
@@ -281,6 +284,7 @@ function coin_sort_screen.init(assets)
   mergeButtonImage = assets.mergeButtonImage
   mergeButtonPressedImage = assets.mergeButtonPressedImage
   font = assets.font
+  font_small = assets.font_small
   coinNumberFont = assets.coinNumberFont
 
   -- Calculate button dimensions and positions
@@ -685,41 +689,129 @@ local function drawResourceHUD()
   end
 end
 
--- Commission panel (drawn below resource HUD)
+-- Commission quest panel constants (from UI-SPEC section 5)
+local COM_PANEL_X = 40
+local COM_PANEL_Y = 75
+local COM_PANEL_W = 1000  -- VW - 80
+local COM_ENTRY_H = 80
+local COM_PADDING = 8
+local COM_BADGE_W, COM_BADGE_H = 60, 28
+local COM_BAR_W, COM_BAR_H = 600, 16
+local COM_COLLECT_W, COM_COLLECT_H = 120, 44
+
+-- Difficulty colors for badges and progress bars
+local DIFF_COLORS = {
+  easy = {0.3, 0.75, 0.4, 0.8},
+  medium = {0.95, 0.85, 0.25, 0.8},
+  hard = {0.85, 0.3, 0.25, 0.8},
+}
+local DIFF_LABELS = {easy = "Easy", medium = "Med", hard = "Hard"}
+
+-- Commission reward reference (matches commissions.lua REWARDS)
+local COM_REWARDS = {
+  easy   = {bags = 1, stars = 3},
+  medium = {bags = 2, stars = 5},
+  hard   = {bags = 3, stars = 10},
+}
+
+-- Commission panel (drawn below resource HUD) -- redesigned quest panel per UI-SPEC
 local function drawCommissions()
-  local state = coin_sort.getState()
-  local coms = state.commissions
+  local coms = commissions.getActive()
   if not coms or #coms == 0 then return end
 
-  love.graphics.setFont(font)
-  local panel_x = 40
-  local panel_y = 75
-  local panel_w = VW - 80
-  local row_h = 36
-
-  -- Semi-transparent background
+  -- Panel background
+  local panel_h = COM_PADDING * 2 + #coms * COM_ENTRY_H + (
+    #coms > 1 and COM_PADDING or 0
+  )
   love.graphics.setColor(0.08, 0.12, 0.08, 0.75)
-  love.graphics.rectangle("fill", panel_x, panel_y, panel_w, 8 + #coms * row_h, 8, 8)
+  love.graphics.rectangle("fill", COM_PANEL_X, COM_PANEL_Y, COM_PANEL_W, panel_h, 8, 8)
   love.graphics.setColor(0.3, 0.5, 0.3, 0.4)
-  love.graphics.rectangle("line", panel_x, panel_y, panel_w, 8 + #coms * row_h, 8, 8)
+  love.graphics.setLineWidth(1)
+  love.graphics.rectangle("line", COM_PANEL_X, COM_PANEL_Y, COM_PANEL_W, panel_h, 8, 8)
 
   for i, c in ipairs(coms) do
-    local y = panel_y + 4 + (i - 1) * row_h
-    -- Checkbox
-    if c.completed then
-      love.graphics.setColor(0.3, 0.9, 0.4, 0.9)
-      love.graphics.printf("✓", panel_x + 8, y + 4, 30, "center")
+    local entry_y = COM_PANEL_Y + COM_PADDING + (i - 1) * (COM_ENTRY_H + COM_PADDING)
+    local entry_x = COM_PANEL_X + 12
+
+    if c.collected then
+      -- Collected state: checkmark, dimmed
+      love.graphics.setColor(0.3, 0.9, 0.4, 0.5)
+      love.graphics.setFont(font)
+      love.graphics.printf("Done", entry_x, entry_y + 10, COM_PANEL_W - 24, "center")
+      love.graphics.setColor(0.6, 0.6, 0.6, 0.4)
+      love.graphics.setFont(font_small or font)
+      love.graphics.printf(c.desc, entry_x, entry_y + 45, COM_PANEL_W - 24, "center")
     else
-      love.graphics.setColor(0.5, 0.5, 0.5, 0.6)
-      love.graphics.rectangle("line", panel_x + 14, y + 8, 18, 18, 3, 3)
+      -- Difficulty badge
+      local dc = DIFF_COLORS[c.difficulty] or DIFF_COLORS.easy
+      love.graphics.setColor(dc[1], dc[2], dc[3], dc[4])
+      love.graphics.rectangle("fill", entry_x, entry_y + 4, COM_BADGE_W, COM_BADGE_H, 8, 8)
+      love.graphics.setColor(0.1, 0.1, 0.1, 1)
+      love.graphics.setFont(font_small or font)
+      love.graphics.printf(DIFF_LABELS[c.difficulty] or "?", entry_x, entry_y + 6, COM_BADGE_W, "center")
+
+      -- Description text (right of badge)
+      love.graphics.setColor(0.92, 0.88, 0.78, 0.9)
+      love.graphics.setFont(font)
+      local desc_x = entry_x + COM_BADGE_W + 12
+      love.graphics.printf(c.desc, desc_x, entry_y + 2, COM_PANEL_W - COM_BADGE_W - 200, "left")
+
+      -- Reward preview (right-aligned on same line as description)
+      local rewards = COM_REWARDS[c.difficulty] or COM_REWARDS.easy
+      love.graphics.setFont(font_small or font)
+      local reward_str = ""
+      if rewards.bags > 0 then
+        reward_str = "+" .. rewards.bags .. " bag "
+      end
+      if rewards.stars > 0 then
+        reward_str = reward_str .. "+" .. rewards.stars .. " star"
+      end
+      local reward_x = COM_PANEL_X + COM_PANEL_W - 12
+      -- Bag color for bag part, star color for star part
+      love.graphics.setColor(0.95, 0.85, 0.25, 0.8)
+      love.graphics.printf(reward_str, reward_x - 200, entry_y + 8, 200, "right")
+
+      -- Second row: progress bar OR collect button
+      local bar_y = entry_y + 40
+
+      if c.completed and not c.collected then
+        -- Pulsing green glow on entry border
+        local pulse = 0.5 + 0.5 * math.sin(love.timer.getTime() * math.pi * 2 / 0.5)
+        love.graphics.setColor(0.25, 0.65, 0.35, 0.3 * pulse)
+        love.graphics.setLineWidth(2)
+        love.graphics.rectangle("line", COM_PANEL_X + 4, entry_y - 2, COM_PANEL_W - 8, COM_ENTRY_H + 4, 6, 6)
+        love.graphics.setLineWidth(1)
+
+        -- Collect button (replaces progress bar area)
+        local btn_x = entry_x + COM_BADGE_W + 12
+        love.graphics.setColor(0.25, 0.65, 0.35, 1)
+        love.graphics.rectangle("fill", btn_x, bar_y, COM_COLLECT_W, COM_COLLECT_H, 8, 8)
+        love.graphics.setColor(0.92, 0.88, 0.78, 1)
+        love.graphics.setFont(font_small or font)
+        love.graphics.printf("Collect", btn_x, bar_y + 10, COM_COLLECT_W, "center")
+      else
+        -- Progress bar
+        love.graphics.setColor(0.15, 0.15, 0.15, 0.7)
+        local bar_x = entry_x + COM_BADGE_W + 12
+        love.graphics.rectangle("fill", bar_x, bar_y, COM_BAR_W, COM_BAR_H, 4, 4)
+
+        -- Fill
+        local progress_ratio = math.min((c.progress or 0) / math.max(c.target or 1, 1), 1)
+        local fill_w = progress_ratio * COM_BAR_W
+        if fill_w > 0 then
+          love.graphics.setColor(dc[1], dc[2], dc[3], 0.85)
+          love.graphics.rectangle("fill", bar_x, bar_y, fill_w, COM_BAR_H, 4, 4)
+        end
+
+        -- Progress text centered on bar
+        love.graphics.setColor(1, 1, 1, 0.9)
+        love.graphics.setFont(font_small or font)
+        love.graphics.printf(
+          math.min(c.progress or 0, c.target or 0) .. "/" .. (c.target or 0),
+          bar_x, bar_y - 1, COM_BAR_W, "center"
+        )
+      end
     end
-    -- Description + progress
-    local progress_text = ""
-    if not c.completed then
-      progress_text = " (" .. math.min(c.progress, c.target) .. "/" .. c.target .. ")"
-    end
-    love.graphics.setColor(c.completed and 0.6 or 0.85, c.completed and 0.6 or 0.85, c.completed and 0.6 or 0.85, c.completed and 0.5 or 0.9)
-    love.graphics.printf(c.desc .. progress_text, panel_x + 40, y + 6, panel_w - 50, "left")
   end
 end
 
@@ -967,6 +1059,10 @@ function coin_sort_screen.draw()
   effects.drawFlash()
   effects.draw()
 
+  -- Popup overlays (above HUD, below tab bar per UI-SPEC z-order)
+  popups.drawToasts()
+  popups.drawModal()
+
   -- Tab bar (drawn outside shake transform)
   tab_bar.draw("coin_sort")
 end
@@ -993,6 +1089,49 @@ end
 
 function coin_sort_screen.mousepressed(x, y, button)
   if button ~= 1 then return end
+
+  -- Popup input priority (per UI-SPEC interaction contract)
+  if popups.isInputBlocked() then
+    popups.handleModalTap(x, y)
+    return
+  end
+  if popups.handleToastTap(x, y) then
+    return
+  end
+
+  -- Commission collect button handling
+  local coms = commissions.getActive()
+  if coms then
+    for i, c in ipairs(coms) do
+      if c.completed and not c.collected then
+        local entry_y = COM_PANEL_Y + COM_PADDING + (i - 1) * (COM_ENTRY_H + COM_PADDING)
+        local btn_x = COM_PANEL_X + 12 + COM_BADGE_W + 12
+        local btn_y = entry_y + 40
+        if x >= btn_x and x <= btn_x + COM_COLLECT_W and y >= btn_y and y <= btn_y + COM_COLLECT_H then
+          local reward = commissions.collectSingle(i)
+          if reward then
+            -- Fly-to-bar from button position
+            if reward.stars and reward.stars > 0 then
+              effects.spawnResourceFly(btn_x + COM_COLLECT_W / 2, btn_y, "star")
+            end
+            if reward.bags and reward.bags > 0 then
+              effects.spawnResourceFly(btn_x + COM_COLLECT_W / 2 + 20, btn_y, "bag")
+            end
+            -- Toast for collected rewards
+            local toast_body = ""
+            if reward.bags and reward.bags > 0 then toast_body = toast_body .. "+" .. reward.bags .. " Bags " end
+            if reward.stars and reward.stars > 0 then toast_body = toast_body .. "+" .. reward.stars .. " Stars" end
+            popups.push({tier = "toast", title = "Commission Complete!", body = toast_body, rewards = {}})
+            -- Check batch refresh
+            if commissions.canRefresh() then
+              commissions.refreshIfReady()
+            end
+          end
+          return
+        end
+      end
+    end
+  end
 
   -- Check tab bar first
   local tab = tab_bar.mousepressed(x, y)
@@ -1187,10 +1326,10 @@ function coin_sort_screen.mousereleased(x, y, button)
           end,
           -- Per-box callback: when each box finishes merging
           function(box_data)
-            local success, gained, drop_results, commissions_refreshed, used_double = coin_sort.executeMergeOnBox(box_data.box_idx)
+            local success, gained, drop_results, used_double = coin_sort.executeMergeOnBox(box_data.box_idx)
             sound.playMerge()
             mobile.vibrateMerge()
-            progression.onMerge("2048", 1)
+            local _, newAchievements = progression.onMerge("2048", 1)
             -- Level-scaled celebration (per D-01, D-02, FX-03)
             local merge_level = box_data.new_number
             local merge_color = box_data.new_color or coin_utils.numberToColor(merge_level, 50)
@@ -1220,21 +1359,23 @@ function coin_sort_screen.mousereleased(x, y, button)
               local from_y = box_data.slot_y[1]
               spawnResourcePopup(from_x, from_y, gained)
             end
-            -- Commission refresh notification
-            if commissions_refreshed then
-              spawnResourcePopup(box_data.slot_x[1], box_data.slot_y[1] - 40, {text = "Commissions Complete! New goals!", color = {0.3, 0.95, 0.4}})
+            -- Achievement unlocked popup (D-06: medium card tier)
+            if newAchievements and #newAchievements > 0 then
+              for _, achievement_name in ipairs(newAchievements) do
+                popups.push({tier = "card", title = achievement_name, body = "Achievement Unlocked!", rewards = {}})
+              end
             end
-            -- Show drop notifications
+            -- Drop notifications as toast popups (replacing floating text per D-05)
             if drop_results then
               for _, d in ipairs(drop_results) do
                 if d.type == "chest" then
-                  spawnResourcePopup(box_data.slot_x[1], box_data.slot_y[1], {text = (d.chain_id or "?") .. " Chest! (" .. d.charges .. " taps)", color = {1, 0.85, 0.3}})
+                  popups.push({tier = "toast", title = (d.chain_id or "?") .. " Chest!", body = d.charges .. " taps", rewards = {}})
                 elseif d.type == "fuel_surge" then
-                  spawnResourcePopup(box_data.slot_x[1], box_data.slot_y[1], {text = "+" .. d.amount .. " Fuel!", color = {1, 0.8, 0.2}})
+                  popups.push({tier = "toast", title = "+" .. d.amount .. " Fuel", body = "Fuel Surge!", rewards = {{icon_type = "fuel", amount = d.amount}}})
                 elseif d.type == "star_burst" then
-                  spawnResourcePopup(box_data.slot_x[1], box_data.slot_y[1], {text = "+" .. d.amount .. " Stars!", color = {0.95, 0.85, 0.25}})
+                  popups.push({tier = "toast", title = "+" .. d.amount .. " Stars", body = "Star Burst!", rewards = {{icon_type = "star", amount = d.amount}}})
                 elseif d.type == "gen_token" then
-                  spawnResourcePopup(box_data.slot_x[1], box_data.slot_y[1], {text = "Free Generator Tap!", color = {1, 0.9, 0.1}})
+                  popups.push({tier = "toast", title = "Free Generator Tap!", body = "Generator Token earned!", rewards = {}})
                 end
               end
             end

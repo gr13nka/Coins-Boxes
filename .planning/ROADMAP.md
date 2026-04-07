@@ -62,8 +62,12 @@ Plans:
   2. Multiple simultaneous rewards display sequentially in a queue -- never stacked or lost
   3. Closing and reopening the game preserves commission progress exactly where it was
   4. Commission progress is visible as a trackable quest list during gameplay
-**Plans**: TBD
-**UI hint**: yes
+**Plans**: 3 plans
+
+Plans:
+- [x] 03-01-PLAN.md — Popup system module: toast/card/celebration tiers, FIFO queue, rendering
+- [x] 03-02-PLAN.md — Commission persistence: save/load, manual collect, batch refresh, difficulty scaling
+- [x] 03-03-PLAN.md — Commission quest panel UI redesign + popup trigger wiring into both screens
 
 ### Phase 4: Spotlight Tutorials
 **Goal**: New players learn both game modes through guided spotlight tutorials that prevent confusion and soft-locks
@@ -86,5 +90,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 |-------|----------------|--------|-----------|
 | 1. Cleanup and Prep | 0/2 | Planned | - |
 | 2. Effects System Redesign | 0/5 | Planned | - |
-| 3. Popups and Commission Persistence | 0/0 | Not started | - |
+| 3. Popups and Commission Persistence | 0/3 | Planned | - |
 | 4. Spotlight Tutorials | 0/0 | Not started | - |

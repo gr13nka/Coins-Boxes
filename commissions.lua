@@ -1,10 +1,12 @@
 -- commissions.lua
 -- Commission system for Coin Sort: Forge/Harvest goals with Bag+Star rewards.
--- 2-3 active commissions per session, refreshed on enter from Arena.
+-- Persistent across sessions via progression.dat. Manual per-commission collect,
+-- batch refresh when both are collected. Difficulty scales by lifetime completions.
 -- Pure data module (no drawing).
 
 local resources = require("resources")
 local bags = require("bags")
+local progression = require("progression")
 
 local commissions = {}
 
@@ -34,22 +36,24 @@ local REWARDS = {
   hard   = {bags = 3, stars = 10},
 }
 
--- Active commissions: array of {desc, type, difficulty, target, progress, completed}
+-- Active commissions: array of {desc, type, difficulty, target_level, target_count, target, progress, completed, collected}
 local active = {}
+
+-- Lifetime count of commissions collected (drives difficulty scaling)
+local lifetime_completed = 0
 
 -- Pick random item from array
 local function pick(arr)
   return arr[math.random(#arr)]
 end
 
--- Generate a set of commissions based on max_coin_reached
-function commissions.generate(max_coin)
+-- Generate a set of commissions. Difficulty based on lifetime_completed count.
+function commissions.generate()
   active = {}
-  -- Pick 1 easy + 1 medium, or 1 medium + 1 hard based on progression
   local sets
-  if max_coin >= 5 then
+  if lifetime_completed >= 20 then
     sets = {"medium", "hard"}
-  elseif max_coin >= 3 then
+  elseif lifetime_completed >= 8 then
     sets = {"easy", "medium"}
   else
     sets = {"easy", "easy"}
@@ -66,36 +70,45 @@ function commissions.generate(max_coin)
       target = template.target or template.target_count,
       progress = 0,
       completed = false,
+      collected = false,
     }
   end
 end
 
 -- Track a merge event: new_number = resulting coin level, gained = {fuel, stars}
 function commissions.onMerge(new_number, gained)
+  local any_progress = false
   for _, c in ipairs(active) do
-    if c.completed then
-      -- skip
+    if c.completed or c.collected then
+      -- skip completed/collected commissions
     elseif c.type == "forge" and new_number >= c.target_level then
       c.progress = c.progress + 1
       if c.progress >= c.target then
         c.completed = true
       end
+      any_progress = true
     elseif c.type == "harvest_merges" then
       c.progress = c.progress + 1
       if c.progress >= c.target then
         c.completed = true
       end
-    elseif c.type == "harvest_fuel" and gained and gained.fuel > 0 then
+      any_progress = true
+    elseif c.type == "harvest_fuel" and gained and gained.fuel and gained.fuel > 0 then
       c.progress = c.progress + gained.fuel
       if c.progress >= c.target then
         c.completed = true
       end
-    elseif c.type == "harvest_stars" and gained and gained.stars > 0 then
+      any_progress = true
+    elseif c.type == "harvest_stars" and gained and gained.stars and gained.stars > 0 then
       c.progress = c.progress + gained.stars
       if c.progress >= c.target then
         c.completed = true
       end
+      any_progress = true
     end
+  end
+  if any_progress then
+    commissions.save()
   end
 end
 
@@ -104,34 +117,75 @@ function commissions.getActive()
   return active
 end
 
--- Collect rewards for all completed commissions. Returns total {bags, stars}.
-function commissions.collectRewards()
-  local total_bags, total_stars = 0, 0
-  for _, c in ipairs(active) do
-    if c.completed then
-      local r = REWARDS[c.difficulty]
-      if r then
-        total_bags = total_bags + r.bags
-        total_stars = total_stars + r.stars
-      end
-    end
-  end
-  if total_bags > 0 then bags.addBags(total_bags) end
-  if total_stars > 0 then resources.addStars(total_stars) end
-  return {bags = total_bags, stars = total_stars}
+-- Get lifetime completed count
+function commissions.getLifetimeCompleted()
+  return lifetime_completed
 end
 
--- Check if all commissions are completed
-function commissions.allCompleted()
-  for _, c in ipairs(active) do
-    if not c.completed then return false end
-  end
-  return #active > 0
+-- Collect reward for a single commission by index. Returns {bags, stars} or nil.
+function commissions.collectSingle(index)
+  local c = active[index]
+  if not c or not c.completed or c.collected then return nil end
+
+  local r = REWARDS[c.difficulty]
+  if not r then return nil end
+
+  c.collected = true
+  lifetime_completed = lifetime_completed + 1
+
+  -- Apply rewards
+  bags.addBags(r.bags)
+  resources.addStars(r.stars)
+
+  commissions.save()
+  return {bags = r.bags, stars = r.stars}
 end
 
--- Clear commissions (on game over)
-function commissions.clear()
-  active = {}
+-- Check if all commissions have been collected (ready for batch refresh)
+function commissions.canRefresh()
+  if #active == 0 then return false end
+  for _, c in ipairs(active) do
+    if not c.collected then return false end
+  end
+  return true
+end
+
+-- Refresh commissions if all are collected (batch refresh per D-13)
+function commissions.refreshIfReady()
+  if not commissions.canRefresh() then return false end
+  commissions.generate()
+  commissions.save()
+  return true
+end
+
+-- Save commission state to progression
+function commissions.save()
+  progression.setCommissionsData({
+    active = active,
+    lifetime_completed = lifetime_completed,
+  })
+end
+
+-- Sync for save batching (called by coin_sort.save() / arena.save() before progression.save())
+function commissions.sync()
+  commissions.save()
+end
+
+-- Load commission state from progression. Generates new if no valid save.
+function commissions.load()
+  local saved = progression.getCommissionsData()
+  if saved and saved.active and #saved.active > 0 then
+    active = saved.active
+    lifetime_completed = saved.lifetime_completed or 0
+  else
+    lifetime_completed = saved and saved.lifetime_completed or 0
+    commissions.generate()
+  end
+end
+
+-- Initialize commissions (load from save or generate fresh)
+function commissions.init()
+  commissions.load()
 end
 
 return commissions
