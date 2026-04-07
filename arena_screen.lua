@@ -16,6 +16,7 @@ local particles = require("particles")
 local popups = require("popups")
 
 local yandex = require("yandex")
+local tutorial = require("tutorial")
 
 local arena_screen = {}
 
@@ -635,9 +636,22 @@ local function drawGrid()
   end
 end
 
+local function isStashVisible()
+  if tutorial.isActive() and tutorial.getActiveTutorial() == "arena" then
+    return tutorial.getCurrentStep() >= 7
+  end
+  return true
+end
+
+local function isOrdersVisible()
+  if tutorial.isActive() and tutorial.getActiveTutorial() == "arena" then
+    return tutorial.getCurrentStep() >= 6
+  end
+  return true
+end
+
 local function drawStash()
-  local step = arena.getTutorialStep()
-  if step ~= "done" and type(step) == "number" and step < 15 then return end
+  if not isStashVisible() then return end
 
   love.graphics.setColor(0.45, 0.55, 0.40, 0.5)
   love.graphics.printf("Storage", 0, STASH_Y - 22, VW, "center")
@@ -664,8 +678,7 @@ end
 
 -- Compact horizontal orders strip shown in the header row (right of dispenser)
 local function drawOrdersStrip()
-  local step = arena.getTutorialStep()
-  if step ~= "done" and type(step) == "number" and step < 13 then return end
+  if not isOrdersVisible() then return end
 
   local visible = arena_orders.getVisibleOrders()
 
@@ -761,28 +774,7 @@ local function drawDragged()
     drag.x - size / 2, drag.y - size / 2, size, false, 0.85)
 end
 
--- === TUTORIAL ===
-
-local TUTORIAL_TOOLTIPS = {
-  [1]  = "Drag the Ice Block to the grid",
-  [2]  = "Drag another Ice Block onto the first one",
-  [3]  = "Merge the two Ice Blocks!",
-  [4]  = "Merge to make Bucket of Ice",
-  [5]  = "Merge the Ice Cubes!",
-  [6]  = "Drag Bucket of Ice onto the sealed one",
-  [7]  = "Unseal it!",
-  [8]  = "Tap the Fridge generator!",
-  [9]  = "",
-  [10] = "Drag the Egg to the grid",
-  [11] = "Drag another Egg over",
-  [12] = "Drag Egg onto the sealed Egg above",
-  [13] = "Complete the order!",
-  [14] = "",
-  [15] = "Use the stash for extra storage",
-  [16] = "Tap the Fridge generator again",
-  [17] = "",
-  [18] = "",
-}
+-- === SPOTLIGHT TUTORIAL ===
 
 local function drawFuelDepletionOverlay()
   if not fuel_overlay_shown then return end
@@ -845,134 +837,221 @@ local function drawFuelDepletionOverlay()
   love.graphics.printf("(tap to dismiss)", px, py + ph - 30, pw, "center")
 end
 
-local function drawTutorial()
-  local step = arena.getTutorialStep()
-  if step == "done" or type(step) ~= "number" then return end
+-- === SPOTLIGHT OVERLAY (new tutorial rendering) ===
 
-  local tooltip = TUTORIAL_TOOLTIPS[step]
-  if tooltip and tooltip ~= "" then
-    -- Draw tooltip below header row
-    love.graphics.setColor(0, 0, 0, 0.7)
-    love.graphics.rectangle("fill", 40, HEADER_BOTTOM + 4, VW - 80, 32, 6, 6)
-    love.graphics.setColor(1, 1, 0.7)
-    love.graphics.printf(tooltip, 0, HEADER_BOTTOM + 10, VW, "center")
-  end
-
-  -- Highlight specific cells during certain steps
-  if step == 6 or step == 7 then
-    -- Highlight sealed Ch3 cells
-    local grid_data = arena.getGrid()
-    for i = 1, arena.getGridSize() do
-      local cell = grid_data[i]
-      if cell and cell.state == "sealed" and cell.chain_id == "Ch" and cell.level == 3 then
-        local hx, hy = cellScreenPos(i)
-        love.graphics.setColor(1, 1, 0.3, 0.2 + 0.1 * math.sin(love.timer.getTime() * 4))
-        love.graphics.rectangle("fill", hx, hy, CELL_SIZE, CELL_SIZE, 6, 6)
-        love.graphics.setColor(1, 1, 0.3, 0.7)
-        love.graphics.setLineWidth(2)
-        love.graphics.rectangle("line", hx, hy, CELL_SIZE, CELL_SIZE, 6, 6)
-        love.graphics.setLineWidth(1)
-      end
-    end
-  elseif step == 8 or step == 9 or step == 16 or step == 17 then
-    -- Highlight generators
-    local grid_data = arena.getGrid()
-    for i = 1, arena.getGridSize() do
-      if arena.isGeneratorCell(i) then
-        local hx, hy = cellScreenPos(i)
-        love.graphics.setColor(0.3, 1, 0.3, 0.15 + 0.1 * math.sin(love.timer.getTime() * 4))
-        love.graphics.rectangle("fill", hx, hy, CELL_SIZE, CELL_SIZE, 6, 6)
-      end
-    end
-  elseif step == 10 or step == 11 or step == 12 then
-    -- Highlight sealed Da1 cells
-    local grid_data = arena.getGrid()
-    for i = 1, arena.getGridSize() do
-      local cell = grid_data[i]
-      if cell and cell.state == "sealed" and cell.chain_id == "Da" and cell.level == 1 then
-        local hx, hy = cellScreenPos(i)
-        love.graphics.setColor(1, 1, 0.3, 0.2 + 0.1 * math.sin(love.timer.getTime() * 4))
-        love.graphics.rectangle("fill", hx, hy, CELL_SIZE, CELL_SIZE, 6, 6)
-      end
-    end
-  end
+-- Helper: get screen rect for a grid cell
+local function getCellRect(grid_index)
+  local x, y = cellScreenPos(grid_index)
+  return {x = x, y = y, w = CELL_SIZE, h = CELL_SIZE}
 end
 
-local function advanceTutorial(event, data)
-  local step = arena.getTutorialStep()
-  if step == "done" or type(step) ~= "number" then return end
+-- Helper: get screen rect for the dispenser circle
+local function getDispenserRect()
+  return {x = DISP_X, y = DISP_Y, w = DISP_SIZE, h = DISP_SIZE}
+end
 
-  if step == 1 then
-    -- After placing first Ch1 on grid
-    if event == "place_from_dispenser" then
-      arena.pushDispenser("Ch", 1)
-      arena.setTutorialStep(2)
+-- Helper: get screen rect covering the stash area
+local function getStashRect()
+  local count, w, sx = getStashLayout()
+  return {x = sx, y = STASH_Y, w = w, h = STASH_SLOT_SIZE}
+end
+
+-- Helper: get screen rect covering the orders strip
+local function getOrdersRect()
+  local oy = HEADER_Y + math.floor((HEADER_H - ORDER_COMPACT_H) / 2)
+  return {x = ORDERS_STRIP_X, y = oy, w = ORDERS_STRIP_W, h = ORDER_COMPACT_H}
+end
+
+-- Helper: find first generator cell rect
+local function getGeneratorCellRect()
+  for i = 1, arena.getGridSize() do
+    if arena.isGeneratorCell(i) then
+      return getCellRect(i)
     end
-  elseif step == 2 then
-    -- After placing second Ch1 (or merging)
-    if event == "merge" and data and data.chain_id == "Ch" and data.level == 2 then
-      arena.pushDispenser("Ch", 2)
-      arena.setTutorialStep(4)
-    elseif event == "place_from_dispenser" then
-      arena.setTutorialStep(3)
+  end
+  return nil
+end
+
+-- Helper: find first Ch1 cell rect on grid
+local function findCh1Rect()
+  local grid_data = arena.getGrid()
+  for i = 1, arena.getGridSize() do
+    local cell = grid_data[i]
+    if cell and not cell.state and cell.chain_id == "Ch" and cell.level == 1 then
+      return getCellRect(i)
     end
-  elseif step == 3 then
-    -- Waiting for Ch1+Ch1 merge
-    if event == "merge" and data and data.chain_id == "Ch" and data.level == 2 then
-      arena.pushDispenser("Ch", 2)
-      arena.setTutorialStep(4)
+  end
+  return getDispenserRect()  -- fallback
+end
+
+-- Helper: find second Ch1 cell center for drag target
+local function findSecondCh1Target()
+  local grid_data = arena.getGrid()
+  local found = 0
+  for i = 1, arena.getGridSize() do
+    local cell = grid_data[i]
+    if cell and not cell.state and cell.chain_id == "Ch" and cell.level == 1 then
+      found = found + 1
+      if found == 2 then
+        local x, y = cellScreenPos(i)
+        return {x = x + CELL_SIZE / 2, y = y + CELL_SIZE / 2}
+      end
     end
-  elseif step == 4 then
-    -- After placing Ch2 or merging
-    if event == "merge" and data and data.chain_id == "Ch" and data.level == 3 then
-      arena.setTutorialStep(6)
-    elseif event == "place_from_dispenser" then
-      arena.setTutorialStep(5)
+  end
+  return nil
+end
+
+-- Register 7-step Arena tutorial (D-08, D-09: redesign, 7 focused steps)
+tutorial.registerSteps("arena", {
+  -- Step 1: Tap dispenser to place first item
+  -- check always true: on_enter seeds the dispenser
+  {
+    text     = {en = "Tap to place this item on the grid", ru = "Нажмите, чтобы поставить предмет на поле"},
+    getRect  = getDispenserRect,
+    hand     = "tap",
+    check    = function() return true end,
+    on_enter = function() arena.pushDispenser("Ch", 1) end,
+  },
+  -- Step 2: Tap dispenser again to place second item
+  {
+    text     = {en = "Place another item", ru = "Поставьте ещё один предмет"},
+    getRect  = getDispenserRect,
+    hand     = "tap",
+    check    = function() return true end,
+    on_enter = function() arena.pushDispenser("Ch", 1) end,
+  },
+  -- Step 3: Merge two Ch1 items
+  {
+    text     = {en = "Drag onto the matching item to merge!", ru = "Перетащите на такой же для слияния!"},
+    getRect  = findCh1Rect,
+    hand     = "drag",
+    drag_target = findSecondCh1Target,
+    check    = function()
+      local grid_data = arena.getGrid()
+      local count = 0
+      for i = 1, arena.getGridSize() do
+        local cell = grid_data[i]
+        if cell and not cell.state and cell.chain_id == "Ch" and cell.level == 1 then
+          count = count + 1
+          if count >= 2 then return true end
+        end
+      end
+      return false
+    end,
+  },
+  -- Step 4: Observe sealed reveal (tap to continue)
+  {
+    text    = {en = "Merging reveals nearby items!", ru = "Слияние открывает соседние предметы!"},
+    getRect = function()
+      -- Spotlight the first sealed cell visible
+      local grid_data = arena.getGrid()
+      for i = 1, arena.getGridSize() do
+        local cell = grid_data[i]
+        if cell and cell.state == "sealed" then
+          return getCellRect(i)
+        end
+      end
+      return nil
+    end,
+    hand  = "tap",
+    check = function() return true end,  -- sealed cells always exist on initial board
+  },
+  -- Step 5: Tap a generator
+  {
+    text    = {en = "Tap generators to create items (costs 1 Fuel)", ru = "Нажмите на генератор (стоит 1 Топливо)"},
+    getRect = getGeneratorCellRect,
+    hand    = "tap",
+    check   = function()
+      for i = 1, arena.getGridSize() do
+        if arena.isGeneratorCell(i) then return true end
+      end
+      return false
+    end,
+  },
+  -- Step 6: Orders panel (observe, tap to continue)
+  {
+    text    = {en = "Complete orders to earn rewards!", ru = "Выполняйте заказы для наград!"},
+    getRect = getOrdersRect,
+    hand    = "tap",
+    check   = function() return true end,
+  },
+  -- Step 7: Stash (observe, tap to continue, tutorial ends)
+  {
+    text    = {en = "Store extra items in the stash", ru = "Храните предметы в тайнике"},
+    getRect = getStashRect,
+    hand    = "tap",
+    check   = function() return true end,
+  },
+})
+
+-- Draw the spotlight overlay (dark overlay + animated cutout + hand icon + text)
+local function drawSpotlightOverlay()
+  local spot = tutorial.getSpotlight()
+  if not spot then return end
+
+  local opacity = tutorial.getOverlayOpacity()
+  local pulse   = tutorial.getPulseAlpha()
+  local radius  = tutorial.getCutoutRadius()
+
+  -- Phase 1: write cutout shape into stencil buffer (LÖVE 11.x API)
+  love.graphics.stencil(function()
+    love.graphics.rectangle("fill", spot.x, spot.y, spot.w, spot.h, radius, radius)
+  end, "replace", 1)
+
+  -- Phase 2: draw dark overlay only where stencil == 0 (outside cutout)
+  love.graphics.setStencilTest("equal", 0)
+  love.graphics.setColor(0, 0, 0, opacity)
+  love.graphics.rectangle("fill", 0, 0, VW, VH)
+
+  -- Phase 3: reset stencil
+  love.graphics.setStencilTest()
+  love.graphics.setColor(1, 1, 1, 1)
+
+  -- Pulsing border around cutout
+  love.graphics.setColor(1, 0.9, 0.3, pulse)
+  love.graphics.setLineWidth(3)
+  love.graphics.rectangle("line", spot.x, spot.y, spot.w, spot.h, radius, radius)
+  love.graphics.setLineWidth(1)
+
+  -- Hand icon animation
+  local hand = tutorial.getHandAnim()
+  local hx = spot.x + spot.w / 2
+  local hy = spot.y + spot.h / 2
+  if hand.type == "tap" then
+    -- Tap: hand moves down slightly at peak of progress
+    local tap_offset = math.sin(hand.progress * math.pi * 2) * 12
+    love.graphics.setColor(1, 1, 1, 0.9)
+    love.graphics.printf("👆", hx - 24, hy + tap_offset + spot.h / 2 + 10, 48, "center")
+  elseif hand.type == "drag" and hand.drag_target then
+    -- Drag: hand moves from source center toward drag_target
+    local tx = hand.drag_target.x
+    local ty = hand.drag_target.y
+    local t  = hand.progress
+    -- Ease: 0→0.7 move to target, 0.7→1 stay briefly then reset
+    local ease_t = math.min(t / 0.7, 1)
+    local draw_x = hx + (tx - hx) * ease_t
+    local draw_y = hy + (ty - hy) * ease_t
+    love.graphics.setColor(1, 1, 1, 0.9)
+    love.graphics.printf("👆", draw_x - 24, draw_y - 24, 48, "center")
+  end
+
+  -- Instruction text: position above or below spotlight
+  local text = tutorial.getText()
+  if text and text ~= "" then
+    local pos = tutorial.getTextPosition(spot)
+    local text_y
+    if pos == "above" then
+      text_y = spot.y - 60
+    else
+      text_y = spot.y + spot.h + 15
     end
-  elseif step == 5 then
-    -- Waiting for Ch2+Ch2 merge
-    if event == "merge" and data and data.chain_id == "Ch" and data.level == 3 then
-      arena.setTutorialStep(6)
-    end
-  elseif step == 6 or step == 7 then
-    -- Prompt: drag Ch3 onto sealed Ch3
-    if event == "merge" and data and data.chain_id == "Ch" and data.level == 4 and data.was_sealed then
-      arena.setTutorialStep(8)
-    end
-  elseif step == 8 or step == 9 then
-    -- Prompt: tap generator
-    if event == "tap_generator" then
-      arena.pushDispenser("Da", 1)
-      arena.setTutorialStep(10)
-    end
-  elseif step == 10 then
-    if event == "place_from_dispenser" then
-      arena.pushDispenser("Da", 1)
-      arena.setTutorialStep(11)
-    end
-  elseif step == 11 then
-    if event == "merge" and data and data.chain_id == "Da" and data.level == 2 then
-      arena.setTutorialStep(13)
-    elseif event == "place_from_dispenser" then
-      arena.setTutorialStep(12)
-    end
-  elseif step == 12 then
-    if event == "merge" and data and data.chain_id == "Da" and data.level == 2 then
-      arena.setTutorialStep(13)
-    end
-  elseif step == 13 or step == 14 then
-    if event == "complete_order" then
-      arena.setTutorialStep(15)
-    end
-  elseif step == 15 then
-    -- Show stash, advance after any action
-    if event == "any" then
-      arena.setTutorialStep(16)
-    end
-  elseif step == 16 or step == 17 then
-    if event == "tap_generator" then
-      arena.setTutorialStep("done")
-    end
+    -- Text background pill
+    love.graphics.setColor(0, 0, 0, 0.75)
+    love.graphics.rectangle("fill", 40, text_y - 8, VW - 80, 50, 10, 10)
+    -- Text
+    love.graphics.setColor(1, 1, 0.85, 1)
+    love.graphics.setFont(font)
+    love.graphics.printf(text, 50, text_y + 4, VW - 100, "center")
   end
 end
 
@@ -1022,10 +1101,9 @@ function arena_screen.enter()
     showNotification(#shelf_items .. " item(s) from Coin Sort!", {0.3, 0.9, 0.5})
   end
 
-  -- On first enter with tutorial step 1, seed dispenser with first Ch1
-  local step = arena.getTutorialStep()
-  if step == 1 and arena.getDispenserSize() == 0 then
-    arena.pushDispenser("Ch", 1)
+  -- Start arena tutorial for new players
+  if not tutorial.isDone("arena") and not tutorial.isActive() then
+    tutorial.start("arena")
   end
 end
 
@@ -1035,6 +1113,7 @@ end
 function arena_screen.update(dt)
   bags.update(dt)
   arena.update(dt)
+  tutorial.update(dt)
 
   -- Update notification queue
   local ni = 1
@@ -1093,8 +1172,8 @@ function arena_screen.update(dt)
   end
 
   -- Update drag position from mouse (desktop)
-  -- Fuel depletion overlay timer
-  if resources.getFuel() < 1 and arena.isTutorialDone() then
+  -- Fuel depletion overlay timer (suppress during active arena tutorial)
+  if resources.getFuel() < 1 and not (tutorial.isActive() and tutorial.getActiveTutorial() == "arena") then
     fuel_depleted_timer = fuel_depleted_timer + dt
     if fuel_depleted_timer >= 3 and not fuel_overlay_dismissed then
       fuel_overlay_shown = true
@@ -1155,8 +1234,11 @@ function arena_screen.draw()
   end
   drawStash()
   drawDragged()
-  drawTutorial()
   effects.draw()  -- fly-to-bar icons + burst particles
+  -- Spotlight tutorial overlay (drawn above game content)
+  if tutorial.isActive() and tutorial.getActiveTutorial() == "arena" then
+    drawSpotlightOverlay()
+  end
 
   -- Notification stack (newest at bottom, oldest at top) with slide + fade
   for ni, notif in ipairs(notifications) do
@@ -1194,8 +1276,10 @@ function arena_screen.draw()
   popups.drawToasts()
   popups.drawModal()
 
-  -- Tab bar
-  tab_bar.draw("arena")
+  -- Tab bar (suppressed during active arena tutorial per D-06 / T-04-06)
+  if not (tutorial.isActive() and tutorial.getActiveTutorial() == "arena") then
+    tab_bar.draw("arena")
+  end
 end
 
 function arena_screen.mousepressed(x, y, button)
@@ -1208,6 +1292,19 @@ function arena_screen.mousepressed(x, y, button)
   end
   if popups.handleToastTap(x, y) then
     return
+  end
+
+  -- Tutorial input filter: block taps outside spotlight zone
+  if tutorial.isActive() and tutorial.getActiveTutorial() == "arena" then
+    if not tutorial.isInputAllowed(x, y) then
+      return
+    end
+    -- Observe steps (4, 6, 7): any tap inside spotlight advances
+    local tut_step = tutorial.getCurrentStep()
+    if tut_step == 4 or tut_step == 6 or tut_step == 7 then
+      tutorial.advance()
+      return
+    end
   end
 
   -- Fuel depletion overlay intercepts clicks
@@ -1245,9 +1342,7 @@ function arena_screen.mousepressed(x, y, button)
   end
 
   -- Order complete buttons (compact strip in header)
-  local step = arena.getTutorialStep()
-  local show_orders = step == "done" or (type(step) == "number" and step >= 13)
-  if show_orders then
+  if isOrdersVisible() then
     local visible = arena_orders.getVisibleOrders()
     for i, order in ipairs(visible) do
       if arena.canCompleteOrder(order.id) then
@@ -1296,7 +1391,6 @@ function arena_screen.mousepressed(x, y, button)
                 end
               end
             end
-            advanceTutorial("complete_order", nil)
             local level_result = arena.checkLevelComplete()
             if level_result then
               -- Level up celebration popup (D-07: celebration tier)
@@ -1337,7 +1431,13 @@ function arena_screen.mousepressed(x, y, button)
     local result = arena.popDispenserToGrid()
     if result then
       slot_tweens[result.index] = {time = 0, duration = TWEEN_DURATION}
-      advanceTutorial("place_from_dispenser", result)
+      -- Tutorial steps 1 and 2: dispenser tap advances tutorial
+      if tutorial.isActive() and tutorial.getActiveTutorial() == "arena" then
+        local tut_step = tutorial.getCurrentStep()
+        if tut_step == 1 or tut_step == 2 then
+          tutorial.advance()
+        end
+      end
     end
     return
   end
@@ -1360,8 +1460,7 @@ function arena_screen.mousepressed(x, y, button)
   end
 
   -- Stash drag
-  local show_stash = step == "done" or (type(step) == "number" and step >= 15)
-  if show_stash then
+  if isStashVisible() then
     local stash_slot = stashSlotAt(x, y)
     if stash_slot then
       local item = arena.getStashSlot(stash_slot)
@@ -1378,8 +1477,6 @@ function arena_screen.mousepressed(x, y, button)
     end
   end
 
-  -- Advance tutorial on misc taps
-  advanceTutorial("any", nil)
 end
 
 function arena_screen.mousereleased(x, y, button)
@@ -1416,7 +1513,11 @@ function arena_screen.mousereleased(x, y, button)
         dst_idx = result.drop_index,
       }
       -- Pop-in tween starts after fly completes (handled in update)
-      advanceTutorial("tap_generator", result)
+      -- Tutorial step 5: generator tap advances tutorial
+      if tutorial.isActive() and tutorial.getActiveTutorial() == "arena"
+          and tutorial.getCurrentStep() == 5 then
+        tutorial.advance()
+      end
     else
       if arena.isGeneratorLocked(drag.index) then
         showNotification("Locked! Unlock in the Skill Tree", {0.6, 0.6, 0.7})
@@ -1439,14 +1540,9 @@ function arena_screen.mousereleased(x, y, button)
       if target_cell == drag.index then
         -- Dropped on self, cancel
       elseif arena.canMerge(drag.index, target_cell) then
-        -- Capture source item before merge clears it (for dissolve ghost D-03)
-        local src_chain = drag.item.chain_id
-        local src_level = drag.item.level
         local result = arena.executeMerge(drag.index, target_cell)
         if result then
-          -- Source dissolves out (D-03: Arena items glow/dissolve, don't explode)
-          dissolve_ghosts[drag.index] = {chain_id = src_chain, level = src_level}
-          slot_tweens[drag.index] = {time = 0, duration = 0.25, style = "dissolve_out"}
+          -- No dissolve ghost at source — item was already visually dragged away
           -- Result pops in with jelly
           slot_tweens[result.index] = {time = 0, duration = JELLY_DURATION, style = "jelly"}
           for _, rev_idx in ipairs(result.revealed) do
@@ -1472,7 +1568,11 @@ function arena_screen.mousereleased(x, y, button)
             local name = arena_chains.getItemName(result.chain_id, result.level) or "item"
             showNotification(name .. " locked! Unlock in Skill Tree", {0.6, 0.6, 0.7})
           end
-          advanceTutorial("merge", result)
+          -- Tutorial step 3: merge advances tutorial
+          if tutorial.isActive() and tutorial.getActiveTutorial() == "arena"
+              and tutorial.getCurrentStep() == 3 then
+            tutorial.advance()
+          end
         end
       elseif arena.isEmpty(target_cell) then
         arena.moveItem(drag.index, target_cell)
@@ -1490,15 +1590,11 @@ function arena_screen.mousereleased(x, y, button)
   end
 
   -- Drop target: stash slot
-  local step = arena.getTutorialStep()
-  local show_stash = step == "done" or (type(step) == "number" and step >= 15)
-  if show_stash then
+  if isStashVisible() then
     local target_stash = stashSlotAt(x, y)
     if target_stash then
       if drag.source == "grid" then
-        if arena.moveToStash(drag.index, target_stash) then
-          advanceTutorial("any", nil)
-        end
+        arena.moveToStash(drag.index, target_stash)
       elseif drag.source == "stash" and target_stash ~= drag.index then
         arena.moveStashToStash(drag.index, target_stash)
       end

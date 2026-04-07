@@ -18,9 +18,7 @@ local powerups = require("powerups")
 local tab_bar = require("tab_bar")
 local drops = require("drops")
 local arena_chains = require("arena_chains")
-local effects = require("effects")
-local popups = require("popups")
-local commissions = require("commissions")
+local tutorial = require("tutorial")
 
 local coin_sort_screen = {}
 
@@ -57,33 +55,11 @@ local BUTTON_WIDTH, BUTTON_HEIGHT
 
 -- Button animation state
 local buttonState = {
-  add = { pressed = false, scale = 1.0, targetScale = 1.0, did_overshoot = false },
-  merge = { pressed = false, scale = 1.0, targetScale = 1.0, did_overshoot = false }
+  add = { pressed = false, scale = 1.0, targetScale = 1.0 },
+  merge = { pressed = false, scale = 1.0, targetScale = 1.0 }
 }
-local BUTTON_PRESS_SCALE = 0.95  -- D-07: shrink to ~95% on press
+local BUTTON_PRESS_SCALE = 0.85
 local BUTTON_ANIM_SPEED = 12
-local BUTTON_OVERSHOOT = 1.06    -- D-07: bounce past 1.0 then settle
-
--- Level-scaled merge celebration config (per D-02)
--- [resulting_level] = { particle_mult, shake_mult, flash_duration }
-local MERGE_CELEBRATION = {
-    [2] = { particle_mult = 0.5, shake_mult = 0.5, flash = 0 },
-    [3] = { particle_mult = 0.7, shake_mult = 0.7, flash = 0 },
-    [4] = { particle_mult = 1.0, shake_mult = 1.0, flash = 0.05 },
-    [5] = { particle_mult = 1.3, shake_mult = 1.3, flash = 0.08 },
-    [6] = { particle_mult = 1.6, shake_mult = 1.5, flash = 0.12 },
-    [7] = { particle_mult = 2.0, shake_mult = 2.0, flash = 0.15 },
-}
-
--- Coin fly-up on merge (per FX-03)
-local MAX_FLY_UPS = 5
-local fly_ups = {}
-local FLY_UP_HEIGHT = 40    -- pixels above merge point
-local FLY_UP_DURATION = 0.25  -- seconds for arc up and back
-
-for i = 1, MAX_FLY_UPS do
-    fly_ups[i] = { active = false, x = 0, y = 0, base_y = 0, time = 0, r = 1, g = 1, b = 1, number = 0 }
-end
 
 -- Power-up button layout
 local POWERUP_Y = layout.BUTTON_AREA_Y + 180
@@ -105,22 +81,18 @@ local resetState = {
 
 -- Power-up button animation state
 local powerupButtonState = {
-  sort = { pressed = false, scale = 1.0, targetScale = 1.0, did_overshoot = false },
-  hammer = { pressed = false, scale = 1.0, targetScale = 1.0, did_overshoot = false },
+  sort = { pressed = false, scale = 1.0, targetScale = 1.0 },
+  hammer = { pressed = false, scale = 1.0, targetScale = 1.0 },
 }
 
 -- Fonts (set via init)
 local font
-local font_small
 local coinNumberFont
 
 -- Resource feedback animation (floating text on merge)
 local resource_popups = {}  -- array of {text, x, y, time, color}
 local POPUP_DURATION = 1.0
 local POPUP_RISE = 60
-
--- Double merge flash feedback (timer counts down from 1.5 to 0)
-local double_merge_flash = 0
 
 -- Box unlock flash animation (green glow when a new box unlocks)
 local box_unlock_flashes = {}  -- array of {grid_idx, timer, duration}
@@ -199,77 +171,201 @@ local function drawResourcePopups()
   end
 end
 
--- Trigger level-scaled merge celebration (per D-01, D-02, D-03, FX-03)
-local function triggerMergeCelebration(x, y, color, level)
-    local c = MERGE_CELEBRATION[level] or MERGE_CELEBRATION[2]
+--------------------------------------------------------------------------------
+-- CS Tutorial: pre-set board and step definitions
+--------------------------------------------------------------------------------
 
-    -- Extra particles scaled by level (on top of what animation.lua already spawns)
-    if c.particle_mult > 1.0 then
-        local extra = math.floor((c.particle_mult - 1.0) * 10)
-        for i = 1, extra do
-            particles.spawn(x, y, color)
-        end
-    end
+-- Free-play countdown timer for tutorial step 5 (auto-dismiss after 2s)
+local free_play_timer = 0
 
-    -- Enhanced screen shake (amplify the base shake from animation system)
-    if c.shake_mult > 1.0 then
-        local base_shake = animation.getShakeIntensity()
-        animation.triggerShake(base_shake * c.shake_mult, 0.12)
-    end
+-- Pre-set board for 5-step guided CS tutorial (D-05, D-07).
+-- UNLOCK_ORDER = {11,12,13,14,...} so with active_box_count=4, boxes 11-14 are active.
+-- Box 11: 9 coins of value 2 — needs exactly 1 more to trigger the merge step.
+-- Box 12: 3×value-2 + 2×value-1 — donor box the player picks from in step 1.
+-- Boxes 13, 14: filler coins showing a realistic board.
+local CS_TUTORIAL_BOARD = {
+    active_box_count = 2,
+    max_spawn_number = 2,
+    boxes = {
+        [11] = {2, 2, 2, 2, 2},  -- 5×value-2 (green) — target box
+        [12] = {2, 2, 2, 2, 2},  -- 5×value-2 (green) — donor box; pick+place fills box 11
+    },
+}
 
-    -- Brief white flash for L4+ merges
-    if c.flash > 0 then
-        effects.spawnFlash(c.flash)
-    end
-
-    -- Coin fly-up: find a free fly-up slot and start arc animation
-    for i = 1, MAX_FLY_UPS do
-        if not fly_ups[i].active then
-            fly_ups[i].active = true
-            fly_ups[i].x = x
-            fly_ups[i].y = y
-            fly_ups[i].base_y = y
-            fly_ups[i].time = 0
-            fly_ups[i].r = color[1] or 1
-            fly_ups[i].g = color[2] or 1
-            fly_ups[i].b = color[3] or 1
-            fly_ups[i].number = level
-            break
-        end
-    end
+-- Returns the screen rect {x, y, w, h} for a grid box at the given 1-based index.
+-- Must be called after layout.computeBoxGrid() has run.
+local function getBoxScreenRect(grid_idx)
+    local bx, by = layout.boxPosition(grid_idx)
+    return {x = bx, y = by, w = layout.BOX_W, h = layout.BOX_H}
 end
 
-local function updateFlyUps(dt)
-    for i = 1, MAX_FLY_UPS do
-        local fu = fly_ups[i]
-        if fu.active then
-            fu.time = fu.time + dt
-            if fu.time >= FLY_UP_DURATION then
-                fu.active = false
-            else
-                -- Parabolic arc: rises then falls back
-                local t = fu.time / FLY_UP_DURATION
-                local arc = math.sin(t * math.pi)  -- 0 -> 1 -> 0
-                fu.y = fu.base_y - FLY_UP_HEIGHT * arc
+-- Returns the screen rect for the Merge button.
+local function getMergeButtonRect()
+    return {x = MERGE_BUTTON_X, y = MERGE_BUTTON_Y, w = BUTTON_WIDTH, h = BUTTON_HEIGHT}
+end
+
+-- Returns the screen rect for the Add Coins (bag) button.
+local function getAddButtonRect()
+    return {x = ADD_BUTTON_X, y = ADD_BUTTON_Y, w = BUTTON_WIDTH, h = BUTTON_HEIGHT}
+end
+
+-- Register the 5 CS tutorial steps. Called once at module load time.
+-- Step rects use lazy evaluation via getRect() so layout values are read at runtime.
+tutorial.registerSteps("coin_sort", {
+    -- Step 1: Pick — spotlight donor box (12), wait for player to tap it
+    {
+        text    = {en = "Tap to pick up coins", ru = "Нажмите, чтобы взять монеты"},
+        getRect = function() return getBoxScreenRect(12) end,
+        hand    = "tap",
+        check   = function()
+            local state = coin_sort.getState()
+            return state.boxes[12] ~= nil and #state.boxes[12] > 0
+        end,
+    },
+    -- Step 2: Place — spotlight target box (11), wait for player to have active selection
+    {
+        text    = {en = "Tap to place coins here", ru = "Нажмите, чтобы положить монеты сюда"},
+        getRect = function() return getBoxScreenRect(11) end,
+        hand    = "tap",
+        check   = function()
+            -- Precondition: player has picked up coins (selection is active)
+            return selection ~= nil
+        end,
+    },
+    -- Step 3: Merge — spotlight Merge button after box 11 becomes full of same-number coins
+    {
+        text    = {en = "Tap Merge to combine coins!", ru = "Нажмите Объединить!"},
+        getRect = function() return getMergeButtonRect() end,
+        hand    = "tap",
+        check   = function()
+            -- Precondition: box 11 is mergeable (full + all same number)
+            local mergeable = coin_sort.getMergeableBoxes()
+            for _, m in ipairs(mergeable) do
+                if m.box_idx == 11 then return true end
             end
-        end
-    end
-end
+            return false
+        end,
+    },
+    -- Step 4: Deal — spotlight Add Coins button; ensure at least 1 bag available
+    {
+        text    = {en = "Tap to deal new coins", ru = "Нажмите, чтобы раздать монеты"},
+        getRect = function() return getAddButtonRect() end,
+        hand    = "tap",
+        check   = function()
+            return bags.getTotalAvailable() > 0
+        end,
+        on_enter = function()
+            -- Safety net: guarantee a bag is available for the deal step
+            if bags.getTotalAvailable() == 0 then
+                bags.addBags(1)
+            end
+        end,
+    },
+    -- Step 5: Free play — no spotlight, congratulations text, auto-dismiss after 2s
+    {
+        text    = {en = "Great! You're ready to play!", ru = "Отлично! Вы готовы играть!"},
+        getRect = function() return nil end,
+        hand    = "none",
+        check   = function() return true end,
+        on_enter = function()
+            free_play_timer = 2.0
+        end,
+    },
+})
 
-local function drawFlyUps()
-    for i = 1, MAX_FLY_UPS do
-        local fu = fly_ups[i]
-        if fu.active then
-            local t = fu.time / FLY_UP_DURATION
-            local alpha = 1 - t * 0.5  -- fade slightly
-            love.graphics.setColor(fu.r, fu.g, fu.b, alpha)
-            -- Draw as a small tinted circle (like a coin)
-            local r = COIN_R * 0.6
-            love.graphics.circle("fill", fu.x, fu.y, r)
-            -- Number on the coin
-            love.graphics.setColor(1, 1, 1, alpha)
-            love.graphics.printf(tostring(fu.number), fu.x - 20, fu.y - 10, 40, "center")
+--------------------------------------------------------------------------------
+-- Spotlight overlay rendering (visual only — all data from tutorial.lua)
+--------------------------------------------------------------------------------
+
+local function drawSpotlightOverlay()
+    local rect = tutorial.getSpotlight()
+    if not rect then
+        -- Step with no spotlight (e.g., free play) — just draw centered text
+        local text = tutorial.getText()
+        if text ~= "" then
+            love.graphics.setFont(font)
+            love.graphics.setColor(0, 0, 0, 0.7)
+            love.graphics.rectangle("fill", 40, VH / 2 - 36, VW - 80, 60, 8, 8)
+            love.graphics.setColor(0.92, 0.88, 0.78, 1)
+            love.graphics.printf(text, 50, VH / 2 - 20, VW - 100, "center")
         end
+        return
+    end
+
+    local opacity = tutorial.getOverlayOpacity()
+    local r = tutorial.getCutoutRadius()
+
+    -- Phase 1: write cutout into stencil buffer (LÖVE 11.x API)
+    love.graphics.stencil(function()
+        love.graphics.rectangle("fill", rect.x, rect.y, rect.w, rect.h, r, r)
+    end, "replace", 1)
+
+    -- Phase 2: draw dark overlay everywhere except the cutout
+    love.graphics.setStencilTest("equal", 0)
+    love.graphics.setColor(0, 0, 0, opacity)
+    love.graphics.rectangle("fill", 0, 0, VW, VH)
+
+    -- Phase 3: reset stencil
+    love.graphics.setStencilTest()
+    love.graphics.setColor(1, 1, 1, 1)
+
+    -- Phase 4: animated pulse border (D-03)
+    local pulse = tutorial.getPulseAlpha()
+    love.graphics.setColor(1, 1, 0.4, pulse)
+    love.graphics.setLineWidth(3)
+    love.graphics.rectangle("line", rect.x, rect.y, rect.w, rect.h, r, r)
+    love.graphics.setLineWidth(1)
+
+    -- Phase 5: hand icon animation (D-13, D-14)
+    local hand = tutorial.getHandAnim()
+    if hand.type == "tap" then
+        local cx = rect.x + rect.w / 2
+        local cy = rect.y + rect.h / 2
+        -- Tap motion: hand moves down 20px and back over the cycle
+        local offset_y = 0
+        if hand.progress < 0.3 then
+            offset_y = (hand.progress / 0.3) * 20
+        elseif hand.progress < 0.5 then
+            offset_y = 20
+        else
+            offset_y = 20 * (1 - (hand.progress - 0.5) / 0.5)
+        end
+        -- Stylized pointing hand: triangle + circle
+        love.graphics.setColor(1, 1, 1, 0.9)
+        local hx, hy = cx + 10, cy + offset_y + 15
+        love.graphics.polygon("fill", hx, hy, hx - 16, hy - 28, hx + 16, hy - 28)
+        love.graphics.circle("fill", hx, hy - 28, 10)
+    elseif hand.type == "drag" and hand.drag_target then
+        local sx = rect.x + rect.w / 2
+        local sy = rect.y + rect.h / 2
+        local tx, ty = hand.drag_target.x, hand.drag_target.y
+        local prog = math.min(hand.progress / 0.8, 1)
+        local hx = sx + (tx - sx) * prog
+        local hy = sy + (ty - sy) * prog
+        love.graphics.setColor(1, 1, 0.4, 0.3)
+        love.graphics.setLineWidth(4)
+        love.graphics.line(sx, sy, hx, hy)
+        love.graphics.setLineWidth(1)
+        love.graphics.setColor(1, 1, 1, 0.9)
+        love.graphics.polygon("fill", hx, hy, hx - 16, hy - 28, hx + 16, hy - 28)
+        love.graphics.circle("fill", hx, hy - 28, 10)
+    end
+
+    -- Phase 6: instruction text (D-15, D-16)
+    local text = tutorial.getText()
+    if text ~= "" then
+        love.graphics.setFont(font)
+        local pos = tutorial.getTextPosition(rect)
+        local text_y
+        if pos == "above" then
+            text_y = rect.y - 68
+        else
+            text_y = rect.y + rect.h + 20
+        end
+        love.graphics.setColor(0, 0, 0, 0.7)
+        love.graphics.rectangle("fill", 40, text_y - 8, VW - 80, 54, 8, 8)
+        love.graphics.setColor(0.92, 0.88, 0.78, 1)
+        love.graphics.printf(text, 50, text_y, VW - 100, "center")
     end
 end
 
@@ -284,7 +380,6 @@ function coin_sort_screen.init(assets)
   mergeButtonImage = assets.mergeButtonImage
   mergeButtonPressedImage = assets.mergeButtonPressedImage
   font = assets.font
-  font_small = assets.font_small
   coinNumberFont = assets.coinNumberFont
 
   -- Calculate button dimensions and positions
@@ -346,30 +441,23 @@ local function draw_add_coins_button()
 end
 
 local function updateButtonAnimations(dt)
-  -- Shared overshoot logic for button bounce (D-07)
-  local function updateButtonScale(state)
+  for _, state in pairs(buttonState) do
     if state.scale ~= state.targetScale then
       local diff = state.targetScale - state.scale
-      state.scale = state.scale + diff * math.min(1, BUTTON_ANIM_SPEED * dt)
-
-      -- Overshoot on release: when heading to 1.0 and crossing threshold, bounce past
-      if state.targetScale == 1.0 and not state.did_overshoot and state.scale > 0.98 then
-        state.scale = BUTTON_OVERSHOOT
-        state.did_overshoot = true
-      end
-
-      if math.abs(state.scale - state.targetScale) < 0.005 then
+      state.scale = state.scale + diff * BUTTON_ANIM_SPEED * dt
+      if math.abs(diff) < 0.01 then
         state.scale = state.targetScale
-        state.did_overshoot = false
       end
     end
   end
-
-  for _, state in pairs(buttonState) do
-    updateButtonScale(state)
-  end
   for _, state in pairs(powerupButtonState) do
-    updateButtonScale(state)
+    if state.scale ~= state.targetScale then
+      local diff = state.targetScale - state.scale
+      state.scale = state.scale + diff * BUTTON_ANIM_SPEED * dt
+      if math.abs(diff) < 0.01 then
+        state.scale = state.targetScale
+      end
+    end
   end
 end
 
@@ -689,129 +777,41 @@ local function drawResourceHUD()
   end
 end
 
--- Commission quest panel constants (from UI-SPEC section 5)
-local COM_PANEL_X = 40
-local COM_PANEL_Y = 75
-local COM_PANEL_W = 1000  -- VW - 80
-local COM_ENTRY_H = 80
-local COM_PADDING = 8
-local COM_BADGE_W, COM_BADGE_H = 60, 28
-local COM_BAR_W, COM_BAR_H = 600, 16
-local COM_COLLECT_W, COM_COLLECT_H = 120, 44
-
--- Difficulty colors for badges and progress bars
-local DIFF_COLORS = {
-  easy = {0.3, 0.75, 0.4, 0.8},
-  medium = {0.95, 0.85, 0.25, 0.8},
-  hard = {0.85, 0.3, 0.25, 0.8},
-}
-local DIFF_LABELS = {easy = "Easy", medium = "Med", hard = "Hard"}
-
--- Commission reward reference (matches commissions.lua REWARDS)
-local COM_REWARDS = {
-  easy   = {bags = 1, stars = 3},
-  medium = {bags = 2, stars = 5},
-  hard   = {bags = 3, stars = 10},
-}
-
--- Commission panel (drawn below resource HUD) -- redesigned quest panel per UI-SPEC
+-- Commission panel (drawn below resource HUD)
 local function drawCommissions()
-  local coms = commissions.getActive()
+  local state = coin_sort.getState()
+  local coms = state.commissions
   if not coms or #coms == 0 then return end
 
-  -- Panel background
-  local panel_h = COM_PADDING * 2 + #coms * COM_ENTRY_H + (
-    #coms > 1 and COM_PADDING or 0
-  )
+  love.graphics.setFont(font)
+  local panel_x = 40
+  local panel_y = 75
+  local panel_w = VW - 80
+  local row_h = 36
+
+  -- Semi-transparent background
   love.graphics.setColor(0.08, 0.12, 0.08, 0.75)
-  love.graphics.rectangle("fill", COM_PANEL_X, COM_PANEL_Y, COM_PANEL_W, panel_h, 8, 8)
+  love.graphics.rectangle("fill", panel_x, panel_y, panel_w, 8 + #coms * row_h, 8, 8)
   love.graphics.setColor(0.3, 0.5, 0.3, 0.4)
-  love.graphics.setLineWidth(1)
-  love.graphics.rectangle("line", COM_PANEL_X, COM_PANEL_Y, COM_PANEL_W, panel_h, 8, 8)
+  love.graphics.rectangle("line", panel_x, panel_y, panel_w, 8 + #coms * row_h, 8, 8)
 
   for i, c in ipairs(coms) do
-    local entry_y = COM_PANEL_Y + COM_PADDING + (i - 1) * (COM_ENTRY_H + COM_PADDING)
-    local entry_x = COM_PANEL_X + 12
-
-    if c.collected then
-      -- Collected state: checkmark, dimmed
-      love.graphics.setColor(0.3, 0.9, 0.4, 0.5)
-      love.graphics.setFont(font)
-      love.graphics.printf("Done", entry_x, entry_y + 10, COM_PANEL_W - 24, "center")
-      love.graphics.setColor(0.6, 0.6, 0.6, 0.4)
-      love.graphics.setFont(font_small or font)
-      love.graphics.printf(c.desc, entry_x, entry_y + 45, COM_PANEL_W - 24, "center")
+    local y = panel_y + 4 + (i - 1) * row_h
+    -- Checkbox
+    if c.completed then
+      love.graphics.setColor(0.3, 0.9, 0.4, 0.9)
+      love.graphics.printf("✓", panel_x + 8, y + 4, 30, "center")
     else
-      -- Difficulty badge
-      local dc = DIFF_COLORS[c.difficulty] or DIFF_COLORS.easy
-      love.graphics.setColor(dc[1], dc[2], dc[3], dc[4])
-      love.graphics.rectangle("fill", entry_x, entry_y + 4, COM_BADGE_W, COM_BADGE_H, 8, 8)
-      love.graphics.setColor(0.1, 0.1, 0.1, 1)
-      love.graphics.setFont(font_small or font)
-      love.graphics.printf(DIFF_LABELS[c.difficulty] or "?", entry_x, entry_y + 6, COM_BADGE_W, "center")
-
-      -- Description text (right of badge)
-      love.graphics.setColor(0.92, 0.88, 0.78, 0.9)
-      love.graphics.setFont(font)
-      local desc_x = entry_x + COM_BADGE_W + 12
-      love.graphics.printf(c.desc, desc_x, entry_y + 2, COM_PANEL_W - COM_BADGE_W - 200, "left")
-
-      -- Reward preview (right-aligned on same line as description)
-      local rewards = COM_REWARDS[c.difficulty] or COM_REWARDS.easy
-      love.graphics.setFont(font_small or font)
-      local reward_str = ""
-      if rewards.bags > 0 then
-        reward_str = "+" .. rewards.bags .. " bag "
-      end
-      if rewards.stars > 0 then
-        reward_str = reward_str .. "+" .. rewards.stars .. " star"
-      end
-      local reward_x = COM_PANEL_X + COM_PANEL_W - 12
-      -- Bag color for bag part, star color for star part
-      love.graphics.setColor(0.95, 0.85, 0.25, 0.8)
-      love.graphics.printf(reward_str, reward_x - 200, entry_y + 8, 200, "right")
-
-      -- Second row: progress bar OR collect button
-      local bar_y = entry_y + 40
-
-      if c.completed and not c.collected then
-        -- Pulsing green glow on entry border
-        local pulse = 0.5 + 0.5 * math.sin(love.timer.getTime() * math.pi * 2 / 0.5)
-        love.graphics.setColor(0.25, 0.65, 0.35, 0.3 * pulse)
-        love.graphics.setLineWidth(2)
-        love.graphics.rectangle("line", COM_PANEL_X + 4, entry_y - 2, COM_PANEL_W - 8, COM_ENTRY_H + 4, 6, 6)
-        love.graphics.setLineWidth(1)
-
-        -- Collect button (replaces progress bar area)
-        local btn_x = entry_x + COM_BADGE_W + 12
-        love.graphics.setColor(0.25, 0.65, 0.35, 1)
-        love.graphics.rectangle("fill", btn_x, bar_y, COM_COLLECT_W, COM_COLLECT_H, 8, 8)
-        love.graphics.setColor(0.92, 0.88, 0.78, 1)
-        love.graphics.setFont(font_small or font)
-        love.graphics.printf("Collect", btn_x, bar_y + 10, COM_COLLECT_W, "center")
-      else
-        -- Progress bar
-        love.graphics.setColor(0.15, 0.15, 0.15, 0.7)
-        local bar_x = entry_x + COM_BADGE_W + 12
-        love.graphics.rectangle("fill", bar_x, bar_y, COM_BAR_W, COM_BAR_H, 4, 4)
-
-        -- Fill
-        local progress_ratio = math.min((c.progress or 0) / math.max(c.target or 1, 1), 1)
-        local fill_w = progress_ratio * COM_BAR_W
-        if fill_w > 0 then
-          love.graphics.setColor(dc[1], dc[2], dc[3], 0.85)
-          love.graphics.rectangle("fill", bar_x, bar_y, fill_w, COM_BAR_H, 4, 4)
-        end
-
-        -- Progress text centered on bar
-        love.graphics.setColor(1, 1, 1, 0.9)
-        love.graphics.setFont(font_small or font)
-        love.graphics.printf(
-          math.min(c.progress or 0, c.target or 0) .. "/" .. (c.target or 0),
-          bar_x, bar_y - 1, COM_BAR_W, "center"
-        )
-      end
+      love.graphics.setColor(0.5, 0.5, 0.5, 0.6)
+      love.graphics.rectangle("line", panel_x + 14, y + 8, 18, 18, 3, 3)
     end
+    -- Description + progress
+    local progress_text = ""
+    if not c.completed then
+      progress_text = " (" .. math.min(c.progress, c.target) .. "/" .. c.target .. ")"
+    end
+    love.graphics.setColor(c.completed and 0.6 or 0.85, c.completed and 0.6 or 0.85, c.completed and 0.6 or 0.85, c.completed and 0.5 or 0.9)
+    love.graphics.printf(c.desc .. progress_text, panel_x + 40, y + 6, panel_w - 50, "left")
   end
 end
 
@@ -879,9 +879,8 @@ function coin_sort_screen.enter()
     sound.playMerge()
   end)
 
-  -- Only init a new game if not already active (preserves state on tab switch)
-  if not coin_sort.isActive() then
-    coin_sort.init()
+  -- First-time tutorial overrides any saved state
+  if not tutorial.isDone("coin_sort") and not tutorial.isActive() then
     selection = nil
     shakeState.active = false
     hammer_mode = false
@@ -889,6 +888,19 @@ function coin_sort_screen.enter()
     box_unlock_flashes = {}
     resetState.held = false
     resetState.time = 0
+    free_play_timer = 0
+    coin_sort.initTutorial(CS_TUTORIAL_BOARD)
+  elseif not coin_sort.isActive() then
+    -- Normal init: only if not already active (preserves state on tab switch)
+    selection = nil
+    shakeState.active = false
+    hammer_mode = false
+    resource_popups = {}
+    box_unlock_flashes = {}
+    resetState.held = false
+    resetState.time = 0
+    free_play_timer = 0
+    coin_sort.init()
 
     -- Apply pending drops from Arena
     local applied = drops.applyPendingCSDrops()
@@ -897,7 +909,7 @@ function coin_sort_screen.enter()
     end
   end
 
-  -- Compute fixed 3×5 grid layout
+  -- Compute fixed 3×5 grid layout (must be before tutorial.start so getRect works)
   layout.computeBoxGrid()
 
   -- Refresh module caches
@@ -914,12 +926,10 @@ function coin_sort_screen.enter()
   local fontScale = 0.6
   coinNumberFont = love.graphics.newFont("comic shanns.otf", math.floor(layout.COIN_R * fontScale))
 
-  -- Resource bar targets for fly-to-bar (per D-05)
-  -- Match drawResourceHUD() layout: fuel center at (200, 35), stars at (470, 35)
-  local fuel_center_x = 60 + 280 / 2   -- fuel_bar_x + fuel_bar_w / 2 = 200
-  local resource_y = 35
-  local stars_center_x = 420 + 50       -- stars_x + half of text area = 470
-  effects.setResourceBarTargets(fuel_center_x, resource_y, stars_center_x, resource_y)
+  -- Start tutorial AFTER layout is computed (so getRect returns correct positions)
+  if not tutorial.isDone("coin_sort") and not tutorial.isActive() then
+    tutorial.start("coin_sort")
+  end
 end
 
 function coin_sort_screen.exit()
@@ -938,6 +948,16 @@ function coin_sort_screen.update(dt)
   particles.update(dt)
   updateButtonAnimations(dt)
   bags.update(dt)
+  tutorial.update(dt)
+
+  -- Tutorial step 5: auto-dismiss free-play countdown
+  if tutorial.isActive() and tutorial.getActiveTutorial() == "coin_sort"
+     and tutorial.getCurrentStep() == 5 then
+    free_play_timer = free_play_timer - dt
+    if free_play_timer <= 0 then
+      tutorial.advance()
+    end
+  end
 
   -- Update shake animation
   if shakeState.active then
@@ -949,13 +969,6 @@ function coin_sort_screen.update(dt)
 
   updateResourcePopups(dt)
   updateBoxUnlockFlashes(dt)
-  effects.update(dt)
-  updateFlyUps(dt)
-
-  -- Double merge flash countdown
-  if double_merge_flash > 0 then
-    double_merge_flash = double_merge_flash - dt
-  end
 
   -- Reset button hold tracking
   if resetState.held then
@@ -1022,7 +1035,6 @@ function coin_sort_screen.draw()
 
   particles.draw()
   drawResourcePopups()
-  drawFlyUps()
 
   draw_merge_button()
   draw_add_coins_button()
@@ -1030,41 +1042,20 @@ function coin_sort_screen.draw()
   drawHammerOverlay()
   drawSoundToggles()
 
-  -- Double merge charge indicator (persistent badge when charges > 0)
-  local dm_charges = drops.getDoubleMergeCharges()
-  if dm_charges > 0 then
-    love.graphics.setFont(font)
-    local badge_x = MERGE_BUTTON_X
-    local badge_y = MERGE_BUTTON_Y - 44
-    love.graphics.setColor(1, 0.85, 0, 0.9)
-    love.graphics.printf("2x (" .. dm_charges .. ")", badge_x, badge_y, BUTTON_WIDTH, "center")
-    love.graphics.setColor(1, 1, 1, 1)
-  end
-
-  -- Double merge consumed flash text
-  if double_merge_flash > 0 then
-    local alpha = math.min(1, double_merge_flash)
-    love.graphics.setFont(font)
-    love.graphics.setColor(1, 0.85, 0, alpha)
-    love.graphics.printf("DOUBLE MERGE!", 0, TOP_Y + 200, VW, "center")
-    love.graphics.setColor(1, 1, 1, 1)
-  end
-
   -- End screen shake
   if shake_x ~= 0 or shake_y ~= 0 then
     love.graphics.pop()
   end
 
-  -- Effects drawn outside shake transform so fly icons don't jitter (per RESEARCH.md Pitfall 3)
-  effects.drawFlash()
-  effects.draw()
+  -- Spotlight tutorial overlay (above game content and shake, below tab bar)
+  if tutorial.isActive() and tutorial.getActiveTutorial() == "coin_sort" then
+    drawSpotlightOverlay()
+  end
 
-  -- Popup overlays (above HUD, below tab bar per UI-SPEC z-order)
-  popups.drawToasts()
-  popups.drawModal()
-
-  -- Tab bar (drawn outside shake transform)
-  tab_bar.draw("coin_sort")
+  -- Tab bar: suppressed during active CS tutorial to prevent mode switching (Pitfall 3)
+  if not (tutorial.isActive() and tutorial.getActiveTutorial() == "coin_sort") then
+    tab_bar.draw("coin_sort")
+  end
 end
 
 function coin_sort_screen.keypressed(key, scancode, isrepeat)
@@ -1090,54 +1081,18 @@ end
 function coin_sort_screen.mousepressed(x, y, button)
   if button ~= 1 then return end
 
-  -- Popup input priority (per UI-SPEC interaction contract)
-  if popups.isInputBlocked() then
-    popups.handleModalTap(x, y)
-    return
-  end
-  if popups.handleToastTap(x, y) then
-    return
-  end
-
-  -- Commission collect button handling
-  local coms = commissions.getActive()
-  if coms then
-    for i, c in ipairs(coms) do
-      if c.completed and not c.collected then
-        local entry_y = COM_PANEL_Y + COM_PADDING + (i - 1) * (COM_ENTRY_H + COM_PADDING)
-        local btn_x = COM_PANEL_X + 12 + COM_BADGE_W + 12
-        local btn_y = entry_y + 40
-        if x >= btn_x and x <= btn_x + COM_COLLECT_W and y >= btn_y and y <= btn_y + COM_COLLECT_H then
-          local reward = commissions.collectSingle(i)
-          if reward then
-            -- Fly-to-bar from button position
-            if reward.stars and reward.stars > 0 then
-              effects.spawnResourceFly(btn_x + COM_COLLECT_W / 2, btn_y, "star")
-            end
-            if reward.bags and reward.bags > 0 then
-              effects.spawnResourceFly(btn_x + COM_COLLECT_W / 2 + 20, btn_y, "bag")
-            end
-            -- Toast for collected rewards
-            local toast_body = ""
-            if reward.bags and reward.bags > 0 then toast_body = toast_body .. "+" .. reward.bags .. " Bags " end
-            if reward.stars and reward.stars > 0 then toast_body = toast_body .. "+" .. reward.stars .. " Stars" end
-            popups.push({tier = "toast", title = "Commission Complete!", body = toast_body, rewards = {}})
-            -- Check batch refresh
-            if commissions.canRefresh() then
-              commissions.refreshIfReady()
-            end
-          end
-          return
-        end
-      end
-    end
-  end
-
-  -- Check tab bar first
+  -- Check tab bar first (tab bar is suppressed during tutorial, so this fires rarely)
   local tab = tab_bar.mousepressed(x, y)
   if tab and tab ~= "coin_sort" then
     screens.switch(tab)
     return
+  end
+
+  -- Tutorial input filter: swallow taps outside the spotlight zone
+  if tutorial.isActive() and tutorial.getActiveTutorial() == "coin_sort" then
+    if not tutorial.isInputAllowed(x, y) then
+      return
+    end
   end
 
   -- Check sound toggle buttons first
@@ -1233,6 +1188,12 @@ function coin_sort_screen.mousepressed(x, y, button)
     animation.startHover(pack, bx)
     sound.playPickup()
     mobile.vibratePickup()
+    -- Tutorial step 1 (Pick): advance immediately (force=true because hover
+    -- animation is active but player needs to see the "place here" spotlight)
+    if tutorial.isActive() and tutorial.getActiveTutorial() == "coin_sort"
+       and tutorial.getCurrentStep() == 1 then
+      tutorial.advance(true)
+    end
   else
     -- Place: Validate and start flight animation
     local pack = animation.getHoveringCoins()
@@ -1273,11 +1234,19 @@ function coin_sort_screen.mousepressed(x, y, button)
     -- Calculate destination slot
     local dest_slot = #state.boxes[bx] + 1
 
+    -- Capture tutorial step at placement time (before async callbacks fire)
+    local tut_step_at_place = tutorial.getCurrentStep()
+
     -- Start flight with per-coin callback
     animation.startFlight(bx, dest_slot,
       -- Final callback: when all coins have landed
       function()
         selection = nil
+        -- Tutorial step 2 (Place): advance after all coins land
+        if tutorial.isActive() and tutorial.getActiveTutorial() == "coin_sort"
+           and tut_step_at_place == 2 then
+          tutorial.advance()
+        end
         if coin_sort.isGameOver() then
           coin_sort.deactivate()
           coin_sort.clearSave()
@@ -1316,6 +1285,11 @@ function coin_sort_screen.mousereleased(x, y, button)
         animation.startMerge(mergeable,
           -- Final callback: when all boxes done
           function()
+            -- Tutorial step 3 (Merge): advance after merge completes
+            if tutorial.isActive() and tutorial.getActiveTutorial() == "coin_sort"
+               and tutorial.getCurrentStep() == 3 then
+              tutorial.advance()
+            end
             if coin_sort.isGameOver() then
               coin_sort.deactivate()
               coin_sort.clearSave()
@@ -1326,56 +1300,31 @@ function coin_sort_screen.mousereleased(x, y, button)
           end,
           -- Per-box callback: when each box finishes merging
           function(box_data)
-            local success, gained, drop_results, used_double = coin_sort.executeMergeOnBox(box_data.box_idx)
+            local success, gained, drop_results, commissions_refreshed = coin_sort.executeMergeOnBox(box_data.box_idx)
             sound.playMerge()
             mobile.vibrateMerge()
-            local _, newAchievements = progression.onMerge("2048", 1)
-            -- Level-scaled celebration (per D-01, D-02, FX-03)
-            local merge_level = box_data.new_number
-            local merge_color = box_data.new_color or coin_utils.numberToColor(merge_level, 50)
-            triggerMergeCelebration(box_data.slot_x[1], box_data.slot_y[1], merge_color, merge_level)
-            -- Fly-to-bar for resource gains (per D-05)
-            if gained then
-                if gained.fuel and gained.fuel > 0 then
-                    local fuel_icons = math.min(gained.fuel, 3)
-                    for fi = 1, fuel_icons do
-                        effects.spawnResourceFly(box_data.slot_x[1], box_data.slot_y[1] - fi * 15, "fuel")
-                    end
-                end
-                if gained.stars and gained.stars > 0 then
-                    local star_icons = math.min(gained.stars, 3)
-                    for si = 1, star_icons do
-                        effects.spawnResourceFly(box_data.slot_x[1] + 20, box_data.slot_y[1] - si * 15, "star")
-                    end
-                end
-            end
-            -- Double merge flash feedback
-            if used_double then
-              double_merge_flash = 1.5
-            end
+            progression.onMerge("2048", 1)
             -- Spawn resource feedback popup
             if gained then
               local from_x = box_data.slot_x[1]
               local from_y = box_data.slot_y[1]
               spawnResourcePopup(from_x, from_y, gained)
             end
-            -- Achievement unlocked popup (D-06: medium card tier)
-            if newAchievements and #newAchievements > 0 then
-              for _, achievement_name in ipairs(newAchievements) do
-                popups.push({tier = "card", title = achievement_name, body = "Achievement Unlocked!", rewards = {}})
-              end
+            -- Commission refresh notification
+            if commissions_refreshed then
+              spawnResourcePopup(box_data.slot_x[1], box_data.slot_y[1] - 40, {text = "Commissions Complete! New goals!", color = {0.3, 0.95, 0.4}})
             end
-            -- Drop notifications as toast popups (replacing floating text per D-05)
+            -- Show drop notifications
             if drop_results then
               for _, d in ipairs(drop_results) do
                 if d.type == "chest" then
-                  popups.push({tier = "toast", title = (d.chain_id or "?") .. " Chest!", body = d.charges .. " taps", rewards = {}})
+                  spawnResourcePopup(box_data.slot_x[1], box_data.slot_y[1], {text = (d.chain_id or "?") .. " Chest! (" .. d.charges .. " taps)", color = {1, 0.85, 0.3}})
                 elseif d.type == "fuel_surge" then
-                  popups.push({tier = "toast", title = "+" .. d.amount .. " Fuel", body = "Fuel Surge!", rewards = {{icon_type = "fuel", amount = d.amount}}})
+                  spawnResourcePopup(box_data.slot_x[1], box_data.slot_y[1], {text = "+" .. d.amount .. " Fuel!", color = {1, 0.8, 0.2}})
                 elseif d.type == "star_burst" then
-                  popups.push({tier = "toast", title = "+" .. d.amount .. " Stars", body = "Star Burst!", rewards = {{icon_type = "star", amount = d.amount}}})
+                  spawnResourcePopup(box_data.slot_x[1], box_data.slot_y[1], {text = "+" .. d.amount .. " Stars!", color = {0.95, 0.85, 0.25}})
                 elseif d.type == "gen_token" then
-                  popups.push({tier = "toast", title = "Free Generator Tap!", body = "Generator Token earned!", rewards = {}})
+                  spawnResourcePopup(box_data.slot_x[1], box_data.slot_y[1], {text = "Free Generator Tap!", color = {1, 0.9, 0.1}})
                 end
               end
             end
@@ -1400,6 +1349,11 @@ function coin_sort_screen.mousereleased(x, y, button)
 
           animation.startDealing(coins_to_deal, "2048",
             function()
+              -- Tutorial step 4 (Deal): advance after dealing completes
+              if tutorial.isActive() and tutorial.getActiveTutorial() == "coin_sort"
+                 and tutorial.getCurrentStep() == 4 then
+                tutorial.advance()
+              end
               if coin_sort.isGameOver() then
                 coin_sort.deactivate()
                 coin_sort.clearSave()

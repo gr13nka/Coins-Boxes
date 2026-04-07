@@ -22,15 +22,15 @@ local grid = {}            -- 56 cells (see cell states below)
 local stash = {}           -- 8 slots, each nil or {chain_id, level}
 local dispenser_queue = {} -- FIFO array of {chain_id, level}
 local xp = 0
-local tutorial_step = 1    -- 1-18 or "done"
 local initialized = false
 
--- Hardcoded tutorial generator drops (used instead of random during tutorial)
-local TUTORIAL_GEN_DROPS = {
-  {chain_id = "Da", level = 1},  -- first gen tap (step 8/9): Egg
-  {chain_id = "Me", level = 1},  -- second gen tap (step 16/17): Smoked Meat
+-- Hardcoded tutorial generator drops (D-11: Da1 Egg, Me1 Smoked Meat preserved)
+-- Driven by tutorial.lua state instead of old arena tutorial_step.
+local ARENA_TUTORIAL_GEN_DROPS = {
+  {chain_id = "Da", level = 1},  -- first tutorial gen tap: Egg
+  {chain_id = "Me", level = 1},  -- second tutorial gen tap: Smoked Meat
 }
-local tutorial_gen_index = 0
+local arena_tutorial_gen_count = 0
 
 -- Shuffle bag: contains items needed for current level's orders, given in random order
 local shuffle_bag = {}  -- array of {chain_id, level}, consumed from front
@@ -354,11 +354,13 @@ function arena.tapGenerator(index)
     cell.recharge_timer = 0
   end
 
-  -- Pick drop: hardcoded during tutorial, shuffle bag after
+  -- Pick drop: hardcoded during arena tutorial (D-11), shuffle bag after
   local drop
-  if not arena.isTutorialDone() and tutorial_gen_index < #TUTORIAL_GEN_DROPS then
-    tutorial_gen_index = tutorial_gen_index + 1
-    drop = TUTORIAL_GEN_DROPS[tutorial_gen_index]
+  local tutorial = require("tutorial")
+  if tutorial.isActive() and tutorial.getActiveTutorial() == "arena"
+      and arena_tutorial_gen_count < #ARENA_TUTORIAL_GEN_DROPS then
+    arena_tutorial_gen_count = arena_tutorial_gen_count + 1
+    drop = ARENA_TUTORIAL_GEN_DROPS[arena_tutorial_gen_count]
   else
     drop = arena.pullFromShuffleBag(cell.chain_id, cell.level)
   end
@@ -701,12 +703,6 @@ end
 function arena.getXP() return xp end
 function arena.addXP(amount) xp = xp + amount; arena.save() end
 
--- === TUTORIAL ===
-
-function arena.getTutorialStep() return tutorial_step end
-function arena.setTutorialStep(step) tutorial_step = step; arena.save() end
-function arena.isTutorialDone() return tutorial_step == "done" end
-
 -- === GRID ACCESS ===
 
 function arena.getGrid() return grid end
@@ -724,7 +720,7 @@ function arena.setupInitialBoard()
   stash = {}
   dispenser_queue = {}
   xp = 0
-  tutorial_step = 1
+  arena_tutorial_gen_count = 0
 
   for i = 1, GRID_SIZE do
     local code = INITIAL_CONTENTS[i]
@@ -771,8 +767,6 @@ function arena.save()
     order_level = arena_orders.getCurrentLevel(),
     completed_orders = arena_orders.getCompletedSet(),
     xp = xp,
-    tutorial_step = tutorial_step,
-    tutorial_gen_index = tutorial_gen_index,
     shuffle_bag = shuffle_bag,
   }
 
@@ -806,8 +800,7 @@ function arena.init()
       end
       dispenser_queue = data.dispenser_queue or {}
       xp = data.xp or 0
-      tutorial_step = data.tutorial_step or 1
-      tutorial_gen_index = data.tutorial_gen_index or 0
+      arena_tutorial_gen_count = 0
       shuffle_bag = data.shuffle_bag or {}
 
       arena_orders.init(data.order_level or 1, data.completed_orders or {})

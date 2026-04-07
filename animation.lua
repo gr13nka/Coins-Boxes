@@ -796,6 +796,10 @@ function animation.getShakeIntensity()
 end
 
 -- Query functions
+function animation.isIdle()
+    return pick_state == STATE.IDLE and bg_state == STATE.IDLE
+end
+
 function animation.isAnimating()
     return pick_state ~= STATE.IDLE or bg_state ~= STATE.IDLE
 end

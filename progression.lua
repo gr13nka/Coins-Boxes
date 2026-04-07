@@ -4,7 +4,7 @@
 local progression = {}
 
 -- Schema versioning for save migration
-local CURRENT_SCHEMA_VERSION = 2
+local CURRENT_SCHEMA_VERSION = 3
 
 -- Migration functions: each migrates data from version N-1 to version N
 local MIGRATIONS = {
@@ -52,6 +52,18 @@ local MIGRATIONS = {
         active = {},
         lifetime_completed = 0,
       }
+    end
+    return data
+  end,
+
+  -- Migration to version 3: add tutorial_data, clean up old arena tutorial_step
+  [3] = function(data)
+    if not data.tutorial_data then
+      data.tutorial_data = { cs_done = false, arena_done = false }
+    end
+    -- Clean up old arena tutorial_step (replaced by tutorial_data.arena_done)
+    if data.arena_data then
+      data.arena_data.tutorial_step = nil
     end
     return data
   end,
@@ -155,6 +167,12 @@ local function getDefaultData()
     commissions_data = {
       active = {},
       lifetime_completed = 0,
+    },
+
+    -- Tutorial completion state (spotlight tutorial system)
+    tutorial_data = {
+      cs_done = false,
+      arena_done = false,
     },
   }
 end
@@ -621,6 +639,14 @@ end
 
 function progression.setCommissionsData(d)
   data.commissions_data = d
+end
+
+function progression.getTutorialData()
+  return data.tutorial_data or { cs_done = false, arena_done = false }
+end
+
+function progression.setTutorialData(d)
+  data.tutorial_data = d
 end
 
 return progression

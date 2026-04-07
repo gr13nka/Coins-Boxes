@@ -323,7 +323,7 @@ function coin_sort.init()
         merge_timer = 0
         error_timer = 0
         error_message = ""
-        commissions.init()
+        commissions.generate(max_coin_reached)
         return
     end
 
@@ -357,8 +357,36 @@ function coin_sort.init()
 
     game_active = true
 
-    -- Load or generate commissions (persistent across sessions)
-    commissions.init()
+    -- Generate commissions for this CS session
+    commissions.generate(max_coin_reached)
+end
+
+--- Set up a deterministic board for the CS tutorial.
+-- Bypasses normal init() so the teaching board is exactly as specified.
+-- @param board_spec  {active_box_count, max_spawn_number, boxes={[idx]={number,...}}}
+function coin_sort.initTutorial(board_spec)
+    local prog = require("progression")
+    local d = prog.getUpgradesData()
+    max_coin_reached = d.max_coin_reached or 0
+
+    boxes = {}
+    active_box_count = board_spec.active_box_count or 4
+    for grid_idx, coin_values in pairs(board_spec.boxes) do
+        boxes[grid_idx] = {}
+        for _, coin_val in ipairs(coin_values) do
+            table.insert(boxes[grid_idx], coin_utils.createCoin(coin_val))
+        end
+    end
+
+    points = 0
+    merge_timer = 0
+    error_timer = 0
+    error_message = ""
+    total_merges = 0
+    max_spawn_number = board_spec.max_spawn_number or 2
+    game_active = true
+
+    commissions.generate(max_coin_reached)
 end
 
 -- Pick coins of the same number from the top of a box
@@ -565,19 +593,12 @@ function coin_sort.executeMergeOnBox(box_idx)
         table.remove(box)
     end
 
-    -- Add MERGE_OUTPUT coins of the next number (doubled if double merge charge active)
+    -- Add MERGE_OUTPUT coins of the next number
     local new_number = first_number + 1
     if new_number > MAX_NUMBER then
         new_number = MAX_NUMBER
     end
-    local output_count = MERGE_OUTPUT
-    local used_double = false
-    if drops.getDoubleMergeCharges() > 0 then
-        drops.useDoubleMerge()
-        output_count = MERGE_OUTPUT * 2
-        used_double = true
-    end
-    for _ = 1, output_count do
+    for _ = 1, MERGE_OUTPUT do
         table.insert(box, coin_utils.createCoin(new_number))
     end
 
@@ -603,7 +624,76 @@ function coin_sort.executeMergeOnBox(box_idx)
     -- Show "Merged!" message
     merge_timer = 2
 
-    return true, gained, drop_results, used_double
+    return true, gained, drop_results, commissions_refreshed
+end
+
+-- 2048-style merge: All coins in a full box become MERGE_OUTPUT coins of (number+1)
+-- Only merges when box is full (BOX_ROWS coins) and all coins have same number
+function coin_sort.merge()
+    local merged = false
+
+    for _, box_index in ipairs(getActiveBoxIndices()) do
+        local box = boxes[box_index]
+        -- Only merge if box is full
+        if #box == BOX_ROWS then
+            -- Check if all coins have the same number
+            local first_number = coin_utils.getCoinNumber(box[1])
+            local all_same = true
+
+            for i = 2, #box do
+                local num = coin_utils.getCoinNumber(box[i])
+                if num ~= first_number then
+                    all_same = false
+                    break
+                end
+            end
+
+            if all_same then
+                local new_number = first_number + 1
+                if new_number > MAX_NUMBER then
+                    new_number = MAX_NUMBER
+                end
+
+                -- Remove all coins from the box
+                local coin_count = #box
+                for _ = 1, coin_count do
+                    table.remove(box)
+                end
+
+                -- Add MERGE_OUTPUT coins of the next number
+                for _ = 1, MERGE_OUTPUT do
+                    table.insert(box, coin_utils.createCoin(new_number))
+                end
+
+                -- Track highest coin ever created
+                setMaxCoinReached(new_number)
+
+                -- Award points based on the new number and how many coins merged
+                points = points + points_per_merge * new_number * coin_count
+
+                -- Award resources
+                local gained = resources.onCoinMerge(new_number)
+
+                -- Track commission progress
+                commissions.onMerge(new_number, gained)
+
+                -- Roll variable drops
+                drops.rollMergeDrops(new_number)
+
+                -- Update progression
+                total_merges = total_merges + 1
+                updateProgression()
+
+                merged = true
+            end
+        end
+    end
+
+    if merged then
+        merge_timer = 2
+    end
+
+    return merged
 end
 
 -- Auto Sort: group coins by number, each column gets only one number type.
@@ -760,7 +850,6 @@ function coin_sort.save()
     bags.sync()
     resources.sync()
     drops.sync()
-    commissions.sync()
     prog.save()
 end
 

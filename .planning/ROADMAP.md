@@ -78,8 +78,13 @@ Plans:
   2. A new Coin Sort player is guided through pick, place, merge, and deal in sequence without being able to get lost
   3. The Arena tutorial teaches the same concepts as the current 18-step version but uses the spotlight system instead of implicit state
   4. Each tutorial step validates board state preconditions before proceeding -- no soft-lock states are reachable
-**Plans**: TBD
+**Plans**: 3 plans
 **UI hint**: yes
+
+Plans:
+- [x] 04-01-PLAN.md — Spotlight overlay system: tutorial.lua logic module, progression migration v3, animation.isIdle()
+- [x] 04-02-PLAN.md — Coin Sort 5-step tutorial: pre-set board, step definitions, spotlight rendering, input filtering
+- [x] 04-03-PLAN.md — Arena tutorial rebuild: old 18-step removal, new 7-step spotlight tutorial, human verification
 
 ## Progress
 
@@ -91,4 +96,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 | 1. Cleanup and Prep | 0/2 | Planned | - |
 | 2. Effects System Redesign | 0/5 | Planned | - |
 | 3. Popups and Commission Persistence | 0/3 | Planned | - |
-| 4. Spotlight Tutorials | 0/0 | Not started | - |
+| 4. Spotlight Tutorials | 0/3 | Planned | - |

@@ -1,5 +1,5 @@
 {
-  "model_profile": "quality",
+  "model_profile": "balanced",
   "commit_docs": true,
   "parallelization": true,
   "search_gitignored": false,
@@ -7,16 +7,16 @@
   "firecrawl": true,
   "exa_search": true,
   "git": {
-    "branching_strategy": "milestone",
+    "branching_strategy": "none",
     "phase_branch_template": "gsd/phase-{phase}-{slug}",
     "milestone_branch_template": "gsd/{milestone}-{slug}",
     "quick_branch_template": null
   },
   "workflow": {
     "research": true,
-    "plan_check": true,
-    "verifier": true,
-    "nyquist_validation": true,
+    "plan_check": false,
+    "verifier": false,
+    "nyquist_validation": false,
     "auto_advance": false,
     "node_repair": true,
     "node_repair_budget": 2,

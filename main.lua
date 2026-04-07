@@ -18,6 +18,7 @@ local skill_tree = require("skill_tree")
 local tab_bar = require("tab_bar")
 local yandex = require("yandex")
 local popups = require("popups")
+local tutorial = require("tutorial")
 
 -- Debugger is initialized in conf.lua (must run before love.load)
 
@@ -157,6 +158,9 @@ function love.load()
   screens.register("arena", arena_screen)
   screens.register("skill_tree", skill_tree_screen)
 
+  -- Initialize tutorial system
+  tutorial.load()
+
   -- Start directly in Coin Sort mode
   screens.switch("coin_sort")
 
@@ -174,7 +178,7 @@ function love.update(dt)
 end
 
 function love.draw()
-  love.graphics.setCanvas(canvas)
+  love.graphics.setCanvas({canvas, stencil = true})
   love.graphics.clear()
   screens.draw()
 
