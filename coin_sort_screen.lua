@@ -93,6 +93,9 @@ local resource_popups = {}  -- array of {text, x, y, time, color}
 local POPUP_DURATION = 1.0
 local POPUP_RISE = 60
 
+-- Double merge flash feedback (timer counts down from 1.5 to 0)
+local double_merge_flash = 0
+
 -- Box unlock flash animation (green glow when a new box unlocks)
 local box_unlock_flashes = {}  -- array of {grid_idx, timer, duration}
 local BOX_UNLOCK_FLASH_DURATION = 1.2
@@ -744,6 +747,11 @@ function coin_sort_screen.update(dt)
   updateResourcePopups(dt)
   updateBoxUnlockFlashes(dt)
 
+  -- Double merge flash countdown
+  if double_merge_flash > 0 then
+    double_merge_flash = double_merge_flash - dt
+  end
+
   -- Reset button hold tracking
   if resetState.held then
     if not isPointerDown() then
@@ -815,6 +823,26 @@ function coin_sort_screen.draw()
   drawPowerupButtons()
   drawHammerOverlay()
   drawSoundToggles()
+
+  -- Double merge charge indicator (persistent badge when charges > 0)
+  local dm_charges = drops.getDoubleMergeCharges()
+  if dm_charges > 0 then
+    love.graphics.setFont(font)
+    local badge_x = MERGE_BUTTON_X
+    local badge_y = MERGE_BUTTON_Y - 44
+    love.graphics.setColor(1, 0.85, 0, 0.9)
+    love.graphics.printf("2x (" .. dm_charges .. ")", badge_x, badge_y, BUTTON_WIDTH, "center")
+    love.graphics.setColor(1, 1, 1, 1)
+  end
+
+  -- Double merge consumed flash text
+  if double_merge_flash > 0 then
+    local alpha = math.min(1, double_merge_flash)
+    love.graphics.setFont(font)
+    love.graphics.setColor(1, 0.85, 0, alpha)
+    love.graphics.printf("DOUBLE MERGE!", 0, TOP_Y + 200, VW, "center")
+    love.graphics.setColor(1, 1, 1, 1)
+  end
 
   -- End screen shake
   if shake_x ~= 0 or shake_y ~= 0 then
@@ -1041,10 +1069,14 @@ function coin_sort_screen.mousereleased(x, y, button)
           end,
           -- Per-box callback: when each box finishes merging
           function(box_data)
-            local success, gained, drop_results, commissions_refreshed = coin_sort.executeMergeOnBox(box_data.box_idx)
+            local success, gained, drop_results, commissions_refreshed, used_double = coin_sort.executeMergeOnBox(box_data.box_idx)
             sound.playMerge()
             mobile.vibrateMerge()
             progression.onMerge("2048", 1)
+            -- Double merge flash feedback
+            if used_double then
+              double_merge_flash = 1.5
+            end
             -- Spawn resource feedback popup
             if gained then
               local from_x = box_data.slot_x[1]

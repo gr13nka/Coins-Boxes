@@ -283,8 +283,8 @@ function chains.rollDrop(chain_id, gen_level)
   end
 
   -- Quality bonus: chance to level up based on max_coin_reached
-  local upgrades = require("upgrades")
-  local mcr = upgrades.getMaxCoinReached()
+  local prog = require("progression")
+  local mcr = (prog.getUpgradesData() or {}).max_coin_reached or 0
   local bonus_chance = QUALITY_BONUS[mcr] or QUALITY_BONUS[7]
   if bonus_chance > 0 and math.random() < bonus_chance then
     drop_level = drop_level + 1

@@ -248,7 +248,7 @@ function drops.applyPendingCSDrops()
   end
   if pending_cs_drops.double_merge > 0 then
     applied.double_merge = pending_cs_drops.double_merge
-    pending_cs_drops.double_merge = 0
+    -- Do NOT zero: charges consumed one-at-a-time by useDoubleMerge() during CS gameplay
   end
   -- bag_bundle already applied immediately via bags.addBagsNoSave
 

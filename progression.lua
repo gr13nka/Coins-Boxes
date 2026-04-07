@@ -3,32 +3,71 @@
 
 local progression = {}
 
+-- Schema versioning for save migration
+local CURRENT_SCHEMA_VERSION = 1
+
+-- Migration functions: each migrates data from version N-1 to version N
+local MIGRATIONS = {
+  -- Migration to version 1: clean stale classic-mode fields from old saves
+  [1] = function(data)
+    -- Remove dead currency system
+    data.currency = nil
+
+    -- Clean dead unlock categories (keep modes for dormant mode_select)
+    if data.unlocks then
+      data.unlocks.colors = nil
+      data.unlocks.backgrounds = nil
+      data.unlocks.powerups = nil
+      data.unlocks.cosmetics = nil
+    end
+
+    -- Strip dead upgrades_data sub-fields, keep only max_coin_reached
+    if data.upgrades_data then
+      local mcr = data.upgrades_data.max_coin_reached
+      data.upgrades_data = { max_coin_reached = mcr or 0 }
+    end
+
+    -- Remove dead achievement entries (keep live ones: first_merge, merge_master, merge_legend, dedicated_player)
+    if data.achievements then
+      data.achievements.color_collector = nil
+      data.achievements.point_hunter = nil
+    end
+
+    -- Clean dead stats
+    if data.stats then
+      data.stats.highest_score_classic = nil
+      data.stats.highest_score_2048 = nil
+    end
+
+    return data
+  end,
+}
+
+--- Run all pending migrations on loaded save data
+local function runMigrations(data)
+  local version = data.schema_version or 0
+  while version < CURRENT_SCHEMA_VERSION do
+    version = version + 1
+    if MIGRATIONS[version] then
+      data = MIGRATIONS[version](data)
+    end
+    data.schema_version = version
+  end
+  return data
+end
+
 -- Default progression data structure
 local function getDefaultData()
   return {
+    -- Save schema version (for migration support)
+    schema_version = CURRENT_SCHEMA_VERSION,
+
     -- Unlocks by category
     unlocks = {
       modes = {
         classic = true,
         mode_2048 = true,  -- Start unlocked for now, can lock later
       },
-      colors = {
-        red = true,
-        blue = true,
-        green = true,
-        yellow = false,
-        purple = false,
-        orange = false,
-        pink = false,
-      },
-      backgrounds = {
-        -- Keys are background numbers (1-91), values are unlocked status
-        -- Start with first few unlocked
-        [1] = true,
-        [60] = true,  -- Default background
-      },
-      powerups = {},
-      cosmetics = {},
     },
 
     -- Stats for tracking progress
@@ -36,15 +75,7 @@ local function getDefaultData()
       total_merges = 0,
       total_points = 0,
       games_played = 0,
-      highest_score_classic = 0,
-      highest_score_2048 = 0,
       total_coins_placed = 0,
-    },
-
-    -- Currency: shards and crystals per color
-    currency = {
-      shards = {red = 0, green = 0, purple = 0, blue = 0, pink = 0},
-      crystals = {red = 0, green = 0, purple = 0, blue = 0, pink = 0},
     },
 
     -- Power-ups: consumable counts
@@ -53,22 +84,9 @@ local function getDefaultData()
       hammer = 100,
     },
 
-    -- Upgrades: rows, columns, houses
+    -- Upgrades: max coin reached (used by coin_sort.lua)
     upgrades_data = {
-      extra_rows = 0,
-      extra_columns = 0,
-      houses_unlocked = false,
-      free_house_available = false,
-      difficulty_extra_types = 0,
       max_coin_reached = 0,
-      houses = {
-        {built = false, color = "red", progress = 0},
-        {built = false, color = "red", progress = 0},
-        {built = false, color = "red", progress = 0},
-        {built = false, color = "red", progress = 0},
-        {built = false, color = "red", progress = 0},
-        {built = false, color = "red", progress = 0},
-      },
     },
 
     -- Achievements (name -> unlocked boolean)
@@ -76,8 +94,6 @@ local function getDefaultData()
       first_merge = false,
       merge_master = false,      -- 100 total merges
       merge_legend = false,      -- 1000 total merges
-      color_collector = false,   -- Unlock all colors
-      point_hunter = false,      -- Reach 1000 points in a game
       dedicated_player = false,  -- Play 50 games
     },
 
@@ -132,20 +148,6 @@ local persistenceEnabled = true
 
 -- Unlock condition definitions
 local UNLOCK_CONDITIONS = {
-  -- Colors unlock at merge thresholds
-  colors = {
-    yellow = { stat = "total_merges", threshold = 10 },
-    purple = { stat = "total_merges", threshold = 25 },
-    orange = { stat = "total_merges", threshold = 50 },
-    pink = { stat = "total_merges", threshold = 100 },
-  },
-  -- Backgrounds unlock at point thresholds
-  backgrounds = {
-    [2] = { stat = "total_points", threshold = 100 },
-    [3] = { stat = "total_points", threshold = 500 },
-    [4] = { stat = "total_points", threshold = 1000 },
-    -- More can be added
-  },
   -- Modes unlock conditions
   modes = {
     -- mode_2048 = { stat = "total_merges", threshold = 5 },  -- Example: unlock at 5 merges
@@ -157,17 +159,7 @@ local ACHIEVEMENT_CONDITIONS = {
   first_merge = function() return data.stats.total_merges >= 1 end,
   merge_master = function() return data.stats.total_merges >= 100 end,
   merge_legend = function() return data.stats.total_merges >= 1000 end,
-  point_hunter = function()
-    return data.stats.highest_score_classic >= 1000 or data.stats.highest_score_2048 >= 1000
-  end,
   dedicated_player = function() return data.stats.games_played >= 50 end,
-  color_collector = function()
-    -- Check if all colors are unlocked
-    for _, unlocked in pairs(data.unlocks.colors) do
-      if not unlocked then return false end
-    end
-    return true
-  end,
 }
 
 --------------------------------------------------------------------------------
@@ -267,8 +259,12 @@ function progression.load()
 
   local loaded = deserialize(contents)
   if loaded then
-    -- Merge with defaults to handle new fields
+    -- Run migrations FIRST (handles structural changes like removing dead fields)
+    loaded = runMigrations(loaded)
+    -- Then merge with defaults (fills any missing new fields)
     data = progression.mergeWithDefaults(loaded, getDefaultData())
+    -- Ensure schema_version stays current after merge
+    data.schema_version = CURRENT_SCHEMA_VERSION
     return true
   else
     print("Failed to parse progression file")
@@ -486,15 +482,9 @@ function progression.onMerge(mode, count)
 end
 
 --- Called when points are scored
--- @param mode Game mode
 -- @param points Points scored
-function progression.onPoints(mode, points)
+function progression.onPoints(points)
   progression.addStat("total_points", points)
-
-  -- Update high score
-  local scoreKey = mode == "2048" and "highest_score_2048" or "highest_score_classic"
-  -- Note: This updates cumulative points, not single-game score
-  -- High score should be updated via onGameEnd
 
   checkUnlocks()
   progression.checkAchievements()
@@ -507,13 +497,8 @@ function progression.onCoinPlaced()
 end
 
 --- Called when a game ends
--- @param mode Game mode
--- @param score Final score
-function progression.onGameEnd(mode, score)
+function progression.onGameEnd()
   progression.addStat("games_played", 1)
-
-  local scoreKey = mode == "2048" and "highest_score_2048" or "highest_score_classic"
-  progression.updateHighScore(scoreKey, score)
 
   checkUnlocks()
   progression.checkAchievements()
@@ -543,16 +528,8 @@ function progression.unlockAll()
 end
 
 --------------------------------------------------------------------------------
--- Currency & Upgrades Data Accessors
+-- Sub-system Data Accessors
 --------------------------------------------------------------------------------
-
-function progression.getCurrencyData()
-  return data.currency
-end
-
-function progression.setCurrencyData(d)
-  data.currency = d
-end
 
 function progression.getUpgradesData()
   return data.upgrades_data
