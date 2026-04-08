@@ -1,0 +1,3 @@
+# Raw 1024x1024 icons from ComfyUI — intermediate artifacts, not committed.
+# Run postprocess_icons.py to create the final 256x256 versions in assets/icons/
+*.png

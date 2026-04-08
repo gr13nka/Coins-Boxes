@@ -40,6 +40,7 @@ Keep your visuals and logic separate.
 | `effects.lua` | Screen-level visual effects: fly-to-bar icons, overlay flash, celebration burst (pre-allocated pools) |
 | `popups.lua` | Popup queue system: toast/card/celebration tiers, FIFO queue, rendering (UI overlay) |
 | `tutorial.lua` | Placeholder for future tutorial |
+| `arena_icons.lua` | Item icon sprite loading and rendering for Merge Arena (visual only, no game logic) |
 | `yandex.lua` | Yandex Games SDK bridge: ads (interstitial, rewarded, banner) via Emscripten FFI, no-ops on non-web |
 
 ## Key Patterns
@@ -321,6 +322,7 @@ PoE2-style upgrade tree replacing the old linear milestone system. Stars are **s
 
 - `/sfx/` — sound effects, `/bgnd_music/` — background music
 - `/assets/` — sprites: `ball.png` (tinted per color for coins)
+- `/assets/icons/` — AI-generated item sprites (256x256 RGBA PNGs), named `{chain_id}_{level}.png` (lowercase). Uses `linear` filter (overrides global `nearest`).
 - `comic shanns.otf` — custom UI font
 
 ## Mobile Touch Input

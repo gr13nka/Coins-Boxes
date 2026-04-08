@@ -15,6 +15,7 @@ local effects = require("effects")
 local particles = require("particles")
 local popups = require("popups")
 
+local arena_icons = require("arena_icons")
 local yandex = require("yandex")
 local tutorial = require("tutorial")
 
@@ -244,6 +245,12 @@ end
 
 local function drawItemCircle(chain_id, level, cx, cy, radius, alpha)
   alpha = alpha or 1
+
+  -- Try sprite first; fall back to geometric shape
+  if arena_icons.drawSprite(chain_id, level, cx, cy, radius, alpha) then
+    return
+  end
+
   local c = arena_chains.getColor(chain_id)
   local shape = CHAIN_SHAPES[chain_id] or "circle"
 
@@ -1059,6 +1066,7 @@ end
 
 function arena_screen.init(assets)
   font = assets.font
+  arena_icons.init()
 end
 
 function arena_screen.enter()
