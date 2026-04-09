@@ -339,6 +339,14 @@ PoE2-style upgrade tree replacing the old linear milestone system. Stars are **s
 - `mobile.isWeb()` — web builds (`getOS() == "Unknown"` or `"Web"`; love-web-builder returns `"Unknown"`).
 - `mobile.isLowPerformance()` — true for both native mobile AND web. Use for particle reduction and other GPU optimizations.
 
+## Performance Anti-Patterns (NEVER DO)
+
+- **No `love.timer.sleep()` in callbacks** — NEVER call `love.timer.sleep()` inside `love.update()` or `love.draw()`. It blocks the main thread and causes system-wide freezes. LÖVE handles frame pacing via vsync automatically.
+- **No manual FPS limiters** — Do not implement frame rate capping with sleep/busy-wait loops. Vsync (enabled in `conf.lua`) handles this.
+- **No `love.graphics.new*()` in update/draw** — Never create canvases, images, fonts, or shaders inside per-frame callbacks. Allocate once in `love.load()` or `init()`.
+- **No unbounded loops in per-frame code** — Use modulo (`%`) instead of `while` subtraction loops for timer wrapping. A subtraction loop is O(n) per frame; modulo is O(1).
+- **No unbounded table growth** — Every `table.insert` in `update()`/`draw()` must have a corresponding removal path. Pre-allocate pools for particles, effects, popups.
+
 ## Mobile/Web Performance
 
 - **No FPS cap**: update and draw run at native rate on all platforms (browser typically provides 50-60fps). Animation speed multiplier is always 4x for snappy feel.

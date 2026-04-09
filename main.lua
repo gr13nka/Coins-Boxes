@@ -72,13 +72,15 @@ function love.load()
 
   -- Initialize core systems
   progression.init(true)  -- true = enable persistence
+  local offline_elapsed = progression.getOfflineElapsed()
   resources.init()
   bags.init()
+  bags.catchUp(offline_elapsed)
   powerups.init()
   drops.init()
   skill_tree.init()
   local arena = require("arena")
-  arena.init()
+  arena.init()  -- arena handles its own offline catch-up internally
   sound.init()
   yandex.init()
   windowSetup()
@@ -161,8 +163,8 @@ function love.load()
   -- Initialize tutorial system
   tutorial.load()
 
-  -- Start directly in Coin Sort mode
-  screens.switch("coin_sort")
+  -- Start directly in Arena mode
+  screens.switch("arena")
 
   -- Show sticky banner ad (passive revenue, web only)
   yandex.showBanner()
@@ -198,6 +200,7 @@ function love.draw()
   love.graphics.scale(scale, scale)
   love.graphics.draw(canvas, 0, 0)
   love.graphics.pop()
+
 end
 
 function love.keypressed(key, scancode, isrepeat)
@@ -210,7 +213,7 @@ function love.keypressed(key, scancode, isrepeat)
     skill_tree.init()
     local arena = require("arena")
     arena.init()
-    screens.switch("coin_sort")
+    screens.switch("arena")
     return
   end
   screens.keypressed(key, scancode, isrepeat)

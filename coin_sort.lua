@@ -272,7 +272,7 @@ local function setMaxCoinReached(n)
 
         -- Unlock boxes: each new coin level unlocks one more box (up to 15).
         -- May unlock multiple boxes at once if coin levels are skipped.
-        local new_count = math.min(NUM_BOXES, 4 + math.max(0, n - 1))
+        local new_count = math.min(NUM_BOXES, 4 + math.max(0, n - 3))
         if new_count > active_box_count then
             for i = active_box_count + 1, new_count do
                 local grid_idx = UNLOCK_ORDER[i]
@@ -329,7 +329,7 @@ function coin_sort.init()
 
     -- Determine how many boxes to unlock based on progression
     -- Start at 4, unlock 1 per new coin nominal (coin 2 → 5 boxes, etc.)
-    active_box_count = math.min(NUM_BOXES, 4 + math.max(0, max_coin_reached - 1))
+    active_box_count = math.min(NUM_BOXES, 4 + math.max(0, max_coin_reached - 3))
 
     -- Sparse boxes table: only active grid positions have entries
     boxes = {}

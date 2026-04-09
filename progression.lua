@@ -4,7 +4,7 @@
 local progression = {}
 
 -- Schema versioning for save migration
-local CURRENT_SCHEMA_VERSION = 3
+local CURRENT_SCHEMA_VERSION = 4
 
 -- Migration functions: each migrates data from version N-1 to version N
 local MIGRATIONS = {
@@ -59,11 +59,20 @@ local MIGRATIONS = {
   -- Migration to version 3: add tutorial_data, clean up old arena tutorial_step
   [3] = function(data)
     if not data.tutorial_data then
-      data.tutorial_data = { cs_done = false, arena_done = false }
+      data.tutorial_data = { cs_done = false, arena_done = false, fuel_bridge_done = false }
     end
     -- Clean up old arena tutorial_step (replaced by tutorial_data.arena_done)
     if data.arena_data then
       data.arena_data.tutorial_step = nil
+    end
+    return data
+  end,
+
+  -- Migration to version 4: add fuel_bridge tutorial tracking
+  [4] = function(data)
+    if data.tutorial_data and data.tutorial_data.fuel_bridge_done == nil then
+      -- Skip fuel bridge for players who already completed arena tutorial
+      data.tutorial_data.fuel_bridge_done = (data.tutorial_data.arena_done == true)
     end
     return data
   end,
@@ -173,7 +182,11 @@ local function getDefaultData()
     tutorial_data = {
       cs_done = false,
       arena_done = false,
+      fuel_bridge_done = false,
     },
+
+    -- Timestamp of last save (for offline timer catch-up)
+    last_save_time = 0,
   }
 end
 
@@ -272,12 +285,21 @@ end
 function progression.save()
   if not persistenceEnabled then return true end
 
+  data.last_save_time = os.time()
   local success, err = love.filesystem.write(SAVE_FILENAME, serialize(data))
   if not success then
     print("Failed to save progression:", err)
     return false
   end
   return true
+end
+
+--- Get seconds elapsed since last save (for offline timer catch-up)
+function progression.getOfflineElapsed()
+  local t = data.last_save_time or 0
+  if t == 0 then return 0 end
+  local elapsed = os.time() - t
+  return math.max(0, elapsed)
 end
 
 --- Load progression from file
@@ -642,7 +664,7 @@ function progression.setCommissionsData(d)
 end
 
 function progression.getTutorialData()
-  return data.tutorial_data or { cs_done = false, arena_done = false }
+  return data.tutorial_data or { cs_done = false, arena_done = false, fuel_bridge_done = false }
 end
 
 function progression.setTutorialData(d)

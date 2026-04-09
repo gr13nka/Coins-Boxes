@@ -33,6 +33,8 @@ local ARENA_STAR_BURST_CHANCE = 0.05  -- any order
 local shelf = {}  -- array of {chain_id, level}
 -- Generator tokens: free taps stored
 local gen_tokens = 0
+-- Whether the first chest has been given (hardcoded Cu chest)
+local first_chest_given = false
 -- CS powerup drops: pending for next CS session
 local pending_cs_drops = {
   hammer = 0,
@@ -47,6 +49,7 @@ function drops.init()
   local d = progression.getDropsData()
   shelf = d.shelf or {}
   gen_tokens = d.gen_tokens or 0
+  first_chest_given = d.first_chest_given or false
   pending_cs_drops = d.pending_cs_drops or {
     hammer = 0, auto_sort = 0, bag_bundle = 0, double_merge = 0,
   }
@@ -56,6 +59,7 @@ function drops.sync()
   progression.setDropsData({
     shelf = shelf,
     gen_tokens = gen_tokens,
+    first_chest_given = first_chest_given,
     pending_cs_drops = pending_cs_drops,
   })
 end
@@ -78,18 +82,34 @@ function drops.rollMergeDrops(new_number)
 
   local st = require("skill_tree")
 
-  -- Chest drop (tappable chest placed on arena grid via dispenser)
-  -- Each chest is typed to a random unlocked generator chain
+  -- Chest drop — chain weighted by current order needs.
+  -- First chest is always Cu (Cupboard) to seed generator building.
   local chest_chance = (CS_CHEST_CHANCE[new_number] or 0) + st.getChestChanceBonus()
   if chest_chance > 0 and math.random() < chest_chance then
-    local gen_chains = {"Ch", "Cu", "He", "Bl", "Ki", "Ta"}
-    local avail = {}
-    for _, c in ipairs(gen_chains) do
-      if st.isGeneratorUnlocked(c) then
-        avail[#avail + 1] = c
+    local chest_chain
+    if not first_chest_given then
+      -- First chest: hardcoded Cu to help build Cupboard generator
+      chest_chain = "Cu"
+      first_chest_given = true
+    else
+      local CHAIN_TO_GEN = {
+        Ch = "Ch", Cu = "Cu", He = "He", Bl = "Bl", Ki = "Ki", Ta = "Ta",
+        Me = "Ch", Da = "Ch", Ba = "He", De = "Bl", So = "Ki", Be = "Ta",
+      }
+      local gen_chains = {"Ch", "Cu", "He", "Bl", "Ki", "Ta"}
+
+      -- Base weight: every chain gets 1 entry for variety
+      local arena_orders = require("arena_orders")
+      local pool = {}
+      for _, c in ipairs(gen_chains) do pool[#pool + 1] = c end
+      -- Order weight: add extra entries for chains orders need
+      local reqs = arena_orders.getAllRemainingRequirements()
+      for _, r in ipairs(reqs) do
+        local gen = CHAIN_TO_GEN[r.chain_id]
+        if gen then pool[#pool + 1] = gen end
       end
+      chest_chain = pool[math.random(#pool)]
     end
-    local chest_chain = avail[math.random(#avail)]
     local charges = rollChestCharges(new_number) + st.getChestChargeBonus()
     local chest = {state = "chest", charges = charges, chain_id = chest_chain}
     shelf[#shelf + 1] = chest

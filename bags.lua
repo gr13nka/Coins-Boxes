@@ -33,6 +33,31 @@ function bags.save()
   progression.save()
 end
 
+-- Advance free bag timer by offline elapsed seconds, granting any earned bags.
+function bags.catchUp(elapsed)
+  if elapsed <= 0 then return end
+  local st = require("skill_tree")
+  local max_free = st.getMaxQueuedFree()
+  local interval = st.getFreeBagInterval()
+
+  if free_bags_queued >= max_free then return end
+
+  free_bag_timer = free_bag_timer + elapsed
+  local earned = false
+  while free_bag_timer >= interval and free_bags_queued < max_free do
+    free_bag_timer = free_bag_timer - interval
+    free_bags_queued = free_bags_queued + 1
+    earned = true
+  end
+  -- If capped, don't accumulate leftover time beyond one interval
+  if free_bags_queued >= max_free then
+    free_bag_timer = math.min(free_bag_timer, interval - 1)
+  end
+  if earned then
+    bags.save()
+  end
+end
+
 -- Tick free bag timer. Call from update(dt) on any active screen.
 -- Returns true if a new free bag was generated.
 function bags.update(dt)

@@ -22,6 +22,10 @@ local ballImgW, ballImgH  -- cached ball image dimensions
 local fontHeightCache = {}                -- fontHeightCache[font] = height
 local fontWidthCache = {}                 -- fontWidthCache[font][num_str] = width
 
+-- Pre-cached tostring results for coin numbers 1-50
+local NUM_STRINGS = {}
+for i = 1, 50 do NUM_STRINGS[i] = tostring(i) end
+
 --- Refresh cached layout values (call after layout.applyMetrics)
 function graphics.updateMetrics()
   TOP_Y = layout.GRID_TOP_Y
@@ -108,28 +112,30 @@ local RING_COLORS = {
   {0.72, 0.35, 0.65},  -- cycle 4: cave crystal
 }
 
-function graphics.drawCoin2048(font, x, y, num, MAX_NUMBER, scaleOverride, hideNumber)
+function graphics.drawCoin2048(font, x, y, num, MAX_NUMBER, scaleOverride, hideNumber, skipRing)
   local scale = (COIN_R * 2) / ballImgW
   if scaleOverride then scale = scale * scaleOverride end
   local col = coin_utils.numberToColor(num, MAX_NUMBER)
   love.graphics.setColor(col)
   love.graphics.draw(ballImage, x, y, 0, scale, scale, ballImgW / 2, ballImgH / 2)
-  -- Cycle tier ring border
-  local cycle = coin_utils.numberToCycle(num)
-  if cycle > 0 then
-    local rc = RING_COLORS[cycle] or {1.0, 1.0, 1.0}
-    local ring_lw = 2 + math.min(cycle - 1, 3) * 0.5
-    local ring_r = COIN_R * (scaleOverride or 1)
-    love.graphics.setColor(rc)
-    love.graphics.setLineWidth(ring_lw)
-    love.graphics.circle("line", x, y, ring_r)
-    love.graphics.setLineWidth(1)
+  -- Cycle tier ring border (skip during animations to reduce draw calls)
+  if not skipRing then
+    local cycle = coin_utils.numberToCycle(num)
+    if cycle > 0 then
+      local rc = RING_COLORS[cycle] or {1.0, 1.0, 1.0}
+      local ring_lw = 2 + math.min(cycle - 1, 3) * 0.5
+      local ring_r = COIN_R * (scaleOverride or 1)
+      love.graphics.setColor(rc)
+      love.graphics.setLineWidth(ring_lw)
+      love.graphics.circle("line", x, y, ring_r)
+      love.graphics.setLineWidth(1)
+    end
   end
   -- Number text (skip if hideNumber)
   if not hideNumber then
     love.graphics.setColor(1, 1, 1)
     love.graphics.setFont(font)
-    local num_str = tostring(num)
+    local num_str = NUM_STRINGS[num] or tostring(num)
     local text_width = getCachedFontWidth(font, num_str)
     local text_height = getCachedFontHeight(font)
     love.graphics.print(num_str, x - text_width / 2, y - text_height / 2)
@@ -270,5 +276,8 @@ function graphics.drawBoxes2048(boxes, BOX_ROWS, shakeState)
 
   return x, y
 end
+
+-- Expose cached number strings for other modules
+graphics.NUM_STRINGS = NUM_STRINGS
 
 return graphics

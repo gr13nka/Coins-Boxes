@@ -645,14 +645,14 @@ end
 
 local function isStashVisible()
   if tutorial.isActive() and tutorial.getActiveTutorial() == "arena" then
-    return tutorial.getCurrentStep() >= 7
+    return tutorial.getCurrentStep() >= 9
   end
   return true
 end
 
 local function isOrdersVisible()
   if tutorial.isActive() and tutorial.getActiveTutorial() == "arena" then
-    return tutorial.getCurrentStep() >= 6
+    return tutorial.getCurrentStep() >= 8
   end
   return true
 end
@@ -777,6 +777,14 @@ local function drawDragged()
   if not drag then return end
   local size = CELL_SIZE
   if drag.source == "stash" then size = STASH_SLOT_SIZE end
+  if drag.item.state == "chest" then
+    local chest_color = arena_chains.getColor(drag.item.chain_id or "Ch")
+    love.graphics.setColor(chest_color[1], chest_color[2], chest_color[3], 0.85)
+    love.graphics.rectangle("fill", drag.x - size/2 + 4, drag.y - size/2 + 4, size - 8, size - 8, 10, 10)
+    love.graphics.setColor(1, 1, 1, 0.85)
+    love.graphics.printf(drag.item.chain_id or "?", drag.x - size/2, drag.y - size*0.2, size, "center")
+    return
+  end
   drawCellItem(drag.item.chain_id, drag.item.level,
     drag.x - size / 2, drag.y - size / 2, size, false, 0.85)
 end
@@ -908,10 +916,63 @@ local function findSecondCh1Target()
   return nil
 end
 
--- Register 7-step Arena tutorial (D-08, D-09: redesign, 7 focused steps)
+-- Helper: find first unsealed Ch2 on grid
+local function findCh2Rect()
+  local grid_data = arena.getGrid()
+  for i = 1, arena.getGridSize() do
+    local cell = grid_data[i]
+    if cell and not cell.state and cell.chain_id == "Ch" and cell.level == 2 then
+      return getCellRect(i)
+    end
+  end
+  return getDispenserRect()
+end
+
+-- Helper: find second Ch2 cell center for drag target
+local function findSecondCh2Target()
+  local grid_data = arena.getGrid()
+  local found = 0
+  for i = 1, arena.getGridSize() do
+    local cell = grid_data[i]
+    if cell and not cell.state and cell.chain_id == "Ch" and cell.level == 2 then
+      found = found + 1
+      if found == 2 then
+        local x, y = cellScreenPos(i)
+        return {x = x + CELL_SIZE / 2, y = y + CELL_SIZE / 2}
+      end
+    end
+  end
+  return nil
+end
+
+-- Helper: find first unsealed Ch3 on grid
+local function findCh3Rect()
+  local grid_data = arena.getGrid()
+  for i = 1, arena.getGridSize() do
+    local cell = grid_data[i]
+    if cell and not cell.state and cell.chain_id == "Ch" and cell.level == 3 then
+      return getCellRect(i)
+    end
+  end
+  return getDispenserRect()
+end
+
+-- Helper: find sealed Ch3 center for drag target
+local function findSealedCh3Target()
+  local grid_data = arena.getGrid()
+  for i = 1, arena.getGridSize() do
+    local cell = grid_data[i]
+    if cell and cell.state == "sealed" and cell.chain_id == "Ch" and cell.level == 3 then
+      local x, y = cellScreenPos(i)
+      return {x = x + CELL_SIZE / 2, y = y + CELL_SIZE / 2}
+    end
+  end
+  return nil
+end
+
+-- Register 9-step Arena tutorial (restores Ch1->Ch4 generator creation flow)
 tutorial.registerSteps("arena", {
-  -- Step 1: Tap dispenser to place first item
-  -- check always true: on_enter seeds the dispenser
+  -- Step 1: Tap dispenser to place first Ch1
   {
     text     = {en = "Tap to place this item on the grid", ru = "Нажмите, чтобы поставить предмет на поле"},
     getRect  = getDispenserRect,
@@ -919,7 +980,7 @@ tutorial.registerSteps("arena", {
     check    = function() return true end,
     on_enter = function() arena.pushDispenser("Ch", 1) end,
   },
-  -- Step 2: Tap dispenser again to place second item
+  -- Step 2: Tap dispenser to place second Ch1
   {
     text     = {en = "Place another item", ru = "Поставьте ещё один предмет"},
     getRect  = getDispenserRect,
@@ -927,7 +988,7 @@ tutorial.registerSteps("arena", {
     check    = function() return true end,
     on_enter = function() arena.pushDispenser("Ch", 1) end,
   },
-  -- Step 3: Merge two Ch1 items
+  -- Step 3: Merge Ch1+Ch1 -> Ch2
   {
     text     = {en = "Drag onto the matching item to merge!", ru = "Перетащите на такой же для слияния!"},
     getRect  = findCh1Rect,
@@ -946,24 +1007,53 @@ tutorial.registerSteps("arena", {
       return false
     end,
   },
-  -- Step 4: Observe sealed reveal (tap to continue)
+  -- Step 4: Push Ch2, tap dispenser to place
   {
-    text    = {en = "Merging reveals nearby items!", ru = "Слияние открывает соседние предметы!"},
-    getRect = function()
-      -- Spotlight the first sealed cell visible
+    text     = {en = "Place another item to keep merging", ru = "Поставьте ещё предмет для слияния"},
+    getRect  = getDispenserRect,
+    hand     = "tap",
+    check    = function() return true end,
+    on_enter = function() arena.pushDispenser("Ch", 2) end,
+  },
+  -- Step 5: Merge Ch2+Ch2 -> Ch3
+  {
+    text     = {en = "Merge again to create a stronger item!", ru = "Сливайте снова для более сильного предмета!"},
+    getRect  = findCh2Rect,
+    hand     = "drag",
+    drag_target = findSecondCh2Target,
+    check    = function()
       local grid_data = arena.getGrid()
+      local count = 0
       for i = 1, arena.getGridSize() do
         local cell = grid_data[i]
-        if cell and cell.state == "sealed" then
-          return getCellRect(i)
+        if cell and not cell.state and cell.chain_id == "Ch" and cell.level == 2 then
+          count = count + 1
+          if count >= 2 then return true end
         end
       end
-      return nil
+      return false
     end,
-    hand  = "tap",
-    check = function() return true end,  -- sealed cells always exist on initial board
   },
-  -- Step 5: Tap a generator
+  -- Step 6: Drag Ch3 onto sealed Ch3 -> Ch4 generator
+  {
+    text     = {en = "Drag onto sealed items to unlock them!", ru = "Перетащите на запечатанные предметы!"},
+    getRect  = findCh3Rect,
+    hand     = "drag",
+    drag_target = findSealedCh3Target,
+    check    = function()
+      local grid_data = arena.getGrid()
+      local has_unsealed, has_sealed = false, false
+      for i = 1, arena.getGridSize() do
+        local cell = grid_data[i]
+        if cell and cell.chain_id == "Ch" and cell.level == 3 then
+          if cell.state == "sealed" then has_sealed = true
+          elseif not cell.state then has_unsealed = true end
+        end
+      end
+      return has_unsealed and has_sealed
+    end,
+  },
+  -- Step 7: Tap the new generator
   {
     text    = {en = "Tap generators to create items (costs 1 Fuel)", ru = "Нажмите на генератор (стоит 1 Топливо)"},
     getRect = getGeneratorCellRect,
@@ -975,19 +1065,33 @@ tutorial.registerSteps("arena", {
       return false
     end,
   },
-  -- Step 6: Orders panel (observe, tap to continue)
+  -- Step 8: Orders panel (observe, tap to continue)
   {
     text    = {en = "Complete orders to earn rewards!", ru = "Выполняйте заказы для наград!"},
     getRect = getOrdersRect,
     hand    = "tap",
     check   = function() return true end,
   },
-  -- Step 7: Stash (observe, tap to continue, tutorial ends)
+  -- Step 9: Stash (observe, tap to continue, tutorial ends)
   {
     text    = {en = "Store extra items in the stash", ru = "Храните предметы в тайнике"},
     getRect = getStashRect,
     hand    = "tap",
     check   = function() return true end,
+  },
+})
+
+-- Fuel bridge tutorial: spotlights the Coin Sort tab when fuel runs out for the first time
+local function getCoinSortTabRect()
+  local tab_w = VW / 3
+  return {x = 0, y = tab_bar.getTopY(), w = tab_w, h = tab_bar.getHeight()}
+end
+
+tutorial.registerSteps("fuel_bridge", {
+  {
+    text = {en = "Sort coins to earn more Fuel!", ru = "Сортируйте монеты для топлива!"},
+    getRect = getCoinSortTabRect,
+    hand = "tap",
   },
 })
 
@@ -1102,16 +1206,16 @@ function arena_screen.enter()
   local pill_cy = PILL_Y + PILL_H / 2
   effects.setResourceBarTargets(fuel_cx, pill_cy, stars_cx, pill_cy)
 
-  -- Transfer shelf items from Coin Sort to dispenser
+  -- Start arena tutorial for new players (before shelf transfer so tutorial items are first in queue)
+  if not tutorial.isDone("arena") and not tutorial.isActive() then
+    tutorial.start("arena")
+  end
+
+  -- Transfer shelf items from Coin Sort to dispenser (after tutorial so chests queue behind tutorial items)
   local shelf_items = drops.transferShelf()
   if #shelf_items > 0 then
     arena.pushDispenserMultiple(shelf_items)
     showNotification(#shelf_items .. " item(s) from Coin Sort!", {0.3, 0.9, 0.5})
-  end
-
-  -- Start arena tutorial for new players
-  if not tutorial.isDone("arena") and not tutorial.isActive() then
-    tutorial.start("arena")
   end
 end
 
@@ -1180,11 +1284,17 @@ function arena_screen.update(dt)
   end
 
   -- Update drag position from mouse (desktop)
-  -- Fuel depletion overlay timer (suppress during active arena tutorial)
-  if resources.getFuel() < 1 and not (tutorial.isActive() and tutorial.getActiveTutorial() == "arena") then
+  -- Fuel depletion: tutorial bridge for first-timers, overlay for returning players
+  -- Suppress during active arena or fuel_bridge tutorial
+  local active_tut = tutorial.isActive() and tutorial.getActiveTutorial()
+  if resources.getFuel() < 1 and active_tut ~= "arena" and active_tut ~= "fuel_bridge" then
     fuel_depleted_timer = fuel_depleted_timer + dt
     if fuel_depleted_timer >= 3 and not fuel_overlay_dismissed then
-      fuel_overlay_shown = true
+      if not tutorial.isDone("fuel_bridge") then
+        tutorial.start("fuel_bridge")
+      else
+        fuel_overlay_shown = true
+      end
     end
   else
     fuel_depleted_timer = 0
@@ -1244,7 +1354,7 @@ function arena_screen.draw()
   drawDragged()
   effects.draw()  -- fly-to-bar icons + burst particles
   -- Spotlight tutorial overlay (drawn above game content)
-  if tutorial.isActive() and tutorial.getActiveTutorial() == "arena" then
+  if tutorial.isActive() and (tutorial.getActiveTutorial() == "arena" or tutorial.getActiveTutorial() == "fuel_bridge") then
     drawSpotlightOverlay()
   end
 
@@ -1302,6 +1412,16 @@ function arena_screen.mousepressed(x, y, button)
     return
   end
 
+  -- Fuel bridge tutorial: tap Coin Sort tab to switch
+  if tutorial.isActive() and tutorial.getActiveTutorial() == "fuel_bridge" then
+    if not tutorial.isInputAllowed(x, y) then
+      return
+    end
+    tutorial.markDone()
+    screens.switch("coin_sort")
+    return
+  end
+
   -- Tutorial input filter: block taps outside spotlight zone
   if tutorial.isActive() and tutorial.getActiveTutorial() == "arena" then
     if not tutorial.isInputAllowed(x, y) then
@@ -1309,7 +1429,7 @@ function arena_screen.mousepressed(x, y, button)
     end
     -- Observe steps (4, 6, 7): any tap inside spotlight advances
     local tut_step = tutorial.getCurrentStep()
-    if tut_step == 4 or tut_step == 6 or tut_step == 7 then
+    if tut_step == 8 or tut_step == 9 then
       tutorial.advance()
       return
     end
@@ -1442,7 +1562,7 @@ function arena_screen.mousepressed(x, y, button)
       -- Tutorial steps 1 and 2: dispenser tap advances tutorial
       if tutorial.isActive() and tutorial.getActiveTutorial() == "arena" then
         local tut_step = tutorial.getCurrentStep()
-        if tut_step == 1 or tut_step == 2 then
+        if tut_step == 1 or tut_step == 2 or tut_step == 4 then
           tutorial.advance()
         end
       end
@@ -1459,7 +1579,7 @@ function arena_screen.mousepressed(x, y, button)
       drag = {
         source = "grid",
         index = cell_idx,
-        item = cell.state == "chest" and {state = "chest"} or {chain_id = cell.chain_id, level = cell.level},
+        item = cell.state == "chest" and {state = "chest", chain_id = cell.chain_id, charges = cell.charges} or {chain_id = cell.chain_id, level = cell.level},
         x = x, y = y,
         start_x = x, start_y = y,
       }
@@ -1521,9 +1641,9 @@ function arena_screen.mousereleased(x, y, button)
         dst_idx = result.drop_index,
       }
       -- Pop-in tween starts after fly completes (handled in update)
-      -- Tutorial step 5: generator tap advances tutorial
+      -- Tutorial step 7: generator tap advances tutorial
       if tutorial.isActive() and tutorial.getActiveTutorial() == "arena"
-          and tutorial.getCurrentStep() == 5 then
+          and tutorial.getCurrentStep() == 7 then
         tutorial.advance()
       end
     else
@@ -1576,10 +1696,12 @@ function arena_screen.mousereleased(x, y, button)
             local name = arena_chains.getItemName(result.chain_id, result.level) or "item"
             showNotification(name .. " locked! Unlock in Skill Tree", {0.6, 0.6, 0.7})
           end
-          -- Tutorial step 3: merge advances tutorial
-          if tutorial.isActive() and tutorial.getActiveTutorial() == "arena"
-              and tutorial.getCurrentStep() == 3 then
-            tutorial.advance()
+          -- Tutorial steps 3/5/6: merge advances tutorial
+          if tutorial.isActive() and tutorial.getActiveTutorial() == "arena" then
+            local ts = tutorial.getCurrentStep()
+            if ts == 3 or ts == 5 or ts == 6 then
+              tutorial.advance()
+            end
           end
         end
       elseif arena.isEmpty(target_cell) then

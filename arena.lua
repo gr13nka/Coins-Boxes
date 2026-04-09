@@ -35,14 +35,9 @@ local arena_tutorial_gen_count = 0
 -- Shuffle bag: contains items needed for current level's orders, given in random order
 local shuffle_bag = {}  -- array of {chain_id, level}, consumed from front
 
-function arena.isGeneratorUnlocked(chain_id)
-  local st = require("skill_tree")
-  return st.isGeneratorUnlocked(chain_id)
-end
-
-function arena.getGeneratorUnlockNode(chain_id)
-  local st = require("skill_tree")
-  return st.getGeneratorUnlockNode(chain_id)
+-- All generators are always unlocked
+function arena.isGeneratorUnlocked(_chain_id)
+  return true
 end
 
 -- Generator charge system: generators have limited charges, recharge over time
@@ -278,14 +273,13 @@ function arena.executeMerge(from_index, to_index)
   local revealed = arena.revealAdjacentBoxes(to_index)
   arena.save()
 
-  local is_locked = is_gen and not arena.isGeneratorUnlocked(chain_id)
   return {
     index = to_index,
     chain_id = chain_id,
     level = new_level,
     was_sealed = was_sealed,
     is_generator = is_gen,
-    is_locked = is_locked,
+    is_locked = false,
     charges = new_cell.charges,
     max_charges = new_cell.charges,
     revealed = revealed,
@@ -306,11 +300,9 @@ end
 
 -- === GENERATOR MECHANICS ===
 
-function arena.isGeneratorLocked(index)
-  local cell = grid[index]
-  if not cell or cell.state then return false end
-  if not arena_chains.isGenerator(cell.chain_id, cell.level) then return false end
-  return not arena.isGeneratorUnlocked(cell.chain_id)
+-- All generators are always available (no locking)
+function arena.isGeneratorLocked(_index)
+  return false
 end
 
 function arena.canTapGenerator(index)
@@ -402,29 +394,42 @@ function arena.canTapChest(index)
   return true
 end
 
--- Roll a chest drop based on the chest's generator chain type.
--- 70% own chain items (L1-2), 30% food items produced by that chain (L1-2).
--- Food sub-chains: Ch→Me/Da, He→Ba, Bl→De, Ki→So, Ta→Be, Cu→(none).
-local CHEST_FOOD_MAP = {
-  Ch = {"Me", "Da"},
-  He = {"Ba"},
-  Bl = {"De"},
-  Ki = {"So"},
-  Ta = {"Be"},
-  Cu = {},  -- Cupboard has no food sub-chains
+-- Items a generator chain's chest can produce: own chain + food sub-chains.
+local CHEST_PRODUCIBLE = {
+  Ch = {"Ch", "Me", "Da"},
+  He = {"He", "Ba"},
+  Bl = {"Bl", "De"},
+  Ki = {"Ki", "So"},
+  Ta = {"Ta", "Be"},
+  Cu = {"Cu"},
 }
 
+-- Roll a chest drop: 60% order-aligned, 40% chain-native.
+-- Order-aligned gives exact items orders need. Chain-native gives L1-3 items
+-- from the chest's own chain or food sub-chains (helps build generators).
 local function rollChestDrop(chest_chain_id)
-  local food_chains = CHEST_FOOD_MAP[chest_chain_id] or {}
+  local producible = CHEST_PRODUCIBLE[chest_chain_id] or {chest_chain_id}
+  local prod_set = {}
+  for _, c in ipairs(producible) do prod_set[c] = true end
 
-  local chain_id
-  if math.random() < 0.70 or #food_chains == 0 then
-    chain_id = chest_chain_id
-  else
-    chain_id = food_chains[math.random(#food_chains)]
+  -- Try order-aligned drop (60% when matches exist)
+  if math.random() < 0.60 then
+    local reqs = arena_orders.getAllRemainingRequirements()
+    local matching = {}
+    for _, r in ipairs(reqs) do
+      if prod_set[r.chain_id] then
+        matching[#matching + 1] = r
+      end
+    end
+    if #matching > 0 then
+      local pick = matching[math.random(#matching)]
+      return {chain_id = pick.chain_id, level = pick.level}
+    end
   end
 
-  local level = math.random(1, 2)
+  -- Chain-native drop: own chain or food sub-chain at L1-3
+  local chain_id = producible[math.random(#producible)]
+  local level = math.random(1, 3)
   return {chain_id = chain_id, level = level}
 end
 
@@ -777,6 +782,32 @@ function arena.save()
   progression.save()
 end
 
+-- Advance generator recharge timers by offline elapsed seconds
+local function catchUpRecharge(elapsed)
+  if elapsed <= 0 then return end
+  local st = require("skill_tree")
+  local recharge_time = st.getGenRechargeTime()
+  local dirty = false
+  for i = 1, GRID_SIZE do
+    local cell = grid[i]
+    if cell and not cell.state and cell.recharge_timer then
+      local max_ch = getMaxCharges(cell.chain_id, cell.level)
+      if cell.charges and cell.charges < max_ch then
+        cell.recharge_timer = cell.recharge_timer + elapsed
+        if cell.recharge_timer >= recharge_time then
+          cell.charges = max_ch
+          cell.recharge_timer = nil
+          dirty = true
+        end
+      else
+        cell.recharge_timer = nil
+        dirty = true
+      end
+    end
+  end
+  if dirty then arena.save() end
+end
+
 function arena.init()
   local data = progression.getArenaData()
 
@@ -805,6 +836,10 @@ function arena.init()
 
       arena_orders.init(data.order_level or 1, data.completed_orders or {})
       initialized = true
+
+      -- Catch up generator recharge from offline time
+      local offline = progression.getOfflineElapsed()
+      catchUpRecharge(offline)
       return
     end
   end

@@ -32,8 +32,9 @@ local TEXT_MARGIN       = 20    -- margin from spotlight edge for text positioni
 -- }
 
 local STEPS = {
-    coin_sort = {},  -- populated by M.registerSteps("coin_sort", steps_table)
-    arena     = {},  -- populated by M.registerSteps("arena",     steps_table)
+    coin_sort    = {},  -- populated by M.registerSteps("coin_sort", steps_table)
+    arena        = {},  -- populated by M.registerSteps("arena",     steps_table)
+    fuel_bridge  = {},  -- populated by M.registerSteps("fuel_bridge", steps_table)
 }
 
 --------------------------------------------------------------------------------
@@ -161,9 +162,7 @@ function M.update(dt)
     local step = STEPS[active_tutorial] and STEPS[active_tutorial][current_step]
     if step then
         local period = (step.hand == "drag") and HAND_DRAG_PERIOD or HAND_TAP_PERIOD
-        while hand_timer >= period do
-            hand_timer = hand_timer - period
-        end
+        hand_timer = hand_timer % period
     end
 
     -- Process queued advance once animation track goes idle.

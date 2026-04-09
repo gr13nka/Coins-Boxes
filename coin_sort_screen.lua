@@ -19,6 +19,8 @@ local tab_bar = require("tab_bar")
 local drops = require("drops")
 local arena_chains = require("arena_chains")
 local tutorial = require("tutorial")
+local skill_tree = require("skill_tree")
+local commissions = require("commissions")
 
 local coin_sort_screen = {}
 
@@ -670,6 +672,11 @@ local function executeReset()
   resources.init()
   bags.init()
   powerups.init()
+  drops.init()
+  skill_tree.init()
+  commissions.init()
+  local arena = require("arena")
+  arena.init()
   coin_sort.deactivate()
   resetState.flash_time = 1.0
   -- Restart the game screen with fresh state

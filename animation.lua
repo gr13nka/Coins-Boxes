@@ -669,12 +669,12 @@ function animation.drawMerge(ballImage, font)
                 current_number = box_data.old_number + box_data.current_slide
             end
 
-            -- Draw stationary coins that are still visible
+            -- Draw stationary coins that are still visible (hide number+ring for perf)
             for slot = 1, box_data.num_coins do
                 if box_data.coins_visible[slot] then
                     if is_2048 and font then
                         graphics.drawCoin2048(font, box_data.slot_x[slot], box_data.slot_y[slot],
-                            box_data.old_number, box_data.max_number or 50)
+                            box_data.old_number, box_data.max_number or 50, nil, true, true)
                     else
                         love.graphics.setColor(box_data.color)
                         love.graphics.draw(ballImage, box_data.slot_x[slot], box_data.slot_y[slot],
@@ -683,11 +683,11 @@ function animation.drawMerge(ballImage, font)
                 end
             end
 
-            -- Draw sliding coin (during slide and impact phases)
+            -- Draw sliding coin (during slide and impact phases, skip ring for perf)
             if phase == "slide" or phase == "impact" then
                 if is_2048 and font then
                     graphics.drawCoin2048(font, box_data.sliding_coin_x, box_data.sliding_coin_y,
-                        current_number, box_data.max_number or 50)
+                        current_number, box_data.max_number or 50, nil, nil, true)
                 else
                     local current_color = box_data.color
                     if box_data.progressive_merge and box_data.current_slide > 0 then
@@ -699,11 +699,11 @@ function animation.drawMerge(ballImage, font)
                 end
             end
 
-            -- Draw merged coin (during pop phase)
+            -- Draw merged coin (during pop phase, skip ring for perf)
             if phase == "pop" then
                 if is_2048 and font then
                     graphics.drawCoin2048(font, box_data.slot_x[1], box_data.slot_y[1],
-                        box_data.new_number, box_data.max_number or 50, box_data.merged_scale)
+                        box_data.new_number, box_data.max_number or 50, box_data.merged_scale, nil, true)
                 else
                     local scale = box_data.merged_scale
                     love.graphics.setColor(box_data.new_color)
@@ -725,6 +725,8 @@ function animation.drawDealing(ballImage, COLORS, font)
 
     local imgW, imgH = ballImage:getDimensions()
     local base_scale = (layout.COIN_R * 2) / imgW
+    -- Cache font height once per frame (not per coin)
+    local cached_font_h = font and font:getHeight() or 0
 
     for i, coin_data in ipairs(dealing_coins) do
         -- Only draw coins that have started and aren't done
@@ -740,17 +742,16 @@ function animation.drawDealing(ballImage, COLORS, font)
                 love.graphics.setColor(coin_utils.numberToColor(num, 50))
                 love.graphics.draw(ballImage, x, y, rotation, cScale, cScale, imgW / 2, imgH / 2)
 
-                -- Draw number rotated with coin
+                -- Draw number rotated with coin (cached font metrics)
                 if font then
+                    local num_str = graphics.NUM_STRINGS[num] or tostring(num)
                     love.graphics.push()
                     love.graphics.translate(x, y)
                     love.graphics.rotate(rotation)
                     love.graphics.setColor(1, 1, 1)
                     love.graphics.setFont(font)
-                    local num_str = tostring(num)
                     local text_width = font:getWidth(num_str)
-                    local text_height = font:getHeight()
-                    love.graphics.print(num_str, -text_width / 2, -text_height / 2)
+                    love.graphics.print(num_str, -text_width / 2, -cached_font_h / 2)
                     love.graphics.pop()
                 end
             else

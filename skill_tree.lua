@@ -9,7 +9,7 @@ local skill_tree = {}
 
 -- Node definitions: id, name, type, cost, description, grid position, connections
 -- All positions are integers on a clean grid. Tree grows upward from start.
--- start has exactly 1 connection (ffuel), which branches into 3 paths.
+-- Only numeric bonuses — no generator unlocks (all generators available from start).
 local NODES = {
   -- Center (always owned)
   start = {
@@ -19,20 +19,26 @@ local NODES = {
     connections = {"ffuel"},
   },
 
-  -- Gateway (only connection from start)
+  -- Gateway
   ffuel = {
     name = "Fuel Tank", type = "small", cost = 2,
     desc = "Fuel cap +10 (50 -> 60)",
     x = 0, y = -1,
-    connections = {"start", "heat", "bp20", "cup"},
+    connections = {"start", "drpc", "bp20", "gch1", "grtk", "exbg"},
   },
 
-  -- First fork: 3 branches
-  heat = {
-    name = "Heating Unlock", type = "notable", cost = 5,
-    desc = "Unlock the Heating (Toaster) generator",
-    x = -2, y = -2,
-    connections = {"ffuel", "drpc", "gch1"},
+  -- Row -2: five branches from ffuel
+  drpc = {
+    name = "Fuel Surge+", type = "notable", cost = 6,
+    desc = "Fuel Surge drops give +3 extra fuel",
+    x = -3, y = -2,
+    connections = {"ffuel", "gch1", "dchc"},
+  },
+  gch1 = {
+    name = "Gen Charges I", type = "small", cost = 3,
+    desc = "All generators get +3 max charges",
+    x = -1, y = -2,
+    connections = {"ffuel", "drpc", "mbon5"},
   },
   bp20 = {
     name = "Bag Power I", type = "small", cost = 2,
@@ -40,207 +46,143 @@ local NODES = {
     x = 0, y = -2,
     connections = {"ffuel", "cspc"},
   },
-  cup = {
-    name = "Cupboard Unlock", type = "notable", cost = 5,
-    desc = "Unlock the Cupboard generator",
-    x = 2, y = -2,
-    connections = {"ffuel", "grtk", "exbg"},
+  grtk = {
+    name = "Token Finder", type = "small", cost = 3,
+    desc = "Generator Token drop chance +2.5%",
+    x = 1, y = -2,
+    connections = {"ffuel", "arsp"},
+  },
+  exbg = {
+    name = "Extra Bags", type = "small", cost = 2,
+    desc = "Max queued free bags: 2 -> 3",
+    x = 3, y = -2,
+    connections = {"ffuel", "drpb"},
   },
 
-  -- Left branch row -3
-  drpc = {
-    name = "Fuel Surge+", type = "notable", cost = 6,
-    desc = "Fuel Surge drops give +3 extra fuel",
+  -- Row -3
+  dchc = {
+    name = "Chest Crafter", type = "notable", cost = 7,
+    desc = "All chests get +2 tap charges",
     x = -3, y = -3,
-    connections = {"heat", "gch1", "dchc"},
+    connections = {"drpc", "mbon5", "fbon"},
   },
-  gch1 = {
-    name = "Gen Charges I", type = "small", cost = 3,
-    desc = "All generators get +3 max charges",
+  mbon5 = {
+    name = "Merge Fuel I", type = "notable", cost = 6,
+    desc = "L5+ merges give +1 bonus Fuel",
     x = -1, y = -3,
-    connections = {"heat", "drpc", "mbon5"},
+    connections = {"gch1", "dchc", "gch2", "csmr"},
   },
-
-  -- Center branch row -3
   cspc = {
     name = "Quick Deals", type = "small", cost = 2,
     desc = "+2 bonus coins per bag deal",
     x = 0, y = -3,
     connections = {"bp20", "csmr", "stas"},
   },
-
-  -- Right branch row -3
-  grtk = {
-    name = "Token Finder", type = "small", cost = 3,
-    desc = "Generator Token drop chance +2.5%",
+  stas = {
+    name = "Stash+", type = "small", cost = 3,
+    desc = "+1 Stash slot (8 -> 9)",
     x = 1, y = -3,
-    connections = {"cup", "arsp"},
+    connections = {"cspc", "arsp", "csfr"},
   },
-  exbg = {
-    name = "Extra Bags", type = "small", cost = 2,
-    desc = "Max queued free bags: 2 -> 3",
+  arsp = {
+    name = "Order Stars+", type = "small", cost = 3,
+    desc = "+1 star per order completion",
+    x = 2, y = -3,
+    connections = {"grtk", "stas", "drpb", "ardp"},
+  },
+  drpb = {
+    name = "Chest Finder", type = "small", cost = 2,
+    desc = "+3% chest drop chance (all levels)",
     x = 3, y = -3,
-    connections = {"cup", "drpb"},
+    connections = {"exbg", "arsp", "fbag1"},
   },
 
-  -- Left branch row -4
-  dchc = {
-    name = "Chest Crafter", type = "notable", cost = 7,
-    desc = "All chests get +2 tap charges",
+  -- Row -4
+  fbon = {
+    name = "Lucky Taps", type = "notable", cost = 7,
+    desc = "20% chance generator tap costs 0 Fuel",
     x = -3, y = -4,
-    connections = {"drpc", "mbon5", "fbon"},
+    connections = {"dchc", "gch2", "bp22"},
   },
-  mbon5 = {
-    name = "Merge Fuel I", type = "notable", cost = 6,
-    desc = "L5+ merges give +1 bonus Fuel",
+  gch2 = {
+    name = "Gen Charges II", type = "small", cost = 3,
+    desc = "All generators get +3 more charges (+6 total)",
     x = -1, y = -4,
-    connections = {"gch1", "dchc", "gch2", "csmr"},
+    connections = {"mbon5", "fbon", "csfr", "mbon4", "bp22"},
   },
-
-  -- Center branch row -4
   csmr = {
     name = "Early Fuel", type = "small", cost = 3,
     desc = "Level 3 merges give +1 Fuel",
     x = 0, y = -4,
     connections = {"cspc", "mbon5", "csfr"},
   },
-  stas = {
-    name = "Stash+", type = "small", cost = 3,
-    desc = "+1 Stash slot (8 -> 9)",
-    x = 1, y = -4,
-    connections = {"cspc", "arsp", "csfr"},
-  },
-
-  -- Right branch row -4
-  arsp = {
-    name = "Order Stars+", type = "small", cost = 3,
-    desc = "+1 star per order completion",
-    x = 2, y = -4,
-    connections = {"grtk", "stas", "drpb", "ardp"},
-  },
-  drpb = {
-    name = "Chest Finder", type = "small", cost = 2,
-    desc = "+3% chest drop chance (all levels)",
-    x = 3, y = -4,
-    connections = {"exbg", "arsp", "fbag1"},
-  },
-
-  -- Left branch row -5
-  fbon = {
-    name = "Lucky Taps", type = "notable", cost = 7,
-    desc = "20% chance generator tap costs 0 Fuel",
-    x = -3, y = -5,
-    connections = {"dchc", "gch2", "blnd"},
-  },
-  gch2 = {
-    name = "Gen Charges II", type = "small", cost = 3,
-    desc = "All generators get +3 more charges (+6 total)",
-    x = -1, y = -5,
-    connections = {"mbon5", "fbon", "kitc", "csfr"},
-  },
-
-  -- Center row -5
   csfr = {
     name = "Free Bag Speed", type = "small", cost = 3,
     desc = "Free bag timer: 720s -> 600s",
-    x = 0, y = -5,
+    x = 1, y = -4,
     connections = {"csmr", "stas", "gch2", "ardp"},
   },
-
-  -- Right branch row -5
   ardp = {
     name = "Level Stars+", type = "small", cost = 3,
     desc = "+2 stars per level completion",
-    x = 1, y = -5,
-    connections = {"arsp", "csfr", "tblw"},
+    x = 2, y = -4,
+    connections = {"arsp", "csfr", "mbon4", "stash2"},
   },
   fbag1 = {
     name = "Fast Recharge I", type = "small", cost = 3,
     desc = "Generator recharge: 600s -> 540s",
-    x = 3, y = -5,
+    x = 3, y = -4,
     connections = {"drpb", "fbag2"},
   },
 
-  -- Left branch row -6
-  blnd = {
-    name = "Blender Unlock", type = "notable", cost = 8,
-    desc = "Unlock the Blender generator",
-    x = -3, y = -6,
-    connections = {"fbon", "bp22"},
-  },
-  kitc = {
-    name = "Kitchenware Unlock", type = "notable", cost = 10,
-    desc = "Unlock the Kitchenware (Pot) generator",
-    x = -1, y = -6,
-    connections = {"gch2", "mbon4", "bp22"},
-  },
-
-  -- Center-right row -6
-  mbon4 = {
-    name = "Merge Fuel II", type = "notable", cost = 8,
-    desc = "L4+ merges give +1 bonus Fuel (stacks)",
-    x = 0, y = -6,
-    connections = {"kitc", "tblw", "surge"},
-  },
-  tblw = {
-    name = "Tableware Unlock", type = "notable", cost = 10,
-    desc = "Unlock the Tableware (Carafe) generator",
-    x = 1, y = -6,
-    connections = {"ardp", "mbon4", "stash2"},
-  },
-
-  -- Right branch row -6
-  fbag2 = {
-    name = "Fast Recharge II", type = "notable", cost = 7,
-    desc = "Generator recharge: 540s -> 420s",
-    x = 3, y = -6,
-    connections = {"fbag1", "bp24"},
-  },
-
-  -- Row -7
+  -- Row -5
   bp22 = {
     name = "Bag Power II", type = "notable", cost = 8,
     desc = "Bag deals give 22 coins",
-    x = -2, y = -7,
-    connections = {"blnd", "kitc"},
+    x = -2, y = -5,
+    connections = {"fbon", "gch2"},
   },
-  surge = {
-    name = "Star Surge", type = "keystone", cost = 18,
-    desc = "All star gains +50%",
-    x = 0, y = -7,
-    connections = {"mbon4", "stash2", "poison"},
+  mbon4 = {
+    name = "Merge Fuel II", type = "notable", cost = 8,
+    desc = "L4+ merges give +1 bonus Fuel (stacks)",
+    x = 0, y = -5,
+    connections = {"gch2", "ardp", "surge"},
   },
   stash2 = {
     name = "Grand Stash", type = "keystone", cost = 15,
     desc = "+2 Stash slots",
-    x = 1, y = -7,
-    connections = {"tblw", "surge", "bp24", "poison"},
+    x = 1, y = -5,
+    connections = {"ardp", "surge", "bp24", "poison"},
+  },
+  fbag2 = {
+    name = "Fast Recharge II", type = "notable", cost = 7,
+    desc = "Generator recharge: 540s -> 420s",
+    x = 3, y = -5,
+    connections = {"fbag1", "bp24"},
+  },
+
+  -- Row -6
+  surge = {
+    name = "Star Surge", type = "keystone", cost = 18,
+    desc = "All star gains +50%",
+    x = 0, y = -6,
+    connections = {"mbon4", "stash2", "poison"},
   },
   bp24 = {
     name = "Bag Power III", type = "keystone", cost = 15,
     desc = "Bag deals give 24 coins",
-    x = 2, y = -7,
+    x = 2, y = -6,
     connections = {"fbag2", "stash2"},
   },
 
-  -- Row -8
+  -- Row -7
   poison = {
     name = "Poison Coins", type = "keystone", cost = 25,
     desc = "Adds poison coins — risky but powerful",
-    x = 0, y = -8,
+    x = 0, y = -7,
     connections = {"surge", "stash2"},
     coming_soon = true,
   },
-}
-
--- Generator chain_id → tree node mapping
-local GEN_NODE_MAP = {
-  Ch = nil,   -- always unlocked
-  He = "heat",
-  Cu = "cup",
-  Bl = "blnd",
-  Ki = "kitc",
-  Ta = "tblw",
 }
 
 -- Runtime state
@@ -353,14 +295,9 @@ end
 -- Query API — replaces all old milestone threshold checks
 --------------------------------------------------------------------------------
 
-function skill_tree.isGeneratorUnlocked(chain_id)
-  local node_id = GEN_NODE_MAP[chain_id]
-  if node_id == nil then return true end  -- Ch is always unlocked
-  return unlocked[node_id] == true
-end
-
-function skill_tree.getGeneratorUnlockNode(chain_id)
-  return GEN_NODE_MAP[chain_id]
+-- All generators are always unlocked (no skill tree gating)
+function skill_tree.isGeneratorUnlocked(_chain_id)
+  return true
 end
 
 function skill_tree.getBagCoins()
@@ -465,13 +402,13 @@ end
 function skill_tree.migrateFromMilestones(total_stars)
   -- Old milestones mapped to tree nodes (in threshold order)
   local MIGRATION_MAP = {
-    {threshold = 10,  nodes = {"heat", "cup"}},
+    {threshold = 10,  nodes = {"ffuel"}},
     {threshold = 20,  nodes = {"bp20"}},
-    {threshold = 35,  nodes = {"blnd"}},
+    {threshold = 35,  nodes = {"gch1"}},
     {threshold = 50,  nodes = {"mbon5"}},
-    {threshold = 75,  nodes = {"kitc"}},
+    {threshold = 75,  nodes = {"drpc"}},
     {threshold = 100, nodes = {"bp22"}},
-    {threshold = 130, nodes = {"tblw"}},
+    {threshold = 130, nodes = {"gch2"}},
     {threshold = 170, nodes = {"mbon4"}},
     {threshold = 220, nodes = {"stas"}},
     {threshold = 280, nodes = {"bp24"}},

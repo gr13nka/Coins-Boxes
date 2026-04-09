@@ -2,25 +2,11 @@
 -- Level-based order system for the Merge Arena. Pure data module (no drawing).
 -- 10 levels of static orders. Complete all orders in a level to advance.
 
-local arena -- lazy require to avoid circular dep
-
 local orders = {}
 
 local MAX_VISIBLE = 3
 local current_level = 1
 local completed_in_level = {}  -- {order_id = true}
-
--- Map each chain to the generator chain(s) that produce it.
--- If ALL listed generators are locked, orders requiring this chain are hidden.
--- Chains not listed here are always available (from initial board merges).
-local CHAIN_PRODUCER = {
-  Me = {"Ch"},        -- Fridge produces Meat
-  Da = {"Ch"},        -- Fridge produces Dairy
-  Ba = {"He"},        -- Toaster produces Bakery
-  De = {"Bl"},        -- Blender produces Desert
-  So = {"Ki"},        -- Pot produces Soups
-  Be = {"Ta"},        -- Carafe produces Beverages
-}
 
 -- Helper to build a requirement entry
 local function req(chain_id, level, count)
@@ -41,19 +27,19 @@ local ORDER_LEVELS = {
       {
         id = "L1_1", character = "Meryl",
         requirements = { req("Da", 2) },
-        xp_reward = 2,
+        xp_reward = 2, bags = 3,
         item_rewards = {},
       },
       {
         id = "L1_2", character = "Murray",
         requirements = { req("Da", 3), req("Me", 2) },
-        xp_reward = 2,
+        xp_reward = 2, bags = 3,
         item_rewards = {},
       },
       {
         id = "L1_3", character = "Marcus",
         requirements = { req("Me", 1) },
-        xp_reward = 2,
+        xp_reward = 2, bags = 7,
         item_rewards = {},
       },
     },
@@ -69,25 +55,25 @@ local ORDER_LEVELS = {
       {
         id = "L2_1", character = "Meryl",
         requirements = { req("Me", 4) },
-        xp_reward = 2,
+        xp_reward = 2, bags = 5,
         item_rewards = {},
       },
       {
         id = "L2_2", character = "Murray",
         requirements = { req("Ta", 3), req("Ki", 2) },
-        xp_reward = 3,
+        xp_reward = 3, bags = 5,
         item_rewards = {},
       },
       {
         id = "L2_3", character = "Marcus",
         requirements = { req("Me", 5), req("Da", 4) },
-        xp_reward = 8,
+        xp_reward = 8, bags = 7,
         item_rewards = {},
       },
       {
         id = "L2_4", character = "Mike",
         requirements = { req("Da", 4), req("Ta", 3) },
-        xp_reward = 7,
+        xp_reward = 7, bags = 5,
         item_rewards = {},
       },
     },
@@ -103,25 +89,25 @@ local ORDER_LEVELS = {
       {
         id = "L3_1", character = "Meryl",
         requirements = { req("De", 4) },
-        xp_reward = 3,
+        xp_reward = 3, bags = 4,
         item_rewards = {},
       },
       {
         id = "L3_2", character = "Mike",
         requirements = { req("Ki", 1), req("Ki", 2, 2) },
-        xp_reward = 3,
+        xp_reward = 3, bags = 4,
         item_rewards = {},
       },
       {
         id = "L3_3", character = "Marcus",
         requirements = { req("Da", 5, 2), req("Ki", 1) },
-        xp_reward = 3,
+        xp_reward = 3, bags = 4,
         item_rewards = {},
       },
       {
         id = "L3_4", character = "Midori",
         requirements = { req("Me", 5), req("Ki", 4) },
-        xp_reward = 3,
+        xp_reward = 3, bags = 3,
         item_rewards = {},
       },
     },
@@ -137,25 +123,25 @@ local ORDER_LEVELS = {
       {
         id = "L4_1", character = "Midori",
         requirements = { req("Da", 6), req("De", 3, 2) },
-        xp_reward = 4,
+        xp_reward = 4, bags = 3,
         item_rewards = {},
       },
       {
         id = "L4_2", character = "Meryl",
         requirements = { req("Me", 5), req("Ba", 3) },
-        xp_reward = 5,
+        xp_reward = 5, bags = 3,
         item_rewards = {},
       },
       {
         id = "L4_3", character = "Mike",
         requirements = { req("Ba", 3, 2), req("Ta", 5) },
-        xp_reward = 5,
+        xp_reward = 5, bags = 3,
         item_rewards = {},
       },
       {
         id = "L4_4", character = "Murray",
         requirements = { req("Me", 6), req("Ki", 4) },
-        xp_reward = 5,
+        xp_reward = 5, bags = 2,
         item_rewards = {},
       },
     },
@@ -171,31 +157,31 @@ local ORDER_LEVELS = {
       {
         id = "L5_1", character = "Marcus",
         requirements = { req("Me", 5, 2), req("Ba", 4, 2) },
-        xp_reward = 5,
+        xp_reward = 5, bags = 2,
         item_rewards = {},
       },
       {
         id = "L5_2", character = "Murray",
         requirements = { req("Da", 6), req("Ta", 5, 2) },
-        xp_reward = 5,
+        xp_reward = 5, bags = 2,
         item_rewards = {},
       },
       {
         id = "L5_3", character = "Mike",
         requirements = { req("Da", 7), req("Ki", 3) },
-        xp_reward = 10,
+        xp_reward = 10, bags = 2,
         item_rewards = {},
       },
       {
         id = "L5_4", character = "Meryl",
         requirements = { req("Me", 7), req("De", 4, 2) },
-        xp_reward = 5,
+        xp_reward = 5, bags = 2,
         item_rewards = {},
       },
       {
         id = "L5_5", character = "Midori",
         requirements = { req("Da", 7), req("De", 5) },
-        xp_reward = 5,
+        xp_reward = 5, bags = 2,
         item_rewards = {},
       },
     },
@@ -211,37 +197,37 @@ local ORDER_LEVELS = {
       {
         id = "L6_1", character = "Meryl",
         requirements = { req("Ki", 3), req("Ba", 5, 2) },
-        xp_reward = 2,
+        xp_reward = 2, bags = 2,
         item_rewards = {},
       },
       {
         id = "L6_2", character = "Mike",
         requirements = { req("Me", 5, 2), req("De", 5) },
-        xp_reward = 2,
+        xp_reward = 2, bags = 2,
         item_rewards = {},
       },
       {
         id = "L6_3", character = "Murray",
         requirements = { req("Ba", 6), req("Be", 3) },
-        xp_reward = 2,
+        xp_reward = 2, bags = 2,
         item_rewards = {},
       },
       {
         id = "L6_4", character = "Marcus",
         requirements = { req("De", 4), req("Me", 6, 2) },
-        xp_reward = 4,
+        xp_reward = 4, bags = 2,
         item_rewards = {},
       },
       {
         id = "L6_5", character = "Meryl",
         requirements = { req("Ba", 6), req("Me", 7) },
-        xp_reward = 2,
+        xp_reward = 2, bags = 2,
         item_rewards = {},
       },
       {
         id = "L6_6", character = "Murray",
         requirements = { req("Ta", 6), req("Ba", 7) },
-        xp_reward = 3,
+        xp_reward = 3, bags = 2,
         item_rewards = {},
       },
     },
@@ -257,37 +243,37 @@ local ORDER_LEVELS = {
       {
         id = "L7_1", character = "Midori",
         requirements = { req("Da", 6, 3), req("Ba", 7) },
-        xp_reward = 3,
+        xp_reward = 3, bags = 2,
         item_rewards = {},
       },
       {
         id = "L7_2", character = "Meryl",
         requirements = { req("Da", 7), req("Ba", 8) },
-        xp_reward = 7,
+        xp_reward = 7, bags = 2,
         item_rewards = {},
       },
       {
         id = "L7_3", character = "Mike",
         requirements = { req("Ki", 6), req("Me", 7) },
-        xp_reward = 5,
+        xp_reward = 5, bags = 2,
         item_rewards = {},
       },
       {
         id = "L7_4", character = "Marcus",
         requirements = { req("Me", 6, 2), req("Be", 4) },
-        xp_reward = 3,
+        xp_reward = 3, bags = 2,
         item_rewards = {},
       },
       {
         id = "L7_5", character = "Murray",
         requirements = { req("Ki", 5), req("De", 6) },
-        xp_reward = 3,
+        xp_reward = 3, bags = 2,
         item_rewards = {},
       },
       {
         id = "L7_6", character = "Mike",
         requirements = { req("Da", 5, 3), req("De", 4, 3) },
-        xp_reward = 3,
+        xp_reward = 3, bags = 2,
         item_rewards = {},
       },
     },
@@ -303,43 +289,43 @@ local ORDER_LEVELS = {
       {
         id = "L8_1", character = "Meryl",
         requirements = { req("Me", 6, 2), req("Ba", 5) },
-        xp_reward = 4,
+        xp_reward = 4, bags = 2,
         item_rewards = {},
       },
       {
         id = "L8_2", character = "Mike",
         requirements = { req("Da", 7), req("Ta", 6) },
-        xp_reward = 5,
+        xp_reward = 5, bags = 2,
         item_rewards = {},
       },
       {
         id = "L8_3", character = "Midori",
         requirements = { req("Ba", 8), req("Ki", 5) },
-        xp_reward = 5,
+        xp_reward = 5, bags = 2,
         item_rewards = {},
       },
       {
         id = "L8_4", character = "Marcus",
         requirements = { req("Ba", 6), req("Ki", 5) },
-        xp_reward = 5,
+        xp_reward = 5, bags = 2,
         item_rewards = {},
       },
       {
         id = "L8_5", character = "Mike",
         requirements = { req("Me", 8), req("De", 5) },
-        xp_reward = 5,
+        xp_reward = 5, bags = 2,
         item_rewards = {},
       },
       {
         id = "L8_6", character = "Midori",
         requirements = { req("Da", 7), req("Ta", 6) },
-        xp_reward = 5,
+        xp_reward = 5, bags = 2,
         item_rewards = {},
       },
       {
         id = "L8_7", character = "Marcus",
         requirements = { req("Da", 8), req("Be", 5) },
-        xp_reward = 5,
+        xp_reward = 5, bags = 2,
         item_rewards = {},
       },
     },
@@ -355,43 +341,43 @@ local ORDER_LEVELS = {
       {
         id = "L9_1", character = "Murray",
         requirements = { req("Ba", 8), req("Ki", 6) },
-        xp_reward = 5,
+        xp_reward = 5, bags = 2,
         item_rewards = {},
       },
       {
         id = "L9_2", character = "Marcus",
         requirements = { req("De", 5), req("Be", 3) },
-        xp_reward = 5,
+        xp_reward = 5, bags = 2,
         item_rewards = {},
       },
       {
         id = "L9_3", character = "Midori",
         requirements = { req("Me", 7), req("Ta", 6) },
-        xp_reward = 5,
+        xp_reward = 5, bags = 2,
         item_rewards = {},
       },
       {
         id = "L9_4", character = "Meryl",
         requirements = { req("Da", 7, 2), req("Ki", 6) },
-        xp_reward = 5,
+        xp_reward = 5, bags = 2,
         item_rewards = {},
       },
       {
         id = "L9_5", character = "Mike",
         requirements = { req("Me", 7), req("Ba", 7) },
-        xp_reward = 5,
+        xp_reward = 5, bags = 2,
         item_rewards = {},
       },
       {
         id = "L9_6", character = "Murray",
         requirements = { req("Me", 6), req("De", 7) },
-        xp_reward = 5,
+        xp_reward = 5, bags = 2,
         item_rewards = {},
       },
       {
         id = "L9_7", character = "Marcus",
         requirements = { req("Ta", 5), req("De", 4) },
-        xp_reward = 5,
+        xp_reward = 5, bags = 2,
         item_rewards = {},
       },
     },
@@ -407,43 +393,43 @@ local ORDER_LEVELS = {
       {
         id = "L10_1", character = "Mike",
         requirements = { req("Ki", 5), req("Me", 7) },
-        xp_reward = 5,
+        xp_reward = 5, bags = 2,
         item_rewards = {},
       },
       {
         id = "L10_2", character = "Murray",
         requirements = { req("Da", 7), req("De", 8) },
-        xp_reward = 5,
+        xp_reward = 5, bags = 2,
         item_rewards = {},
       },
       {
         id = "L10_3", character = "Meryl",
         requirements = { req("Ta", 6), req("De", 5) },
-        xp_reward = 5,
+        xp_reward = 5, bags = 2,
         item_rewards = {},
       },
       {
         id = "L10_4", character = "Midori",
         requirements = { req("Me", 6), req("Ba", 8) },
-        xp_reward = 5,
+        xp_reward = 5, bags = 2,
         item_rewards = {},
       },
       {
         id = "L10_5", character = "Midori",
         requirements = { req("Da", 8), req("Ki", 6, 2) },
-        xp_reward = 5,
+        xp_reward = 5, bags = 2,
         item_rewards = {},
       },
       {
         id = "L10_6", character = "Midori",
         requirements = { req("De", 6, 2), req("Be", 5) },
-        xp_reward = 5,
+        xp_reward = 5, bags = 2,
         item_rewards = {},
       },
       {
         id = "L10_7", character = "Midori",
         requirements = { req("Da", 6), req("Ba", 7) },
-        xp_reward = 5,
+        xp_reward = 5, bags = 2,
         item_rewards = {},
       },
     },
@@ -461,34 +447,14 @@ function orders.init(order_level, completed_set)
   completed_in_level = completed_set or {}
 end
 
--- Check if an order's requirements are producible (all needed chains have unlocked generators)
-local function isOrderProducible(order)
-  if not arena then arena = require("arena") end
-  for _, r in ipairs(order.requirements) do
-    local producers = CHAIN_PRODUCER[r.chain_id]
-    if producers then
-      local any_unlocked = false
-      for _, gen_chain in ipairs(producers) do
-        if arena.isGeneratorUnlocked(gen_chain) then
-          any_unlocked = true
-          break
-        end
-      end
-      if not any_unlocked then return false end
-    end
-  end
-  return true
-end
-
 -- Returns up to MAX_VISIBLE uncompleted orders from current level
--- Hides orders requiring items from locked generator chains
 function orders.getVisibleOrders()
   local level_data = ORDER_LEVELS[current_level]
   if not level_data then return {} end
 
   local visible = {}
   for _, order in ipairs(level_data.orders) do
-    if not completed_in_level[order.id] and isOrderProducible(order) then
+    if not completed_in_level[order.id] then
       visible[#visible + 1] = order
       if #visible >= MAX_VISIBLE then break end
     end
@@ -512,12 +478,10 @@ local function getOrderDifficulty(order)
   return "easy"
 end
 
--- Compute bag reward from order difficulty (based on xp_reward).
--- Easy (xp<=2): 1 bag, Medium (xp 3-5): 2 bags, Hard (xp>=6): 3 bags.
+-- Compute bag reward from per-order bags field (tuned to chest pipeline).
+-- Fallback to 2 if field missing.
 local function computeBagReward(order)
-  if order.xp_reward >= 6 then return 3 end
-  if order.xp_reward >= 3 then return 2 end
-  return 1
+  return order.bags or 2
 end
 
 -- Compute star reward from order difficulty.
@@ -548,10 +512,8 @@ end
 function orders.isLevelComplete()
   local level_data = ORDER_LEVELS[current_level]
   if not level_data then return false end
-  -- Level is complete when all PRODUCIBLE orders are completed
-  -- (orders requiring locked generators don't count)
   for _, order in ipairs(level_data.orders) do
-    if not completed_in_level[order.id] and isOrderProducible(order) then
+    if not completed_in_level[order.id] then
       return false
     end
   end
@@ -613,7 +575,7 @@ function orders.getAllRemainingRequirements()
   if not level_data then return {} end
   local items = {}
   for _, order in ipairs(level_data.orders) do
-    if not completed_in_level[order.id] and isOrderProducible(order) then
+    if not completed_in_level[order.id] then
       for _, r in ipairs(order.requirements) do
         for _ = 1, r.count do
           items[#items + 1] = {chain_id = r.chain_id, level = r.level}
